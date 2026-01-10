@@ -1,8 +1,0 @@
-create a github repository in this directory
-create an andoroid client for romwbw_emu.
-See ../cpmemu for a mac and ios client that does the same thing we need to
-In ../romwbw_emu is a command line client that does what we need to.
-In ../romwbw_emu/web is a web assembly version
-In ../z8ocpmw is a windows client that does what we need to
-I installed android studio
-I installed the jetbains AI plugin which says it supports anthropic
