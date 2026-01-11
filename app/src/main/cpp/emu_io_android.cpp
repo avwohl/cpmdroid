@@ -29,11 +29,60 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
 //=============================================================================
+// Android Emulator Delegate
+//=============================================================================
+
+class AndroidEmulatorDelegate : public HBIOSCPUDelegate {
+private:
+    banked_mem* memory;
+    HBIOSDispatch* hbios;
+    bool debug;
+
+public:
+    AndroidEmulatorDelegate(banked_mem* mem, HBIOSDispatch* hb)
+        : memory(mem), hbios(hb), debug(false) {}
+
+    banked_mem* getMemory() override { return memory; }
+    HBIOSDispatch* getHBIOS() override { return hbios; }
+
+    void initializeRamBankIfNeeded(uint8_t bank) override {
+        // Use HBIOSDispatch's shared bitmap
+        uint16_t* bitmap = hbios->getInitializedBanksBitmap();
+        if (bitmap) {
+            emu_init_ram_bank(memory, bank, bitmap);
+        }
+    }
+
+    void onHalt() override {
+        LOGE("CPU HALT at PC=0x%04X", 0);
+    }
+
+    void onUnimplementedOpcode(uint8_t opcode, uint16_t pc) override {
+        LOGE("Unimplemented opcode 0x%02X at PC=0x%04X", opcode, pc);
+    }
+
+    void logDebug(const char* fmt, ...) override {
+        if (debug) {
+            char buf[1024];
+            va_list args;
+            va_start(args, fmt);
+            vsnprintf(buf, sizeof(buf), fmt, args);
+            va_end(args);
+            LOGD("%s", buf);
+        }
+    }
+
+    void setDebug(bool d) { debug = d; }
+};
+
+//=============================================================================
 // Global Emulator State
 //=============================================================================
 
-static RomWBWMem* g_memory = nullptr;
-static HBIOSCpu* g_cpu = nullptr;
+static banked_mem* g_memory = nullptr;
+static hbios_cpu* g_cpu = nullptr;
+static HBIOSDispatch* g_hbios = nullptr;
+static AndroidEmulatorDelegate* g_delegate = nullptr;
 static bool g_running = false;
 static bool g_initialized = false;
 
@@ -427,6 +476,19 @@ uint8_t emu_video_get_attr() {
     return g_text_attr;
 }
 
+// Dazzler operations (stubs - not used on Android)
+extern "C" {
+uint8_t dazzler_port_in(uint8_t port) {
+    (void)port;
+    return 0;
+}
+
+void dazzler_port_out(uint8_t port, uint8_t value) {
+    (void)port;
+    (void)value;
+}
+}
+
 // DSKY operations (stubs)
 void emu_dsky_show_hex(uint8_t position, uint8_t value) {
     (void)position;
@@ -540,8 +602,19 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeInit(JNIEnv* env, jobject thiz) {
 
     emu_io_init();
 
-    g_memory = new RomWBWMem();
-    g_cpu = new HBIOSCpu(*g_memory);
+    // Create memory and HBIOS dispatch first
+    g_memory = new banked_mem();
+    g_hbios = new HBIOSDispatch();
+
+    // Create delegate that connects memory and HBIOS
+    g_delegate = new AndroidEmulatorDelegate(g_memory, g_hbios);
+
+    // Create CPU with memory and delegate
+    g_cpu = new hbios_cpu(g_memory, g_delegate);
+
+    // Connect HBIOS dispatch to CPU and memory
+    g_hbios->setCPU(g_cpu);
+    g_hbios->setMemory(g_memory);
 
     g_callback_obj = env->NewGlobalRef(thiz);
     jclass clazz = env->GetObjectClass(thiz);
@@ -565,6 +638,12 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeDestroy(JNIEnv* env, jobject thiz)
 
     delete g_cpu;
     g_cpu = nullptr;
+
+    delete g_delegate;
+    g_delegate = nullptr;
+
+    delete g_hbios;
+    g_hbios = nullptr;
 
     delete g_memory;
     g_memory = nullptr;
@@ -608,7 +687,7 @@ JNIEXPORT jboolean JNICALL
 Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz,
                                                         jint unit, jbyteArray diskData) {
     (void)thiz;
-    if (!g_initialized || !g_cpu) {
+    if (!g_initialized || !g_hbios) {
         LOGE("Engine not initialized");
         return JNI_FALSE;
     }
@@ -618,7 +697,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz
 
     LOGI("Loading disk unit %d, size: %d bytes", unit, len);
 
-    bool success = g_cpu->getHBIOSDispatch().loadDisk(
+    bool success = g_hbios->loadDisk(
         static_cast<uint8_t>(unit),
         reinterpret_cast<uint8_t*>(data),
         static_cast<size_t>(len)
@@ -633,13 +712,13 @@ JNIEXPORT void JNICALL
 Java_com_romwbw_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
-    if (!g_initialized || !g_memory || !g_cpu) {
+    if (!g_initialized || !g_memory || !g_cpu || !g_hbios) {
         LOGE("Engine not initialized");
         return;
     }
 
     LOGI("Completing emulator initialization");
-    emu_complete_init(g_memory, &g_cpu->getHBIOSDispatch(), nullptr);
+    emu_complete_init(g_memory, g_hbios, nullptr);
 
     g_cpu->set_cpu_mode(qkz80::MODE_Z80);
     g_cpu->regs.PC.set_pair16(0x0000);
@@ -727,6 +806,29 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
     g_cpu->regs.SP.set_pair16(0x0000);
 
     LOGI("Emulator reset");
+}
+
+JNIEXPORT void JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeSetDiskSliceCount(JNIEnv* env, jobject thiz,
+                                                                  jint unit, jint slices) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_hbios) {
+        return;
+    }
+    g_hbios->setDiskSliceCount(unit, slices);
+    LOGI("Set disk %d slice count to %d", unit, slices);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeIsDiskLoaded(JNIEnv* env, jobject thiz,
+                                                            jint unit) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_hbios) {
+        return JNI_FALSE;
+    }
+    return g_hbios->isDiskLoaded(unit) ? JNI_TRUE : JNI_FALSE;
 }
 
 } // extern "C"

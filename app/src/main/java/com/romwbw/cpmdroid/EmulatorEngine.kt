@@ -27,6 +27,8 @@ class EmulatorEngine {
     private external fun nativeQueueInput(ch: Int)
     private external fun nativeQueueInputString(str: String)
     private external fun nativeReset()
+    private external fun nativeSetDiskSliceCount(unit: Int, slices: Int)
+    private external fun nativeIsDiskLoaded(unit: Int): Boolean
 
     fun init() {
         Log.i(TAG, "Initializing emulator engine")
@@ -90,6 +92,12 @@ class EmulatorEngine {
     fun reset() {
         nativeReset()
     }
+
+    fun setDiskSliceCount(unit: Int, slices: Int) {
+        nativeSetDiskSliceCount(unit, slices)
+    }
+
+    fun isDiskLoaded(unit: Int): Boolean = nativeIsDiskLoaded(unit)
 
     fun isRunning(): Boolean = running.get()
 }

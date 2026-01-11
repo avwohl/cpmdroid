@@ -2,8 +2,9 @@ cmake_minimum_required(VERSION 3.22.1)
 project("cpmdroid")
 
 # Path to shared emulator source files
-set(ROMWBW_EMU_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../romwbw_emu/src")
-set(CPMEMU_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../cpmemu/src")
+# From cpp/ go up 5 levels to src/, then into sibling directories
+set(ROMWBW_EMU_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../romwbw_emu/src")
+set(CPMEMU_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../cpmemu/src")
 
 # Verify paths exist
 if(NOT EXISTS "${ROMWBW_EMU_SRC}")
@@ -27,6 +28,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     # CPU core from cpmemu (portable Z80 implementation)
     ${CPMEMU_SRC}/qkz80.cc
     ${CPMEMU_SRC}/qkz80_reg_set.cc
+    ${CPMEMU_SRC}/qkz80_mem.cc
+    ${CPMEMU_SRC}/qkz80_errors.cc
 )
 
 # Include directories

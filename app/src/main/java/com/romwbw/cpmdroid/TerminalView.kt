@@ -5,8 +5,15 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.text.InputType
 import android.util.AttributeSet
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 
 class TerminalView @JvmOverloads constructor(
     context: Context,
@@ -34,6 +41,24 @@ class TerminalView @JvmOverloads constructor(
         typeface = Typeface.MONOSPACE
         isAntiAlias = true
         textSize = 32f
+    }
+
+    // Custom font size (0 = auto-calculate)
+    var customFontSize: Float = 0f
+        set(value) {
+            field = value
+            if (value > 0 && width > 0) {
+                applyCustomFontSize()
+            }
+            invalidate()
+        }
+
+    private fun applyCustomFontSize() {
+        // Convert point size to pixels (roughly)
+        val pixelSize = customFontSize * resources.displayMetrics.density
+        textPaint.textSize = pixelSize
+        charWidth = textPaint.measureText("M")
+        charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
     }
 
     private val bgPaint = Paint().apply {
@@ -71,12 +96,137 @@ class TerminalView @JvmOverloads constructor(
         Color.WHITE            // 15 - White
     )
 
+    // Input handling
+    private var inputListener: ((Int) -> Unit)? = null
+
+    fun setInputListener(listener: (Int) -> Unit) {
+        inputListener = listener
+    }
+
+    private fun sendChar(ch: Int) {
+        // Only send ASCII characters (0-127)
+        if (ch in 0..127) {
+            inputListener?.invoke(ch)
+        }
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_UP) {
+            // Request focus and show keyboard
+            requestFocus()
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        }
+        return true
+    }
+
+    override fun onCheckIsTextEditor(): Boolean = true
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
+        return TerminalInputConnection(this, true)
+    }
+
+    private inner class TerminalInputConnection(
+        targetView: View,
+        fullEditor: Boolean
+    ) : BaseInputConnection(targetView, fullEditor) {
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            text?.forEach { ch ->
+                sendChar(ch.code and 0x7F)
+            }
+            return true
+        }
+
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            // Send backspace for delete
+            if (beforeLength > 0) {
+                repeat(beforeLength) { sendChar(0x08) }
+            }
+            return true
+        }
+
+        override fun sendKeyEvent(event: KeyEvent): Boolean {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                return handleKeyDown(event.keyCode, event)
+            }
+            return super.sendKeyEvent(event)
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        return handleKeyDown(keyCode, event) || super.onKeyDown(keyCode, event)
+    }
+
+    private fun handleKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val ctrl = event.isCtrlPressed
+
+        when (keyCode) {
+            KeyEvent.KEYCODE_ENTER -> {
+                sendChar(0x0D) // CR
+                return true
+            }
+            KeyEvent.KEYCODE_DEL -> {
+                sendChar(0x08) // Backspace
+                return true
+            }
+            KeyEvent.KEYCODE_TAB -> {
+                sendChar(0x09) // Tab
+                return true
+            }
+            KeyEvent.KEYCODE_ESCAPE -> {
+                sendChar(0x1B) // ESC
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                sendChar(0x1B); sendChar('['.code); sendChar('A'.code)
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                sendChar(0x1B); sendChar('['.code); sendChar('B'.code)
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                sendChar(0x1B); sendChar('['.code); sendChar('C'.code)
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                sendChar(0x1B); sendChar('['.code); sendChar('D'.code)
+                return true
+            }
+            else -> {
+                // Handle Ctrl+letter combinations
+                if (ctrl && keyCode >= KeyEvent.KEYCODE_A && keyCode <= KeyEvent.KEYCODE_Z) {
+                    val ctrlChar = keyCode - KeyEvent.KEYCODE_A + 1 // Ctrl+A=1, Ctrl+B=2, etc.
+                    sendChar(ctrlChar)
+                    return true
+                }
+
+                // Handle printable characters from hardware keyboard
+                val unicodeChar = event.unicodeChar
+                if (unicodeChar != 0 && !event.isCtrlPressed && !event.isAltPressed) {
+                    sendChar(unicodeChar and 0x7F)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         calculateFontSize()
     }
 
     private fun calculateFontSize() {
+        // If custom font size is set, use it
+        if (customFontSize > 0) {
+            applyCustomFontSize()
+            return
+        }
+
         val maxWidth = width.toFloat() / COLS
         val maxHeight = height.toFloat() / ROWS
 

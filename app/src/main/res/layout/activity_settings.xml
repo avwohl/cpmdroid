@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- ROM Selection -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ROM"
+            android:textColor="#00FF00"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/romNameText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="emu_avw.rom"
+            android:textColor="#AAFFAA"
+            android:padding="8dp"
+            android:layout_marginTop="4dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginVertical="16dp" />
+
+        <!-- Disk Slots -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Disk Slots"
+            android:textColor="#00FF00"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/diskSlot0"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingVertical="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Slot 0:"
+                android:textColor="#888888"
+                android:minWidth="60dp" />
+
+            <TextView
+                android:id="@+id/disk0Name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="(empty)"
+                android:textColor="#AAFFAA"
+                android:paddingHorizontal="8dp"
+                android:singleLine="true"
+                android:ellipsize="middle" />
+
+            <ImageButton
+                android:id="@+id/selectDisk0"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_add"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Select disk" />
+
+            <ImageButton
+                android:id="@+id/clearDisk0"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Clear slot" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/diskSlot1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingVertical="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Slot 1:"
+                android:textColor="#888888"
+                android:minWidth="60dp" />
+
+            <TextView
+                android:id="@+id/disk1Name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="(empty)"
+                android:textColor="#AAFFAA"
+                android:paddingHorizontal="8dp"
+                android:singleLine="true"
+                android:ellipsize="middle" />
+
+            <ImageButton
+                android:id="@+id/selectDisk1"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_add"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Select disk" />
+
+            <ImageButton
+                android:id="@+id/clearDisk1"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Clear slot" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/diskSlot2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingVertical="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Slot 2:"
+                android:textColor="#888888"
+                android:minWidth="60dp" />
+
+            <TextView
+                android:id="@+id/disk2Name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="(empty)"
+                android:textColor="#AAFFAA"
+                android:paddingHorizontal="8dp"
+                android:singleLine="true"
+                android:ellipsize="middle" />
+
+            <ImageButton
+                android:id="@+id/selectDisk2"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_add"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Select disk" />
+
+            <ImageButton
+                android:id="@+id/clearDisk2"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Clear slot" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/diskSlot3"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingVertical="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Slot 3:"
+                android:textColor="#888888"
+                android:minWidth="60dp" />
+
+            <TextView
+                android:id="@+id/disk3Name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="(empty)"
+                android:textColor="#AAFFAA"
+                android:paddingHorizontal="8dp"
+                android:singleLine="true"
+                android:ellipsize="middle" />
+
+            <ImageButton
+                android:id="@+id/selectDisk3"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_add"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Select disk" />
+
+            <ImageButton
+                android:id="@+id/clearDisk3"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Clear slot" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginVertical="16dp" />
+
+        <!-- Boot String -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Boot String"
+            android:textColor="#00FF00"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Commands sent after boot (e.g. '0' to boot disk 0)"
+            android:textColor="#666666"
+            android:textSize="12sp"
+            android:layout_marginTop="4dp" />
+
+        <EditText
+            android:id="@+id/bootStringEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Enter boot commands..."
+            android:textColor="#00FF00"
+            android:textColorHint="#444444"
+            android:background="#111111"
+            android:padding="12dp"
+            android:layout_marginTop="8dp"
+            android:inputType="text"
+            android:fontFamily="monospace" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginVertical="16dp" />
+
+        <!-- Font Size -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Font Size"
+            android:textColor="#00FF00"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+
+            <SeekBar
+                android:id="@+id/fontSizeSeekBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:min="8"
+                android:max="24"
+                android:progress="14" />
+
+            <TextView
+                android:id="@+id/fontSizeText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="14pt"
+                android:textColor="#AAFFAA"
+                android:layout_marginStart="8dp"
+                android:minWidth="48dp" />
+
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginVertical="16dp" />
+
+        <!-- Disk Catalog -->
+        <Button
+            android:id="@+id/browseCatalogButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Browse Disk Catalog"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+    </LinearLayout>
+
+</ScrollView>
