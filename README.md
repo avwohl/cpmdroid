@@ -137,5 +137,5 @@ GNU General Public License v3.0 - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- Wayne Warthen for RomWBW
+- Wayne Warthen for [RomWBW](https://github.com/wwarthen/RomWBW)
 - The CP/M and retrocomputing community
