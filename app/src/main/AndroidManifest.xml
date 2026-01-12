@@ -31,6 +31,18 @@
             android:parentActivityName=".MainActivity"
             android:label="Settings" />
 
+        <activity
+            android:name=".HelpActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:label="Help" />
+
+        <activity
+            android:name=".HelpTopicActivity"
+            android:exported="false"
+            android:parentActivityName=".HelpActivity"
+            android:label="Help Topic" />
+
     </application>
 
 </manifest>

@@ -19,10 +19,16 @@ CPMDroid is a CP/M emulator for Android. This privacy policy explains how the ap
 
 ## Network Access
 
-CPMDroid accesses the internet solely to download optional disk images from GitHub. Specifically:
+CPMDroid accesses the internet to download optional content from GitHub. Specifically:
 
-- **What is downloaded:** CP/M disk images and a disk catalog file from the GitHub releases area (https://github.com/avwohl/ioscpm/releases/)
-- **When:** Only when you choose to download a disk image through the app's disk management interface, or on first launch to download a default boot disk
+- **What is downloaded:**
+  - CP/M disk images and a disk catalog file
+  - Help documentation and help topic index
+  - All from the GitHub releases area (https://github.com/avwohl/ioscpm/releases/)
+- **When:** Only when you:
+  - Choose to download a disk image through the app's disk management interface
+  - On first launch to download a default boot disk
+  - Open the Help screen to view documentation
 - **Data sent:** Standard HTTP requests containing only the file being requested
 
 ### Third-Party Services

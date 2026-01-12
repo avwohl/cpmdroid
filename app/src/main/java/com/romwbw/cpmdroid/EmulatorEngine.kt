@@ -8,6 +8,13 @@ class EmulatorEngine {
         private const val TAG = "EmulatorEngine"
         private const val INSTRUCTIONS_PER_BATCH = 50000
 
+        // Host file state constants (must match emu_io.h)
+        const val HOST_FILE_IDLE = 0
+        const val HOST_FILE_WAITING_READ = 1
+        const val HOST_FILE_READING = 2
+        const val HOST_FILE_WRITING = 3
+        const val HOST_FILE_WRITE_READY = 4
+
         init {
             System.loadLibrary("cpmdroid")
         }
@@ -29,6 +36,15 @@ class EmulatorEngine {
     private external fun nativeReset()
     private external fun nativeSetDiskSliceCount(unit: Int, slices: Int)
     private external fun nativeIsDiskLoaded(unit: Int): Boolean
+
+    // Host file transfer native methods
+    private external fun nativeGetHostFileState(): Int
+    private external fun nativeGetHostFileReadName(): String
+    private external fun nativeGetHostFileWriteName(): String
+    private external fun nativeProvideHostFileData(data: ByteArray?)
+    private external fun nativeGetHostFileWriteData(): ByteArray?
+    private external fun nativeHostFileWriteDone()
+    private external fun nativeHostFileCancel()
 
     fun init() {
         Log.i(TAG, "Initializing emulator engine")
@@ -100,4 +116,13 @@ class EmulatorEngine {
     fun isDiskLoaded(unit: Int): Boolean = nativeIsDiskLoaded(unit)
 
     fun isRunning(): Boolean = running.get()
+
+    // Host file transfer methods
+    fun getHostFileState(): Int = nativeGetHostFileState()
+    fun getHostFileReadName(): String = nativeGetHostFileReadName()
+    fun getHostFileWriteName(): String = nativeGetHostFileWriteName()
+    fun provideHostFileData(data: ByteArray?) = nativeProvideHostFileData(data)
+    fun getHostFileWriteData(): ByteArray? = nativeGetHostFileWriteData()
+    fun hostFileWriteDone() = nativeHostFileWriteDone()
+    fun hostFileCancel() = nativeHostFileCancel()
 }

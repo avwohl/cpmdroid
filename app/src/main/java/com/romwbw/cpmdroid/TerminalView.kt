@@ -1,10 +1,14 @@
 package com.romwbw.cpmdroid
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.media.ToneGenerator
+import android.media.AudioManager
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.KeyEvent
@@ -77,6 +81,9 @@ class TerminalView @JvmOverloads constructor(
     private val escapeParams = StringBuilder()
     private var currentFgColor = Color.GREEN
 
+    // Bell sound generator
+    private var toneGenerator: ToneGenerator? = null
+
     // CGA color palette
     private val cgaColors = intArrayOf(
         Color.BLACK,           // 0 - Black
@@ -102,6 +109,54 @@ class TerminalView @JvmOverloads constructor(
 
     fun setInputListener(listener: (Int) -> Unit) {
         inputListener = listener
+    }
+
+    /** Play bell sound (0x07 BEL character) */
+    private fun playBell() {
+        try {
+            if (toneGenerator == null) {
+                toneGenerator = ToneGenerator(AudioManager.STREAM_SYSTEM, 50) // 50% volume
+            }
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100) // 100ms beep
+        } catch (e: Exception) {
+            // Ignore audio errors - some devices may not support this
+        }
+    }
+
+    /** Copy entire screen content to clipboard */
+    fun copyScreenToClipboard(): Boolean {
+        val text = StringBuilder()
+        for (row in 0 until ROWS) {
+            val line = String(screenBuffer[row]).trimEnd()
+            text.append(line)
+            if (row < ROWS - 1) text.append("\n")
+        }
+        // Remove trailing empty lines
+        val content = text.toString().trimEnd('\n')
+        if (content.isEmpty()) return false
+
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Terminal Screen", content))
+        return true
+    }
+
+    /** Paste clipboard content as keyboard input */
+    fun pasteFromClipboard(): Boolean {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = clipboard.primaryClip ?: return false
+        if (clip.itemCount == 0) return false
+
+        val text = clip.getItemAt(0).coerceToText(context)?.toString() ?: return false
+        if (text.isEmpty()) return false
+
+        // Send each character as input (converting newlines to CR)
+        for (ch in text) {
+            when (ch) {
+                '\n', '\r' -> sendChar(0x0D)
+                else -> if (ch.code in 0..127) sendChar(ch.code)
+            }
+        }
+        return true
     }
 
     private fun sendChar(ch: Int) {
@@ -366,7 +421,7 @@ class TerminalView @JvmOverloads constructor(
                     0x0D -> cursorCol = 0   // CR
                     0x0A -> newLine()       // LF
                     0x08 -> if (cursorCol > 0) cursorCol-- // BS
-                    0x07 -> { } // BEL - ignore
+                    0x07 -> playBell() // BEL - beep
                     else -> {
                         if (ch >= 0x20) {
                             putChar(ch.toChar())

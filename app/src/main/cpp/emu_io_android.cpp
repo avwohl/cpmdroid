@@ -156,6 +156,7 @@ static uint8_t g_text_attr = 0x07;
 static emu_host_file_state g_host_file_state = HOST_FILE_IDLE;
 static std::vector<uint8_t> g_host_read_buffer;
 static size_t g_host_read_pos = 0;
+static std::string g_host_read_filename;
 static std::vector<uint8_t> g_host_write_buffer;
 static std::string g_host_write_filename;
 
@@ -561,6 +562,7 @@ emu_host_file_state emu_host_file_get_state() {
 bool emu_host_file_open_read(const char* filename) {
     g_host_read_buffer.clear();
     g_host_read_pos = 0;
+    g_host_read_filename = filename ? filename : "";
     g_host_file_state = HOST_FILE_WAITING_READ;
     LOGI("Host file read requested: %s", filename);
     return true;
@@ -592,10 +594,38 @@ void emu_host_file_close_read() {
 }
 
 void emu_host_file_close_write() {
-    // On Android, we'd need to trigger a save dialog via JNI
+    // Set state to WRITE_READY so UI can poll and save the file
+    if (g_host_file_state == HOST_FILE_WRITING && !g_host_write_buffer.empty()) {
+        g_host_file_state = HOST_FILE_WRITE_READY;
+        LOGI("Host file write ready: %s (%zu bytes)", g_host_write_filename.c_str(), g_host_write_buffer.size());
+    } else {
+        g_host_write_buffer.clear();
+        g_host_write_filename.clear();
+        g_host_file_state = HOST_FILE_IDLE;
+    }
+}
+
+// Called after UI has saved the write buffer
+void emu_host_file_write_done() {
     g_host_write_buffer.clear();
     g_host_write_filename.clear();
     g_host_file_state = HOST_FILE_IDLE;
+    LOGI("Host file write done");
+}
+
+// Called if user cancels file read
+void emu_host_file_cancel() {
+    g_host_file_state = HOST_FILE_IDLE;
+    g_host_read_buffer.clear();
+    g_host_read_pos = 0;
+    g_host_write_buffer.clear();
+    g_host_write_filename.clear();
+    LOGI("Host file operation cancelled");
+}
+
+// Get the suggested read filename
+const char* emu_host_file_get_read_name() {
+    return g_host_read_filename.c_str();
 }
 
 void emu_host_file_provide_data(const uint8_t* data, size_t size) {
@@ -988,6 +1018,79 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeIsDiskLoaded(JNIEnv* env, jobject 
         return JNI_FALSE;
     }
     return g_emu->hbios->isDiskLoaded(unit) ? JNI_TRUE : JNI_FALSE;
+}
+
+//=============================================================================
+// Host File Transfer JNI Interface
+//=============================================================================
+
+JNIEXPORT jint JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileState(JNIEnv* env, jobject thiz) {
+    (void)env;
+    (void)thiz;
+    return static_cast<jint>(emu_host_file_get_state());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileReadName(JNIEnv* env, jobject thiz) {
+    (void)thiz;
+    const char* name = emu_host_file_get_read_name();
+    return env->NewStringUTF(name ? name : "");
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileWriteName(JNIEnv* env, jobject thiz) {
+    (void)thiz;
+    const char* name = emu_host_file_get_write_name();
+    return env->NewStringUTF(name ? name : "");
+}
+
+JNIEXPORT void JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeProvideHostFileData(JNIEnv* env, jobject thiz,
+                                                                    jbyteArray data) {
+    (void)thiz;
+    if (data == nullptr) {
+        // User cancelled - cancel the read
+        emu_host_file_cancel();
+        return;
+    }
+
+    jsize len = env->GetArrayLength(data);
+    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
+
+    emu_host_file_provide_data(reinterpret_cast<uint8_t*>(bytes), static_cast<size_t>(len));
+
+    env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileWriteData(JNIEnv* env, jobject thiz) {
+    (void)thiz;
+    const uint8_t* data = emu_host_file_get_write_data();
+    size_t size = emu_host_file_get_write_size();
+
+    if (data == nullptr || size == 0) {
+        return nullptr;
+    }
+
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(size));
+    env->SetByteArrayRegion(result, 0, static_cast<jsize>(size),
+                            reinterpret_cast<const jbyte*>(data));
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeHostFileWriteDone(JNIEnv* env, jobject thiz) {
+    (void)env;
+    (void)thiz;
+    emu_host_file_write_done();
+}
+
+JNIEXPORT void JNICALL
+Java_com_romwbw_cpmdroid_EmulatorEngine_nativeHostFileCancel(JNIEnv* env, jobject thiz) {
+    (void)env;
+    (void)thiz;
+    emu_host_file_cancel();
 }
 
 } // extern "C"

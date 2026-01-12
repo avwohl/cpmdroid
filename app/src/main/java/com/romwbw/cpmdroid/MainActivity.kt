@@ -14,12 +14,14 @@ import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.romwbw.cpmdroid.data.DiskCatalogRepository
 import com.romwbw.cpmdroid.data.DiskDownloadManager
 import com.romwbw.cpmdroid.data.SettingsRepository
 import kotlinx.coroutines.launch
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
 
@@ -40,6 +42,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ctrlButton: Button
     private lateinit var escButton: Button
     private lateinit var tabButton: Button
+    private lateinit var copyButton: Button
+    private lateinit var pasteButton: Button
+
+    // Toolbar buttons
+    private lateinit var helpButton: ImageButton
+    private lateinit var aboutButton: ImageButton
 
     // Controlify mode: next key becomes control character
     private var controlifyMode = false
@@ -75,6 +83,10 @@ class MainActivity : AppCompatActivity() {
                     if (runLoopCount <= 5) {
                         Log.i(TAG, "runLoop #$runLoopCount: batch returned $shouldContinue")
                     }
+
+                    // Check host file state for R8/W8 transfers
+                    checkHostFileState()
+
                     if (shouldContinue) {
                         mainHandler.postDelayed(self, FRAME_DELAY_MS)
                     } else {
@@ -87,6 +99,14 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    // Imports/Exports folders for R8/W8 file transfer
+    private val importsDir: File by lazy {
+        File(getExternalFilesDir(null), "Imports").apply { mkdirs() }
+    }
+    private val exportsDir: File by lazy {
+        File(getExternalFilesDir(null), "Exports").apply { mkdirs() }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,6 +126,12 @@ class MainActivity : AppCompatActivity() {
         ctrlButton = findViewById(R.id.ctrlButton)
         escButton = findViewById(R.id.escButton)
         tabButton = findViewById(R.id.tabButton)
+        copyButton = findViewById(R.id.copyButton)
+        pasteButton = findViewById(R.id.pasteButton)
+
+        // Toolbar buttons
+        helpButton = findViewById(R.id.helpButton)
+        aboutButton = findViewById(R.id.aboutButton)
 
         // Download progress overlay
         downloadOverlay = findViewById(R.id.downloadOverlay)
@@ -170,6 +196,18 @@ class MainActivity : AppCompatActivity() {
             updateCtrlButtonState()
             emulator.queueInput(0x09)
         }
+
+        // Copy screen to clipboard
+        copyButton.setOnClickListener {
+            if (terminalView.copyScreenToClipboard()) {
+                Toast.makeText(this, "Screen copied to clipboard", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Paste from clipboard
+        pasteButton.setOnClickListener {
+            terminalView.pasteFromClipboard()
+        }
     }
 
     private fun updateCtrlButtonState() {
@@ -196,6 +234,43 @@ class MainActivity : AppCompatActivity() {
         settingsButton.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+
+        helpButton.setOnClickListener {
+            startActivity(Intent(this, HelpActivity::class.java))
+        }
+
+        aboutButton.setOnClickListener {
+            showAboutDialog()
+        }
+    }
+
+    private fun showAboutDialog() {
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (e: Exception) {
+            "1.0"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("About CPMDroid")
+            .setMessage("""
+                CPMDroid v$version
+
+                A Z80 CP/M emulator for Android using RomWBW HBIOS.
+
+                Features:
+                - VT100 terminal emulation
+                - Multiple disk image support
+                - Downloadable OS disk images
+
+                Source code:
+                github.com/avwohl/ioscpm
+
+                Based on RomWBW by Wayne Warthen
+                romwbw.net
+            """.trimIndent())
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private fun checkFirstLaunchAndLoad() {
@@ -437,6 +512,92 @@ class MainActivity : AppCompatActivity() {
                 emulator.queueInput(0x0D)
             }, 2000)
         }
+    }
+
+    /**
+     * Check and handle host file transfer state (R8/W8 utilities).
+     * Called from the run loop on the executor thread.
+     */
+    private fun checkHostFileState() {
+        when (emulator.getHostFileState()) {
+            EmulatorEngine.HOST_FILE_WAITING_READ -> handleHostFileRead()
+            EmulatorEngine.HOST_FILE_WRITE_READY -> handleHostFileWrite()
+        }
+    }
+
+    /**
+     * Handle R8 file read request.
+     * Looks for the file in the Imports folder.
+     */
+    private fun handleHostFileRead() {
+        val suggestedName = emulator.getHostFileReadName()
+        Log.i(TAG, "R8: Looking for file: $suggestedName")
+
+        // First try exact name, then try first file in Imports folder
+        val targetFile = if (suggestedName.isNotEmpty()) {
+            val exact = File(importsDir, suggestedName)
+            if (exact.exists() && exact.isFile) exact else null
+        } else null
+
+        val fileToRead = targetFile ?: importsDir.listFiles()?.firstOrNull { it.isFile }
+
+        if (fileToRead != null && fileToRead.exists()) {
+            try {
+                val data = fileToRead.readBytes()
+                Log.i(TAG, "R8: Providing file ${fileToRead.name} (${data.size} bytes)")
+                emulator.provideHostFileData(data)
+                mainHandler.post {
+                    Toast.makeText(this@MainActivity,
+                        "R8: Loaded ${fileToRead.name}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "R8: Error reading file", e)
+                emulator.hostFileCancel()
+                mainHandler.post {
+                    Toast.makeText(this@MainActivity,
+                        "R8: Error reading file", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } else {
+            Log.w(TAG, "R8: No file found in Imports folder")
+            emulator.hostFileCancel()
+            mainHandler.post {
+                Toast.makeText(this@MainActivity,
+                    "R8: No file in Imports folder", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /**
+     * Handle W8 file write completion.
+     * Saves the file to the Exports folder.
+     */
+    private fun handleHostFileWrite() {
+        val data = emulator.getHostFileWriteData()
+        val filename = emulator.getHostFileWriteName()
+
+        if (data == null || data.isEmpty()) {
+            Log.w(TAG, "W8: No data to write")
+            emulator.hostFileWriteDone()
+            return
+        }
+
+        val outputFile = File(exportsDir, filename)
+        try {
+            outputFile.writeBytes(data)
+            Log.i(TAG, "W8: Saved ${outputFile.name} (${data.size} bytes)")
+            mainHandler.post {
+                Toast.makeText(this@MainActivity,
+                    "W8: Saved ${outputFile.name}", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "W8: Error saving file", e)
+            mainHandler.post {
+                Toast.makeText(this@MainActivity,
+                    "W8: Error saving file", Toast.LENGTH_SHORT).show()
+            }
+        }
+        emulator.hostFileWriteDone()
     }
 
     private fun updateStatus() {
