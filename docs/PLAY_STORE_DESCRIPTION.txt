@@ -1,0 +1,79 @@
+CPMDroid - CP/M Emulator for Android
+
+Step back in time and experience the golden age of personal computing on your Android device. CPMDroid is a full-featured Z80/CP/M emulator that brings the classic 8-bit operating system to your phone or tablet.
+
+What is CP/M?
+
+CP/M (Control Program for Microcomputers) was the dominant operating system for personal computers in the late 1970s and early 1980s, before MS-DOS and Windows. It ran on millions of machines and hosted legendary software including WordStar, dBASE, Turbo Pascal, and countless games and utilities. Now you can run this historic software anywhere.
+
+Authentic Emulation
+
+CPMDroid is built on the RomWBW HBIOS platform, providing accurate Z80 CPU emulation with proper instruction timing. This isn't a simplified simulator—it's a complete hardware-level emulator that runs real CP/M software exactly as it ran on original hardware.
+
+Features
+
+• Full Z80 CPU emulation with accurate timing
+• VT100/ANSI terminal with escape sequence support
+• Multiple disk support with up to 4 disk units (64MB each)
+• Hardware keyboard support for Bluetooth and USB keyboards
+• Touch-friendly control strip with Ctrl, Esc, Tab, Copy, and Paste
+• Download disk images directly from the RomWBW project
+• Built-in help system with searchable documentation
+• File transfer between Android and CP/M using R8/W8 utilities
+
+Run Classic Software
+
+• Word processors: WordStar, the original "what you see is what you get" editor
+• Databases: dBASE II, the foundation of modern database applications
+• Programming: Turbo Pascal, Microsoft BASIC, assemblers, and compilers
+• Games: Zork, Colossal Cave Adventure, and other text adventures
+• Utilities: Thousands of public domain programs from the CP/M era
+
+Easy to Use
+
+Getting started is simple. On first launch, CPMDroid automatically downloads a boot disk so you can start exploring immediately. Want more? Open Settings to browse and download additional disk images including CP/M 2.2, ZSDOS, WordStar, and game collections.
+
+Control Strip
+
+Designed for touch screens, the control strip provides quick access to special keys:
+• Ctrl - Toggle control key mode for the next keypress
+• Esc - Send escape character
+• Tab - Send tab character
+• Copy - Copy the entire screen to your clipboard
+• Paste - Paste text from clipboard as keyboard input
+
+File Transfer
+
+Transfer files between your Android device and CP/M using the R8/W8 utilities:
+• Place files in the Imports folder to read them into CP/M
+• Export files from CP/M to the Exports folder
+• Access folders via Android/data/com.romwbw.cpmdroid/files/
+
+Multiple Operating Systems
+
+Boot different CP/M-compatible operating systems:
+• CP/M 2.2 - The classic Digital Research OS
+• CP/M 3 (Plus) - Enhanced version with banked memory
+• ZSDOS - CP/M with timestamps and enhanced features
+• NZCOM - ZCPR3 command processor
+• ZPM3 - Z-System for CP/M 3
+
+For Enthusiasts and Learners
+
+Whether you're a retrocomputing enthusiast who remembers the original CP/M era, a computer history student wanting to experience early personal computing, or a developer interested in how software worked before modern operating systems, CPMDroid provides an authentic window into computing history.
+
+Open Source
+
+CPMDroid is open source software. Visit the GitHub repository to view the code, report issues, or contribute improvements.
+
+No Ads, No Tracking
+
+CPMDroid respects your privacy. The app contains no advertisements and collects no personal information. Network access is used only to download disk images and help files from GitHub.
+
+Requirements
+
+• Android 7.0 or later
+• Works on phones and tablets
+• Bluetooth or USB keyboard recommended for extended use
+
+Experience computing history. Download CPMDroid today.
