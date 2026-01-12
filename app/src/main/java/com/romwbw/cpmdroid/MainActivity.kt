@@ -1,12 +1,17 @@
 package com.romwbw.cpmdroid
 
-import android.app.ProgressDialog
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.View
+import android.view.inputmethod.InputMethodManager
+import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -27,9 +32,24 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var terminalView: TerminalView
     private lateinit var playPauseButton: ImageButton
-    private lateinit var resetButton: ImageButton
+    private lateinit var bootButton: ImageButton
     private lateinit var settingsButton: ImageButton
     private lateinit var statusText: TextView
+
+    // Control strip buttons
+    private lateinit var ctrlButton: Button
+    private lateinit var escButton: Button
+    private lateinit var tabButton: Button
+
+    // Controlify mode: next key becomes control character
+    private var controlifyMode = false
+
+    // Download progress overlay views
+    private lateinit var downloadOverlay: FrameLayout
+    private lateinit var downloadTitle: TextView
+    private lateinit var downloadFileName: TextView
+    private lateinit var downloadProgressBar: ProgressBar
+    private lateinit var downloadPercent: TextView
 
     private lateinit var settingsRepo: SettingsRepository
     private lateinit var downloadManager: DiskDownloadManager
@@ -40,15 +60,30 @@ class MainActivity : AppCompatActivity() {
 
     private var romLoaded = false
     private var running = false
+    private var initialFocusDone = false
 
+    private var runLoopCount = 0
     private val runLoop: Runnable = object : Runnable {
         override fun run() {
             if (running && romLoaded) {
                 val self = this
+                if (runLoopCount++ < 5) {
+                    Log.i(TAG, "runLoop #$runLoopCount: executing batch")
+                }
                 executor.execute {
-                    if (emulator.runBatch()) {
-                        mainHandler.postDelayed(self, FRAME_DELAY_MS)
+                    val shouldContinue = emulator.runBatch()
+                    if (runLoopCount <= 5) {
+                        Log.i(TAG, "runLoop #$runLoopCount: batch returned $shouldContinue")
                     }
+                    if (shouldContinue) {
+                        mainHandler.postDelayed(self, FRAME_DELAY_MS)
+                    } else {
+                        Log.w(TAG, "runLoop: batch returned false, stopping")
+                    }
+                }
+            } else {
+                if (runLoopCount < 5) {
+                    Log.w(TAG, "runLoop: skipped (running=$running, romLoaded=$romLoaded)")
                 }
             }
         }
@@ -63,12 +98,25 @@ class MainActivity : AppCompatActivity() {
 
         terminalView = findViewById(R.id.terminalView)
         playPauseButton = findViewById(R.id.playPauseButton)
-        resetButton = findViewById(R.id.resetButton)
+        bootButton = findViewById(R.id.bootButton)
         settingsButton = findViewById(R.id.settingsButton)
         statusText = findViewById(R.id.statusText)
 
+        // Control strip buttons
+        ctrlButton = findViewById(R.id.ctrlButton)
+        escButton = findViewById(R.id.escButton)
+        tabButton = findViewById(R.id.tabButton)
+
+        // Download progress overlay
+        downloadOverlay = findViewById(R.id.downloadOverlay)
+        downloadTitle = findViewById(R.id.downloadTitle)
+        downloadFileName = findViewById(R.id.downloadFileName)
+        downloadProgressBar = findViewById(R.id.downloadProgressBar)
+        downloadPercent = findViewById(R.id.downloadPercent)
+
         setupEmulator()
         setupToolbar()
+        setupControlStrip()
 
         checkFirstLaunchAndLoad()
     }
@@ -80,9 +128,55 @@ class MainActivity : AppCompatActivity() {
                 terminalView.processOutput(data)
             }
         }
-        // Set up terminal input - characters typed go directly to emulator
+        // Set up terminal input - characters typed go to emulator
+        // with controlify conversion if Ctrl mode is active
         terminalView.setInputListener { ch ->
-            emulator.queueInput(ch)
+            val charToSend = if (controlifyMode) {
+                // Convert to control character: A-Z and a-z become 1-26
+                val upper = if (ch in 'a'.code..'z'.code) ch - 32 else ch
+                if (upper in '@'.code..'_'.code) {
+                    controlifyMode = false
+                    updateCtrlButtonState()
+                    upper - '@'.code  // '@'=0, 'A'=1, ... 'Z'=26
+                } else {
+                    controlifyMode = false
+                    updateCtrlButtonState()
+                    ch
+                }
+            } else {
+                ch
+            }
+            emulator.queueInput(charToSend)
+        }
+    }
+
+    private fun setupControlStrip() {
+        // Ctrl button toggles controlify mode
+        ctrlButton.setOnClickListener {
+            controlifyMode = !controlifyMode
+            updateCtrlButtonState()
+        }
+
+        // Esc sends escape character (0x1B)
+        escButton.setOnClickListener {
+            controlifyMode = false
+            updateCtrlButtonState()
+            emulator.queueInput(0x1B)
+        }
+
+        // Tab sends tab character (0x09)
+        tabButton.setOnClickListener {
+            controlifyMode = false
+            updateCtrlButtonState()
+            emulator.queueInput(0x09)
+        }
+    }
+
+    private fun updateCtrlButtonState() {
+        if (controlifyMode) {
+            ctrlButton.setBackgroundColor(0xFF2196F3.toInt()) // Blue when active
+        } else {
+            ctrlButton.setBackgroundColor(0xFF555555.toInt()) // Gray when inactive
         }
     }
 
@@ -95,8 +189,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        resetButton.setOnClickListener {
-            resetEmulation()
+        bootButton.setOnClickListener {
+            bootEmulation()
         }
 
         settingsButton.setOnClickListener {
@@ -132,27 +226,18 @@ class MainActivity : AppCompatActivity() {
 
                 if (defaultDisk != null && !downloadManager.isDiskDownloaded(defaultDisk.filename)) {
                     Log.i(TAG, "Will download default disk: ${defaultDisk.filename}")
-                    // Show progress dialog
-                    @Suppress("DEPRECATION")
-                    val progressDialog = ProgressDialog(this@MainActivity).apply {
-                        setTitle("Downloading ${defaultDisk.name}")
-                        setMessage("First-time setup...")
-                        isIndeterminate = false
-                        max = 100
-                        setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
-                        setCancelable(false)
-                        show()
-                    }
+
+                    // Show progress overlay
+                    showDownloadProgress("Downloading ${defaultDisk.name}", defaultDisk.filename)
 
                     val result = downloadManager.downloadDisk(defaultDisk) { bytesRead, totalBytes ->
                         val percent = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
                         runOnUiThread {
-                            progressDialog.progress = percent
-                            progressDialog.setMessage("$percent%")
+                            updateDownloadProgress(percent)
                         }
                     }
 
-                    progressDialog.dismiss()
+                    hideDownloadProgress()
 
                     result.fold(
                         onSuccess = { file ->
@@ -182,6 +267,23 @@ class MainActivity : AppCompatActivity() {
 
             loadRomAndDisks()
         }
+    }
+
+    private fun showDownloadProgress(title: String, fileName: String) {
+        downloadTitle.text = title
+        downloadFileName.text = fileName
+        downloadProgressBar.progress = 0
+        downloadPercent.text = "0%"
+        downloadOverlay.visibility = View.VISIBLE
+    }
+
+    private fun updateDownloadProgress(percent: Int) {
+        downloadProgressBar.progress = percent
+        downloadPercent.text = "$percent%"
+    }
+
+    private fun hideDownloadProgress() {
+        downloadOverlay.visibility = View.GONE
     }
 
     private fun loadRomAndDisks() {
@@ -244,6 +346,14 @@ class MainActivity : AppCompatActivity() {
                         updateStatus()
                         startEmulation()
 
+                        // Trigger focus if window already has focus
+                        if (hasWindowFocus() && !initialFocusDone) {
+                            initialFocusDone = true
+                            terminalView.post {
+                                terminalView.requestFocus()
+                            }
+                        }
+
                         // Send CR immediately to trigger ROM prompt display
                         // (ROM may be waiting for input before showing boot menu)
                         mainHandler.postDelayed({
@@ -285,6 +395,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && romLoaded && running && !initialFocusDone) {
+            initialFocusDone = true
+            terminalView.post {
+                terminalView.requestFocus()
+            }
+        }
+    }
+
     private fun stopEmulation() {
         running = false
         emulator.stop()
@@ -293,7 +413,7 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "Emulation stopped")
     }
 
-    private fun resetEmulation() {
+    private fun bootEmulation() {
         stopEmulation()
         terminalView.clear()
         emulator.reset()
@@ -303,6 +423,11 @@ class MainActivity : AppCompatActivity() {
         terminalView.customFontSize = settings.fontSize.toFloat()
 
         startEmulation()
+
+        // Focus terminal after reboot
+        terminalView.post {
+            terminalView.requestFocus()
+        }
 
         // Re-send boot string if configured
         val bootString = settings.bootString

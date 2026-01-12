@@ -57,51 +57,50 @@
 
     </LinearLayout>
 
-    <!-- Control Strip (bottom for portrait) -->
+    <!-- Control Strip (left side for landscape) -->
     <LinearLayout
         android:id="@+id/controlStrip"
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:orientation="horizontal"
+        android:layout_width="44dp"
+        android:layout_height="0dp"
+        android:orientation="vertical"
         android:background="#333333"
         android:padding="4dp"
-        android:gravity="center_vertical"
+        app:layout_constraintTop_toBottomOf="@id/toolbar"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintStart_toStartOf="parent">
 
         <Button
             android:id="@+id/ctrlButton"
-            android:layout_width="56dp"
+            android:layout_width="36dp"
             android:layout_height="36dp"
             android:text="Ctrl"
-            android:textSize="12sp"
+            android:textSize="10sp"
             android:textAllCaps="false"
             android:padding="0dp"
             android:minWidth="0dp"
             android:minHeight="0dp"
             android:backgroundTint="#555555"
-            android:layout_marginEnd="8dp" />
+            android:layout_marginBottom="6dp" />
 
         <Button
             android:id="@+id/escButton"
-            android:layout_width="56dp"
+            android:layout_width="36dp"
             android:layout_height="36dp"
             android:text="Esc"
-            android:textSize="12sp"
+            android:textSize="10sp"
             android:textAllCaps="false"
             android:padding="0dp"
             android:minWidth="0dp"
             android:minHeight="0dp"
             android:backgroundTint="#555555"
-            android:layout_marginEnd="8dp" />
+            android:layout_marginBottom="6dp" />
 
         <Button
             android:id="@+id/tabButton"
-            android:layout_width="56dp"
+            android:layout_width="36dp"
             android:layout_height="36dp"
             android:text="Tab"
-            android:textSize="12sp"
+            android:textSize="10sp"
             android:textAllCaps="false"
             android:padding="0dp"
             android:minWidth="0dp"
@@ -117,8 +116,8 @@
         android:focusable="true"
         android:focusableInTouchMode="true"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
-        app:layout_constraintBottom_toTopOf="@id/controlStrip"
-        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toEndOf="@id/controlStrip"
         app:layout_constraintEnd_toEndOf="parent" />
 
     <!-- Download Progress Overlay -->

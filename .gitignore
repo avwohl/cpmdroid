@@ -4,6 +4,7 @@ build/
 .idea/
 *.iml
 local.properties
+keystore.properties
 
 # NDK
 .cxx/

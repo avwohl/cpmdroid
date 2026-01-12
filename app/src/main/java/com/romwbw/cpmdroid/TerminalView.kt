@@ -59,6 +59,7 @@ class TerminalView @JvmOverloads constructor(
         textPaint.textSize = pixelSize
         charWidth = textPaint.measureText("M")
         charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
+        android.util.Log.i("TerminalView", "applyCustomFontSize: pixelSize=$pixelSize, charWidth=$charWidth, charHeight=$charHeight")
     }
 
     private val bgPaint = Paint().apply {
@@ -123,8 +124,9 @@ class TerminalView @JvmOverloads constructor(
     override fun onCheckIsTextEditor(): Boolean = true
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
+        // Use TYPE_NULL to prevent IME from intercepting hardware keyboard events
+        outAttrs.inputType = InputType.TYPE_NULL
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_ACTION_NONE
         return TerminalInputConnection(this, true)
     }
 
@@ -162,6 +164,7 @@ class TerminalView @JvmOverloads constructor(
 
     private fun handleKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val ctrl = event.isCtrlPressed
+        val unicodeChar = event.unicodeChar
 
         when (keyCode) {
             KeyEvent.KEYCODE_ENTER -> {
@@ -205,10 +208,39 @@ class TerminalView @JvmOverloads constructor(
                 }
 
                 // Handle printable characters from hardware keyboard
-                val unicodeChar = event.unicodeChar
-                if (unicodeChar != 0 && !event.isCtrlPressed && !event.isAltPressed) {
-                    sendChar(unicodeChar and 0x7F)
-                    return true
+                if (!event.isCtrlPressed && !event.isAltPressed) {
+                    // Try unicodeChar first
+                    if (unicodeChar != 0) {
+                        sendChar(unicodeChar and 0x7F)
+                        return true
+                    }
+                    // Fallback: map keycodes directly for letters and digits
+                    val ch = when (keyCode) {
+                        in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> {
+                            val base = if (event.isShiftPressed) 'A'.code else 'a'.code
+                            base + (keyCode - KeyEvent.KEYCODE_A)
+                        }
+                        in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> {
+                            '0'.code + (keyCode - KeyEvent.KEYCODE_0)
+                        }
+                        KeyEvent.KEYCODE_SPACE -> ' '.code
+                        KeyEvent.KEYCODE_COMMA -> ','.code
+                        KeyEvent.KEYCODE_PERIOD -> '.'.code
+                        KeyEvent.KEYCODE_SLASH -> '/'.code
+                        KeyEvent.KEYCODE_MINUS -> '-'.code
+                        KeyEvent.KEYCODE_EQUALS -> '='.code
+                        KeyEvent.KEYCODE_SEMICOLON -> ';'.code
+                        KeyEvent.KEYCODE_APOSTROPHE -> '\''.code
+                        KeyEvent.KEYCODE_LEFT_BRACKET -> '['.code
+                        KeyEvent.KEYCODE_RIGHT_BRACKET -> ']'.code
+                        KeyEvent.KEYCODE_BACKSLASH -> '\\'.code
+                        KeyEvent.KEYCODE_GRAVE -> '`'.code
+                        else -> -1
+                    }
+                    if (ch >= 0) {
+                        sendChar(ch)
+                        return true
+                    }
                 }
             }
         }
@@ -217,28 +249,33 @@ class TerminalView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        android.util.Log.i("TerminalView", "onSizeChanged: w=$w, h=$h, customFontSize=$customFontSize")
         calculateFontSize()
     }
+
+    // Scaling and offset for filling the view
+    private var scale = 1f
+    private var offsetX = 0f
+    private var offsetY = 0f
 
     private fun calculateFontSize() {
         // If custom font size is set, use it
         if (customFontSize > 0) {
+            android.util.Log.i("TerminalView", "calculateFontSize: using custom size $customFontSize")
             applyCustomFontSize()
+            calculateScaling()
             return
         }
 
-        val maxWidth = width.toFloat() / COLS
-        val maxHeight = height.toFloat() / ROWS
+        // Find font size that fits width (80 columns)
+        val availableWidth = width.toFloat()
+        val maxWidth = availableWidth / COLS
 
-        // Find font size that fits both constraints
         var testSize = 8f
         while (testSize < 100f) {
             textPaint.textSize = testSize
             val testWidth = textPaint.measureText("M")
-            val metrics = textPaint.fontMetrics
-            val testHeight = metrics.descent - metrics.ascent
-
-            if (testWidth > maxWidth || testHeight > maxHeight) {
+            if (testWidth > maxWidth) {
                 break
             }
             testSize += 1f
@@ -247,6 +284,27 @@ class TerminalView @JvmOverloads constructor(
         textPaint.textSize = testSize - 1f
         charWidth = textPaint.measureText("M")
         charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
+
+        calculateScaling()
+    }
+
+    private fun calculateScaling() {
+        // Calculate terminal size at current font
+        val terminalWidth = COLS * charWidth
+        val terminalHeight = ROWS * charHeight
+
+        // Calculate scale to fill view (uniform scaling)
+        val scaleX = width.toFloat() / terminalWidth
+        val scaleY = height.toFloat() / terminalHeight
+        scale = minOf(scaleX, scaleY)
+
+        // Center the scaled terminal
+        val scaledWidth = terminalWidth * scale
+        val scaledHeight = terminalHeight * scale
+        offsetX = (width - scaledWidth) / 2f + 4f  // Add small left padding
+        offsetY = (height - scaledHeight) / 2f
+
+        android.util.Log.i("TerminalView", "calculateScaling: scale=$scale, offsetX=$offsetX, offsetY=$offsetY")
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -257,6 +315,11 @@ class TerminalView @JvmOverloads constructor(
 
         val metrics = textPaint.fontMetrics
         val baseline = -metrics.ascent
+
+        // Apply scaling and offset
+        canvas.save()
+        canvas.translate(offsetX, offsetY)
+        canvas.scale(scale, scale)
 
         // Draw characters
         for (row in 0 until ROWS) {
@@ -280,9 +343,15 @@ class TerminalView @JvmOverloads constructor(
             val cursorY = cursorRow * charHeight + charHeight - 4f
             canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + 3f, cursorPaint)
         }
+
+        canvas.restore()
     }
 
+    private var processOutputCount = 0
     fun processOutput(data: ByteArray) {
+        if (processOutputCount++ < 3) {
+            android.util.Log.i("TerminalView", "processOutput: ${data.size} bytes, charWidth=$charWidth, charHeight=$charHeight")
+        }
         for (b in data) {
             processChar(b.toInt() and 0xFF)
         }

@@ -20,6 +20,7 @@
 #include <chrono>
 
 #include "hbios_cpu.h"
+#include "hbios_dispatch.h"
 #include "emu_init.h"
 #include "romwbw_mem.h"
 
@@ -76,15 +77,52 @@ public:
 };
 
 //=============================================================================
-// Global Emulator State
+// Emulator State Class - Encapsulates all emulator state for clean reboot
 //=============================================================================
 
-static banked_mem* g_memory = nullptr;
-static hbios_cpu* g_cpu = nullptr;
-static HBIOSDispatch* g_hbios = nullptr;
-static AndroidEmulatorDelegate* g_delegate = nullptr;
+class EmulatorState {
+public:
+    banked_mem* memory = nullptr;
+    hbios_cpu* cpu = nullptr;
+    HBIOSDispatch* hbios = nullptr;
+    AndroidEmulatorDelegate* delegate = nullptr;
+
+    EmulatorState() {
+        LOGI("EmulatorState: Creating new instance");
+        memory = new banked_mem();
+        hbios = new HBIOSDispatch();
+        delegate = new AndroidEmulatorDelegate(memory, hbios);
+        cpu = new hbios_cpu(memory, delegate);
+        hbios->setCPU(cpu);
+        hbios->setMemory(memory);
+        hbios->setBlockingAllowed(false);  // Android uses non-blocking I/O
+    }
+
+    ~EmulatorState() {
+        LOGI("EmulatorState: Destroying instance");
+        delete cpu;
+        delete delegate;
+        delete hbios;
+        delete memory;
+    }
+
+    // Non-copyable
+    EmulatorState(const EmulatorState&) = delete;
+    EmulatorState& operator=(const EmulatorState&) = delete;
+};
+
+//=============================================================================
+// Global State
+//=============================================================================
+
+static EmulatorState* g_emu = nullptr;
 static bool g_running = false;
 static bool g_initialized = false;
+
+// Cached ROM and disk data for reboot
+static std::vector<uint8_t> g_cached_rom;
+static std::vector<uint8_t> g_cached_disks[16];
+static int g_cached_disk_slices[16] = {0};
 
 //=============================================================================
 // I/O State
@@ -602,19 +640,15 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeInit(JNIEnv* env, jobject thiz) {
 
     emu_io_init();
 
-    // Create memory and HBIOS dispatch first
-    g_memory = new banked_mem();
-    g_hbios = new HBIOSDispatch();
+    // Create emulator state (memory, cpu, hbios, delegate)
+    g_emu = new EmulatorState();
 
-    // Create delegate that connects memory and HBIOS
-    g_delegate = new AndroidEmulatorDelegate(g_memory, g_hbios);
-
-    // Create CPU with memory and delegate
-    g_cpu = new hbios_cpu(g_memory, g_delegate);
-
-    // Connect HBIOS dispatch to CPU and memory
-    g_hbios->setCPU(g_cpu);
-    g_hbios->setMemory(g_memory);
+    // Clear cached data
+    g_cached_rom.clear();
+    for (int i = 0; i < 16; i++) {
+        g_cached_disks[i].clear();
+        g_cached_disk_slices[i] = 0;
+    }
 
     g_callback_obj = env->NewGlobalRef(thiz);
     jclass clazz = env->GetObjectClass(thiz);
@@ -636,17 +670,15 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeDestroy(JNIEnv* env, jobject thiz)
         g_callback_obj = nullptr;
     }
 
-    delete g_cpu;
-    g_cpu = nullptr;
+    delete g_emu;
+    g_emu = nullptr;
 
-    delete g_delegate;
-    g_delegate = nullptr;
-
-    delete g_hbios;
-    g_hbios = nullptr;
-
-    delete g_memory;
-    g_memory = nullptr;
+    // Clear cached data
+    g_cached_rom.clear();
+    for (int i = 0; i < 16; i++) {
+        g_cached_disks[i].clear();
+        g_cached_disk_slices[i] = 0;
+    }
 
     emu_io_cleanup();
 
@@ -658,7 +690,7 @@ JNIEXPORT jboolean JNICALL
 Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
                                                        jbyteArray romData) {
     (void)thiz;
-    if (!g_initialized || !g_memory) {
+    if (!g_initialized || !g_emu) {
         LOGE("Engine not initialized");
         return JNI_FALSE;
     }
@@ -668,7 +700,11 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 
     LOGI("Loading ROM, size: %d bytes", len);
 
-    bool success = emu_load_rom_from_buffer(g_memory,
+    // Cache ROM data for reboot
+    g_cached_rom.assign(reinterpret_cast<uint8_t*>(data),
+                        reinterpret_cast<uint8_t*>(data) + len);
+
+    bool success = emu_load_rom_from_buffer(g_emu->memory,
                                             reinterpret_cast<uint8_t*>(data),
                                             static_cast<size_t>(len));
 
@@ -687,8 +723,13 @@ JNIEXPORT jboolean JNICALL
 Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz,
                                                         jint unit, jbyteArray diskData) {
     (void)thiz;
-    if (!g_initialized || !g_hbios) {
+    if (!g_initialized || !g_emu) {
         LOGE("Engine not initialized");
+        return JNI_FALSE;
+    }
+
+    if (unit < 0 || unit >= 16) {
+        LOGE("Invalid disk unit: %d", unit);
         return JNI_FALSE;
     }
 
@@ -697,7 +738,11 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz
 
     LOGI("Loading disk unit %d, size: %d bytes", unit, len);
 
-    bool success = g_hbios->loadDisk(
+    // Cache disk data for reboot
+    g_cached_disks[unit].assign(reinterpret_cast<uint8_t*>(data),
+                                 reinterpret_cast<uint8_t*>(data) + len);
+
+    bool success = g_emu->hbios->loadDisk(
         static_cast<uint8_t>(unit),
         reinterpret_cast<uint8_t*>(data),
         static_cast<size_t>(len)
@@ -712,17 +757,43 @@ JNIEXPORT void JNICALL
 Java_com_romwbw_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
-    if (!g_initialized || !g_memory || !g_cpu || !g_hbios) {
+    if (!g_initialized || !g_emu) {
         LOGE("Engine not initialized");
         return;
     }
 
     LOGI("Completing emulator initialization");
-    emu_complete_init(g_memory, g_hbios, nullptr);
 
-    g_cpu->set_cpu_mode(qkz80::MODE_Z80);
-    g_cpu->regs.PC.set_pair16(0x0000);
-    g_cpu->regs.SP.set_pair16(0x0000);
+    // Build disk_slices array from HBIOSDispatch's stored slice counts
+    // This is needed for emu_populate_drive_map to assign drive letters (A:, B:, etc.)
+    int disk_slices[16];
+    for (int i = 0; i < 16; i++) {
+        disk_slices[i] = g_emu->hbios->getDisk(i).max_slices;
+        // Cache slice counts for reboot
+        g_cached_disk_slices[i] = disk_slices[i];
+        if (g_emu->hbios->isDiskLoaded(i)) {
+            LOGI("Disk %d: loaded=true, max_slices=%d", i, disk_slices[i]);
+        }
+    }
+
+    emu_complete_init(g_emu->memory, g_emu->hbios, disk_slices);
+
+    // Debug: dump drive map after init
+    uint8_t* rom = g_emu->memory->get_rom();
+    if (rom) {
+        LOGI("Drive map after init:");
+        for (int i = 0; i < 16; i++) {
+            uint8_t val = rom[0x120 + i];  // DRVMAP_BASE
+            if (val != 0xFF) {
+                LOGI("  Drive %c: unit=%d, slice=%d (0x%02X)",
+                     'A' + i, val & 0x0F, (val >> 4) & 0x0F, val);
+            }
+        }
+    }
+
+    g_emu->cpu->set_cpu_mode(qkz80::MODE_Z80);
+    g_emu->cpu->regs.PC.set_pair16(0x0000);
+    g_emu->cpu->regs.SP.set_pair16(0x0000);
 
     LOGI("Emulator ready to run");
 }
@@ -731,17 +802,41 @@ JNIEXPORT void JNICALL
 Java_com_romwbw_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
                                                    jint instructionCount) {
     (void)thiz;
-    if (!g_initialized || !g_cpu) {
+    if (!g_initialized || !g_emu) {
+        LOGE("nativeRun: not initialized");
         return;
     }
 
-    g_running = true;
+    // Check if we're blocked waiting for input (CIOIN called with no data)
+    if (g_emu->hbios->getState() == HBIOS_NEEDS_INPUT) {
+        // Don't execute - just check for output and return
+        // The UI will call us again after input is provided
+    } else {
+        g_running = true;
 
-    for (int i = 0; i < instructionCount && g_running; i++) {
-        g_cpu->execute();
+        for (int i = 0; i < instructionCount && g_running; i++) {
+            g_emu->cpu->execute();
+
+            // Check state after each instruction
+            HBIOSState state = g_emu->hbios->getState();
+            if (state == HBIOS_NEEDS_INPUT) {
+                break;  // Stop executing until input is provided
+            }
+            if (state == HBIOS_HALTED) {
+                g_running = false;
+                break;
+            }
+        }
     }
 
-    // Flush output queue
+    // Debug: log PC after batch
+    static int run_count = 0;
+    if (++run_count <= 5) {
+        LOGI("nativeRun #%d: PC=0x%04X after %d instructions",
+             run_count, g_emu->cpu->regs.PC.get_pair16(), instructionCount);
+    }
+
+    // Flush output queue (from direct port 0x01 writes)
     std::vector<uint8_t> output;
     {
         std::lock_guard<std::mutex> lock(g_output_mutex);
@@ -749,6 +844,21 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
             output.push_back(g_output_queue.front());
             g_output_queue.pop();
         }
+    }
+
+    // Also flush HBIOS output buffer (from CIOOUT calls via port 0xEF dispatch)
+    if (g_emu->hbios) {
+        std::vector<uint8_t> hbios_output = g_emu->hbios->getOutputChars();
+        if (!hbios_output.empty() && run_count <= 5) {
+            LOGI("nativeRun: got %zu chars from HBIOS buffer", hbios_output.size());
+        }
+        output.insert(output.end(), hbios_output.begin(), hbios_output.end());
+    }
+
+    // Debug: log output
+    static int output_log_count = 0;
+    if (!output.empty() && output_log_count++ < 3) {
+        LOGI("nativeRun: sending %zu chars to Java", output.size());
     }
 
     if (!output.empty() && g_callback_obj && g_on_output_method) {
@@ -790,22 +900,67 @@ JNIEXPORT void JNICALL
 Java_com_romwbw_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
-    if (!g_initialized || !g_cpu) {
+    if (!g_initialized) {
         return;
     }
 
+    LOGI("Emulator reset: destroying and recreating state");
+
     g_running = false;
 
+    // Clear console queues
     emu_console_clear_queue();
     {
         std::lock_guard<std::mutex> lock(g_output_mutex);
         while (!g_output_queue.empty()) g_output_queue.pop();
     }
 
-    g_cpu->regs.PC.set_pair16(0x0000);
-    g_cpu->regs.SP.set_pair16(0x0000);
+    // Destroy old emulator state
+    delete g_emu;
+    g_emu = nullptr;
 
-    LOGI("Emulator reset");
+    // Create fresh emulator state
+    g_emu = new EmulatorState();
+
+    // Reload ROM from cache
+    if (!g_cached_rom.empty()) {
+        LOGI("Reloading ROM from cache (%zu bytes)", g_cached_rom.size());
+        emu_load_rom_from_buffer(g_emu->memory, g_cached_rom.data(), g_cached_rom.size());
+    }
+
+    // Reload disks from cache
+    for (int i = 0; i < 16; i++) {
+        if (!g_cached_disks[i].empty()) {
+            LOGI("Reloading disk %d from cache (%zu bytes)", i, g_cached_disks[i].size());
+            g_emu->hbios->loadDisk(i, g_cached_disks[i].data(), g_cached_disks[i].size());
+            if (g_cached_disk_slices[i] > 0) {
+                g_emu->hbios->setDiskSliceCount(i, g_cached_disk_slices[i]);
+            }
+        }
+    }
+
+    // Complete initialization (builds drive map, sets up HCB, etc.)
+    emu_complete_init(g_emu->memory, g_emu->hbios, g_cached_disk_slices);
+
+    // Debug: dump drive map after reset
+    uint8_t* rom = g_emu->memory->get_rom();
+    if (rom) {
+        LOGI("Drive map after reset:");
+        for (int i = 0; i < 16; i++) {
+            uint8_t val = rom[0x120 + i];  // DRVMAP_BASE
+            if (val != 0xFF) {
+                LOGI("  Drive %c: unit=%d, slice=%d (0x%02X)",
+                     'A' + i, val & 0x0F, (val >> 4) & 0x0F, val);
+            }
+        }
+    }
+
+    // Set CPU to start state
+    g_emu->cpu->set_cpu_mode(qkz80::MODE_Z80);
+    g_emu->cpu->regs.PC.set_pair16(0x0000);
+    g_emu->cpu->regs.SP.set_pair16(0x0000);
+
+    LOGI("Emulator reset complete (fresh state)");
 }
 
 JNIEXPORT void JNICALL
@@ -813,10 +968,14 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeSetDiskSliceCount(JNIEnv* env, job
                                                                   jint unit, jint slices) {
     (void)env;
     (void)thiz;
-    if (!g_initialized || !g_hbios) {
+    if (!g_initialized || !g_emu) {
         return;
     }
-    g_hbios->setDiskSliceCount(unit, slices);
+    g_emu->hbios->setDiskSliceCount(unit, slices);
+    // Also cache for reboot
+    if (unit >= 0 && unit < 16) {
+        g_cached_disk_slices[unit] = slices;
+    }
     LOGI("Set disk %d slice count to %d", unit, slices);
 }
 
@@ -825,10 +984,10 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeIsDiskLoaded(JNIEnv* env, jobject 
                                                             jint unit) {
     (void)env;
     (void)thiz;
-    if (!g_initialized || !g_hbios) {
+    if (!g_initialized || !g_emu) {
         return JNI_FALSE;
     }
-    return g_hbios->isDiskLoaded(unit) ? JNI_TRUE : JNI_FALSE;
+    return g_emu->hbios->isDiskLoaded(unit) ? JNI_TRUE : JNI_FALSE;
 }
 
 } // extern "C"
