@@ -128,12 +128,12 @@ Uses RomWBW hd1k format:
 
 ## License
 
-MIT License
+GNU General Public License v3.0 - see [LICENSE](LICENSE) for details.
 
 ### Third-Party Licenses
 - **CP/M**: Released by Lineo for non-commercial use
 - **RomWBW**: MIT License
-- **qkz80**: MIT License
+- **qkz80**: GPL v3 (from cpmemu)
 
 ## Acknowledgments
 
