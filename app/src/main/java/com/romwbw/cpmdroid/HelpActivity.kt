@@ -35,7 +35,7 @@ data class HelpIndex(
 class HelpActivity : AppCompatActivity() {
 
     companion object {
-        private const val INDEX_URL = "https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json"
+        private const val INDEX_URL = "https://github.com/avwohl/cpmdroid/releases/latest/download/help_index.json"
     }
 
     private lateinit var recyclerView: RecyclerView

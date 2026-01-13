@@ -505,12 +505,21 @@ class MainActivity : AppCompatActivity() {
         val settings = settingsRepo.getSettings()
         terminalView.customFontSize = settings.fontSize.toFloat()
 
+        // Display version string on terminal before ROM output
+        val versionBanner = "CPMDroid v${getVersionString()}\r\n"
+        terminalView.processOutput(versionBanner.toByteArray())
+
         startEmulation()
 
         // Focus terminal after reboot
         terminalView.post {
             terminalView.requestFocus()
         }
+
+        // Send CR to trigger ROM prompt display (same as initial boot)
+        mainHandler.postDelayed({
+            emulator.queueInput(0x0D)
+        }, 500)
 
         // Re-send boot string if configured
         val bootString = settings.bootString

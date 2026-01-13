@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "base_url": "https://github.com/avwohl/cpmdroid/releases/latest/download/",
+  "topics": [
+    {
+      "id": "quick_start",
+      "title": "Quick Start Guide",
+      "description": "Getting started with CPMDroid",
+      "filename": "help_quick_start.md"
+    },
+    {
+      "id": "cpm22",
+      "title": "CP/M 2.2 User Guide",
+      "description": "Complete guide to CP/M 2.2 operating system",
+      "filename": "help_cpm22.md"
+    },
+    {
+      "id": "zsdos",
+      "title": "ZSDOS User Guide",
+      "description": "Z-System DOS with date/time stamping",
+      "filename": "help_zsdos.md"
+    },
+    {
+      "id": "nzcom",
+      "title": "NZCOM User Guide",
+      "description": "Z-System for CP/M 2.2 environments",
+      "filename": "help_nzcom.md"
+    },
+    {
+      "id": "zpm3",
+      "title": "ZPM3 User Guide",
+      "description": "Z-System Plus/M3 enhanced CP/M 3",
+      "filename": "help_zpm3.md"
+    },
+    {
+      "id": "qpm",
+      "title": "QPM User Guide",
+      "description": "QP/M operating system",
+      "filename": "help_qpm.md"
+    },
+    {
+      "id": "disk_transfer",
+      "title": "File Transfer (R8/W8)",
+      "description": "Transfer files between Android and CP/M",
+      "filename": "help_file_transfer.md"
+    }
+  ]
+}
