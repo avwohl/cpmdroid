@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
+    <!-- Background -->
+    <rect fill="#1976D2" x="0" y="0" width="108" height="108"/>
+
+    <!-- Terminal screen -->
+    <rect fill="#000000" x="18" y="24" width="72" height="60"/>
+
+    <!-- CP/M text - C -->
+    <path fill="#00FF00" d="M24,45 L30,45 L30,42 L24,42 L24,39 L32,39 L32,36 L22,36 L22,48 L32,48 L32,45 L24,45z"/>
+
+    <!-- CP/M text - P -->
+    <path fill="#00FF00" d="M36,36 L36,48 L38,48 L38,44 L42,44 L42,42 L38,42 L38,38 L44,38 L44,36z"/>
+
+    <!-- CP/M text - M -->
+    <path fill="#00FF00" d="M48,36 L48,48 L50,48 L50,40 L54,48 L56,48 L60,40 L60,48 L62,48 L62,36 L60,36 L55,46 L50,36z"/>
+
+    <!-- Cursor -->
+    <rect fill="#00FF00" x="24" y="54" width="8" height="3"/>
+
+    <!-- Z80 text - Z -->
+    <path fill="#FFFFFF" d="M24,66 L32,66 L32,68 L26,68 L32,74 L32,76 L24,76 L24,74 L30,74 L24,68z"/>
+
+    <!-- Z80 text - 8 -->
+    <path fill="#FFFFFF" d="M36,66 L36,68 L40,68 L40,70 L36,70 L36,72 L40,72 L40,74 L36,74 L36,76 L42,76 L42,74 L44,74 L44,72 L42,72 L42,70 L44,70 L44,68 L42,68 L42,66z"/>
+
+    <!-- Z80 text - 0 -->
+    <path fill="#FFFFFF" d="M48,66 L56,66 L56,76 L48,76 L48,66 M50,68 L50,74 L54,74 L54,68z" fill-rule="evenodd"/>
+</svg>

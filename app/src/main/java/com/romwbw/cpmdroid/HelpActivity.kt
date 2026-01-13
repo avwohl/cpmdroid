@@ -109,7 +109,7 @@ class HelpActivity : AppCompatActivity() {
                     id = topicObj.getString("id"),
                     title = topicObj.getString("title"),
                     description = topicObj.optString("description", ""),
-                    file = topicObj.getString("file")
+                    file = topicObj.getString("filename")
                 ))
             }
 

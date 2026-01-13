@@ -244,12 +244,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showAboutDialog() {
-        val version = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
+    private fun getVersionString(): String {
+        return try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
         } catch (e: Exception) {
             "1.0"
         }
+    }
+
+    private fun showAboutDialog() {
+        val version = getVersionString()
 
         AlertDialog.Builder(this)
             .setTitle("About CPMDroid")
@@ -264,7 +268,7 @@ class MainActivity : AppCompatActivity() {
                 - Downloadable OS disk images
 
                 Source code:
-                github.com/avwohl/ioscpm
+                github.com/avwohl/cpmdroid
 
                 Based on RomWBW by Wayne Warthen
                 romwbw.net
@@ -418,6 +422,10 @@ class MainActivity : AppCompatActivity() {
                     romLoaded = true
 
                     mainHandler.post {
+                        // Display version string on terminal before ROM output
+                        val versionBanner = "CPMDroid v${getVersionString()}\r\n"
+                        terminalView.processOutput(versionBanner.toByteArray())
+
                         updateStatus()
                         startEmulation()
 

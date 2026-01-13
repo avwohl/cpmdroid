@@ -353,11 +353,11 @@ class TerminalView @JvmOverloads constructor(
         val scaleY = height.toFloat() / terminalHeight
         scale = minOf(scaleX, scaleY)
 
-        // Center the scaled terminal
+        // Align terminal to top-left (with small left padding)
+        // This ensures text starts at top and any unused space is at bottom
         val scaledWidth = terminalWidth * scale
-        val scaledHeight = terminalHeight * scale
-        offsetX = (width - scaledWidth) / 2f + 4f  // Add small left padding
-        offsetY = (height - scaledHeight) / 2f
+        offsetX = (width - scaledWidth) / 2f + 4f  // Center horizontally with small left padding
+        offsetY = 0f  // Align to top
 
         android.util.Log.i("TerminalView", "calculateScaling: scale=$scale, offsetX=$offsetX, offsetY=$offsetY")
     }
