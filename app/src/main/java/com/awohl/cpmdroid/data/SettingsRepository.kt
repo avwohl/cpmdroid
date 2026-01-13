@@ -1,4 +1,4 @@
-package com.romwbw.cpmdroid.data
+package com.awohl.cpmdroid.data
 
 import android.content.Context
 import android.content.SharedPreferences

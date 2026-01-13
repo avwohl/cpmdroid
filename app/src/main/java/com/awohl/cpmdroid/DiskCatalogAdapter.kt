@@ -1,4 +1,4 @@
-package com.romwbw.cpmdroid
+package com.awohl.cpmdroid
 
 import android.view.LayoutInflater
 import android.view.View
@@ -6,7 +6,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import com.romwbw.cpmdroid.data.DiskInfo
+import com.awohl.cpmdroid.data.DiskInfo
 
 class DiskCatalogAdapter(
     private val disks: List<DiskInfo>,

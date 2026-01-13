@@ -1,4 +1,4 @@
-package com.romwbw.cpmdroid
+package com.awohl.cpmdroid
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -312,6 +312,15 @@ class TerminalView @JvmOverloads constructor(
         calculateFontSize()
     }
 
+    override fun setPadding(left: Int, top: Int, right: Int, bottom: Int) {
+        super.setPadding(left, top, right, bottom)
+        android.util.Log.i("TerminalView", "setPadding: bottom=$bottom")
+        if (width > 0 && height > 0) {
+            calculateFontSize()
+            invalidate()
+        }
+    }
+
     /** Force recalculation of terminal dimensions after layout changes */
     fun recalculateSize() {
         post {
@@ -323,6 +332,11 @@ class TerminalView @JvmOverloads constructor(
     private fun calculateFontSize() {
         if (width == 0 || height == 0) return
 
+        // Account for padding when calculating available space
+        val availableWidth = width - paddingLeft - paddingRight
+        val availableHeight = height - paddingTop - paddingBottom
+        if (availableWidth <= 0 || availableHeight <= 0) return
+
         // Use a readable font size (11sp scaled to screen density)
         val fontSize = 11f * resources.displayMetrics.scaledDensity
         textPaint.textSize = fontSize
@@ -330,9 +344,9 @@ class TerminalView @JvmOverloads constructor(
         charWidth = textPaint.measureText("M")
         charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
 
-        // Calculate columns and rows that fill the screen at this font size
-        val newCols = maxOf(MIN_COLS, (width / charWidth).toInt())
-        val newRows = maxOf(MIN_ROWS, (height / charHeight).toInt())
+        // Calculate columns and rows that fill the available space at this font size
+        val newCols = maxOf(MIN_COLS, (availableWidth / charWidth).toInt())
+        val newRows = maxOf(MIN_ROWS, (availableHeight / charHeight).toInt())
 
         // Resize buffers if dimensions changed
         if (newCols != cols || newRows != rows) {
@@ -379,6 +393,10 @@ class TerminalView @JvmOverloads constructor(
         val metrics = textPaint.fontMetrics
         val baseline = -metrics.ascent
 
+        // Account for padding when drawing
+        val offsetX = paddingLeft.toFloat()
+        val offsetY = paddingTop.toFloat()
+
         // Draw characters (no scaling - dynamic rows/cols fill the screen)
         for (row in 0 until rows) {
             for (col in 0 until cols) {
@@ -387,8 +405,8 @@ class TerminalView @JvmOverloads constructor(
                     textPaint.color = colorBuffer[row][col]
                     canvas.drawText(
                         ch.toString(),
-                        col * charWidth,
-                        row * charHeight + baseline,
+                        offsetX + col * charWidth,
+                        offsetY + row * charHeight + baseline,
                         textPaint
                     )
                 }
@@ -397,8 +415,8 @@ class TerminalView @JvmOverloads constructor(
 
         // Draw cursor
         if (cursorVisible && cursorRow < rows && cursorCol < cols) {
-            val cursorX = cursorCol * charWidth
-            val cursorY = cursorRow * charHeight + charHeight - 4f
+            val cursorX = offsetX + cursorCol * charWidth
+            val cursorY = offsetY + cursorRow * charHeight + charHeight - 4f
             canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + 3f, cursorPaint)
         }
     }

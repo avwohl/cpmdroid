@@ -47,7 +47,7 @@ File Transfer
 Transfer files between your Android device and CP/M using the R8/W8 utilities:
 • Place files in the Imports folder to read them into CP/M
 • Export files from CP/M to the Exports folder
-• Access folders via Android/data/com.romwbw.cpmdroid/files/
+• Access folders via Android/data/com.awohl.cpmdroid/files/
 
 Multiple Operating Systems
 

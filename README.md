@@ -39,8 +39,8 @@ A Z80/CP/M emulator for Android phones and tablets, built on the [RomWBW](https:
 
 Transfer files between Android and CP/M using the R8/W8 utilities:
 
-- **Imports folder**: `Android/data/com.romwbw.cpmdroid/files/Imports/`
-- **Exports folder**: `Android/data/com.romwbw.cpmdroid/files/Exports/`
+- **Imports folder**: `Android/data/com.awohl.cpmdroid/files/Imports/`
+- **Exports folder**: `Android/data/com.awohl.cpmdroid/files/Exports/`
 
 To import a file to CP/M:
 1. Copy file to Imports folder using a file manager

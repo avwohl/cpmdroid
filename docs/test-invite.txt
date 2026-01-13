@@ -17,3 +17,8 @@ Copy/paste support
 Adjustable font size
 Works on phones and tablets
 Open source https://github.com/avwohl/cpmdroid
+rc2014-z80@googlegroups.com,
+retro-comp@googlegroups.com,
+s100computers@googlegroups.com
+https://play.google.com/store/apps/details?id=com.awohl.cpmdroid
+https://play.google.com/apps/testing/com.awohl.cpmdroid

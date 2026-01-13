@@ -1,4 +1,4 @@
-package com.romwbw.cpmdroid
+package com.awohl.cpmdroid
 
 import android.content.Intent
 import android.os.Bundle

@@ -660,7 +660,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeInit(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeInit(JNIEnv* env, jobject thiz) {
     LOGI("Initializing emulator engine");
 
     if (g_initialized) {
@@ -689,7 +689,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeInit(JNIEnv* env, jobject thiz) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeDestroy(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeDestroy(JNIEnv* env, jobject thiz) {
     (void)thiz;
     LOGI("Destroying emulator engine");
 
@@ -717,7 +717,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeDestroy(JNIEnv* env, jobject thiz)
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
                                                        jbyteArray romData) {
     (void)thiz;
     if (!g_initialized || !g_emu) {
@@ -750,7 +750,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz,
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz,
                                                         jint unit, jbyteArray diskData) {
     (void)thiz;
     if (!g_initialized || !g_emu) {
@@ -784,7 +784,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
     if (!g_initialized || !g_emu) {
@@ -829,7 +829,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject 
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
                                                    jint instructionCount) {
     (void)thiz;
     if (!g_initialized || !g_emu) {
@@ -901,14 +901,14 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeStop(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeStop(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
     g_running = false;
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeQueueInput(JNIEnv* env, jobject thiz,
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeQueueInput(JNIEnv* env, jobject thiz,
                                                           jint ch) {
     (void)env;
     (void)thiz;
@@ -916,7 +916,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeQueueInput(JNIEnv* env, jobject th
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeQueueInputString(JNIEnv* env, jobject thiz,
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeQueueInputString(JNIEnv* env, jobject thiz,
                                                                 jstring str) {
     (void)thiz;
     const char* cstr = env->GetStringUTFChars(str, nullptr);
@@ -927,7 +927,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeQueueInputString(JNIEnv* env, jobj
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
     if (!g_initialized) {
@@ -994,7 +994,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeSetDiskSliceCount(JNIEnv* env, jobject thiz,
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetDiskSliceCount(JNIEnv* env, jobject thiz,
                                                                   jint unit, jint slices) {
     (void)env;
     (void)thiz;
@@ -1010,7 +1010,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeSetDiskSliceCount(JNIEnv* env, job
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeIsDiskLoaded(JNIEnv* env, jobject thiz,
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsDiskLoaded(JNIEnv* env, jobject thiz,
                                                             jint unit) {
     (void)env;
     (void)thiz;
@@ -1025,28 +1025,28 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeIsDiskLoaded(JNIEnv* env, jobject 
 //=============================================================================
 
 JNIEXPORT jint JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileState(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileState(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
     return static_cast<jint>(emu_host_file_get_state());
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileReadName(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileReadName(JNIEnv* env, jobject thiz) {
     (void)thiz;
     const char* name = emu_host_file_get_read_name();
     return env->NewStringUTF(name ? name : "");
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileWriteName(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileWriteName(JNIEnv* env, jobject thiz) {
     (void)thiz;
     const char* name = emu_host_file_get_write_name();
     return env->NewStringUTF(name ? name : "");
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeProvideHostFileData(JNIEnv* env, jobject thiz,
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeProvideHostFileData(JNIEnv* env, jobject thiz,
                                                                     jbyteArray data) {
     (void)thiz;
     if (data == nullptr) {
@@ -1064,7 +1064,7 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeProvideHostFileData(JNIEnv* env, j
 }
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileWriteData(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileWriteData(JNIEnv* env, jobject thiz) {
     (void)thiz;
     const uint8_t* data = emu_host_file_get_write_data();
     size_t size = emu_host_file_get_write_size();
@@ -1080,14 +1080,14 @@ Java_com_romwbw_cpmdroid_EmulatorEngine_nativeGetHostFileWriteData(JNIEnv* env, 
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeHostFileWriteDone(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeHostFileWriteDone(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
     emu_host_file_write_done();
 }
 
 JNIEXPORT void JNICALL
-Java_com_romwbw_cpmdroid_EmulatorEngine_nativeHostFileCancel(JNIEnv* env, jobject thiz) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeHostFileCancel(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
     emu_host_file_cancel();

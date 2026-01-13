@@ -1,4 +1,4 @@
-package com.romwbw.cpmdroid.data
+package com.awohl.cpmdroid.data
 
 data class DiskInfo(
     val filename: String,

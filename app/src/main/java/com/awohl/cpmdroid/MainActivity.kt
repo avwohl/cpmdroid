@@ -1,4 +1,4 @@
-package com.romwbw.cpmdroid
+package com.awohl.cpmdroid
 
 import android.content.Context
 import android.content.Intent
@@ -17,9 +17,9 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.romwbw.cpmdroid.data.DiskCatalogRepository
-import com.romwbw.cpmdroid.data.DiskDownloadManager
-import com.romwbw.cpmdroid.data.SettingsRepository
+import com.awohl.cpmdroid.data.DiskCatalogRepository
+import com.awohl.cpmdroid.data.DiskDownloadManager
+import com.awohl.cpmdroid.data.SettingsRepository
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException

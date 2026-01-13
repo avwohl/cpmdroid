@@ -64,5 +64,5 @@ Or open in Android Studio and build from there.
 https://github.com/avwohl/ioscpm/releases/latest/download/disks.xml
 
 ### Storage Locations
-- Disks: `/storage/emulated/0/Android/data/com.romwbw.cpmdroid/files/Disks/`
+- Disks: `/storage/emulated/0/Android/data/com.awohl.cpmdroid/files/Disks/`
 - Settings: SharedPreferences

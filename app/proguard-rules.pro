@@ -6,6 +6,6 @@
 }
 
 # Keep EmulatorEngine callbacks
--keep class com.romwbw.cpmdroid.EmulatorEngine {
+-keep class com.awohl.cpmdroid.EmulatorEngine {
     void onOutput(byte[]);
 }

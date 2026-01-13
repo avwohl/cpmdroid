@@ -66,7 +66,7 @@ Use R8 and W8 utilities to transfer files between Android and CP/M:
 2. In CP/M, run `R8 FILENAME.EXT` to import
 3. Run `W8 FILENAME.EXT` to export to **Exports** folder
 
-The Imports/Exports folders are in Android/data/com.romwbw.cpmdroid/files/
+The Imports/Exports folders are in Android/data/com.awohl.cpmdroid/files/
 
 ## Changing Disk Images
 

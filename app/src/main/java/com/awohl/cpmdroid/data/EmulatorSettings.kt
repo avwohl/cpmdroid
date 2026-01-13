@@ -1,4 +1,4 @@
-package com.romwbw.cpmdroid.data
+package com.awohl.cpmdroid.data
 
 data class EmulatorSettings(
     val romName: String = "emu_avw.rom",

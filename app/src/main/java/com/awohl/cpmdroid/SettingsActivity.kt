@@ -1,4 +1,4 @@
-package com.romwbw.cpmdroid
+package com.awohl.cpmdroid
 
 import android.app.ProgressDialog
 import android.os.Bundle
@@ -14,8 +14,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.romwbw.cpmdroid.data.*
-import com.romwbw.cpmdroid.databinding.ActivitySettingsBinding
+import com.awohl.cpmdroid.data.*
+import com.awohl.cpmdroid.databinding.ActivitySettingsBinding
 import kotlinx.coroutines.launch
 
 class SettingsActivity : AppCompatActivity() {
