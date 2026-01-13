@@ -348,34 +348,18 @@ class TerminalView @JvmOverloads constructor(
         val terminalWidth = COLS * charWidth
         val terminalHeight = ROWS * charHeight
 
-        // Calculate scale factors for each dimension
+        // Calculate scale to fill view (uniform scaling)
         val scaleX = width.toFloat() / terminalWidth
         val scaleY = height.toFloat() / terminalHeight
+        scale = minOf(scaleX, scaleY)
 
-        // Determine view and terminal aspect ratios
-        val viewAspect = width.toFloat() / height.toFloat()
-        val terminalAspect = terminalWidth / terminalHeight
+        // Align terminal to top (with horizontal centering)
+        // This ensures text starts at top and any unused space is at bottom
+        val scaledWidth = terminalWidth * scale
+        offsetX = (width - scaledWidth) / 2f + 4f  // Center horizontally with small left padding
+        offsetY = 0f  // Align to top
 
-        // Choose scaling strategy based on orientation
-        // Portrait (tall view): scale to fill height, center horizontally
-        // Landscape (wide view): scale to fill width, align to top
-        if (viewAspect < terminalAspect) {
-            // Portrait mode: view is taller than terminal aspect ratio
-            // Scale to fill height (terminal will be wider than view)
-            scale = scaleY
-            val scaledWidth = terminalWidth * scale
-            offsetX = (width - scaledWidth) / 2f  // Center horizontally (may be negative = clipped)
-            offsetY = 0f  // Align to top
-        } else {
-            // Landscape mode: view is wider than terminal aspect ratio
-            // Scale to fill width (terminal will be shorter than view)
-            scale = scaleX
-            val scaledWidth = terminalWidth * scale
-            offsetX = (width - scaledWidth) / 2f + 4f  // Center horizontally with small padding
-            offsetY = 0f  // Align to top
-        }
-
-        android.util.Log.i("TerminalView", "calculateScaling: scale=$scale, offsetX=$offsetX, offsetY=$offsetY, viewAspect=$viewAspect, termAspect=$terminalAspect")
+        android.util.Log.i("TerminalView", "calculateScaling: scale=$scale, offsetX=$offsetX, offsetY=$offsetY")
     }
 
     override fun onDraw(canvas: Canvas) {
