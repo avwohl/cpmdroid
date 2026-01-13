@@ -499,6 +499,7 @@ class MainActivity : AppCompatActivity() {
     private fun bootEmulation() {
         stopEmulation()
         terminalView.clear()
+        terminalView.requestLayout()
         emulator.reset()
 
         // Reload settings in case they changed
