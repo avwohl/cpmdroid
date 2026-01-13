@@ -353,7 +353,7 @@ class TerminalView @JvmOverloads constructor(
         val scaleY = height.toFloat() / terminalHeight
         scale = minOf(scaleX, scaleY)
 
-        // Align terminal to top-left (with small left padding)
+        // Align terminal to top (with horizontal centering)
         // This ensures text starts at top and any unused space is at bottom
         val scaledWidth = terminalWidth * scale
         offsetX = (width - scaledWidth) / 2f + 4f  // Center horizontally with small left padding
