@@ -631,6 +631,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Force layout recalculation after returning from other activities
+        terminalView.requestLayout()
         if (romLoaded) {
             // Reload settings in case they changed
             val settings = settingsRepo.getSettings()
