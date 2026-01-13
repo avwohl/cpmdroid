@@ -313,38 +313,29 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private fun calculateFontSize() {
-        // Calculate font size to fit at least MIN_COLS (80) columns
-        if (customFontSize > 0) {
-            applyCustomFontSize()
-            // Check if custom size fits 80 columns, if not, scale down
-            val colsAtCustomSize = (width / charWidth).toInt()
-            if (colsAtCustomSize < MIN_COLS) {
-                // Scale down to fit 80 columns
-                val maxCharWidth = width.toFloat() / MIN_COLS
-                var testSize = customFontSize * resources.displayMetrics.density
-                while (testSize > 8f) {
-                    textPaint.textSize = testSize
-                    if (textPaint.measureText("M") <= maxCharWidth) break
-                    testSize -= 1f
-                }
-                charWidth = textPaint.measureText("M")
-                charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
-            }
-        } else {
-            // Auto-calculate font size to fit MIN_COLS columns
-            val maxCharWidth = width.toFloat() / MIN_COLS
-            var testSize = 24f * resources.displayMetrics.density  // Start larger
-            while (testSize > 8f) {
-                textPaint.textSize = testSize
-                if (textPaint.measureText("M") <= maxCharWidth) break
-                testSize -= 1f
-            }
-            charWidth = textPaint.measureText("M")
-            charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
+        if (width == 0 || height == 0) return
+
+        // Calculate target char width for exactly 80 columns
+        val targetCharWidth = width.toFloat() / MIN_COLS
+
+        // Find the font size that produces this char width
+        // Start from a reasonable size and search downward for precision
+        var fontSize = 32f
+        textPaint.textSize = fontSize
+        var measuredWidth = textPaint.measureText("M")
+
+        // If current font is too wide, scale down proportionally
+        if (measuredWidth > targetCharWidth) {
+            fontSize = fontSize * targetCharWidth / measuredWidth
         }
 
-        // Calculate how many rows and columns fit on screen (at least MIN values)
-        val newCols = maxOf(MIN_COLS, (width / charWidth).toInt())
+        // Apply the calculated font size
+        textPaint.textSize = fontSize
+        charWidth = textPaint.measureText("M")
+        charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
+
+        // Fixed 80 columns, dynamic rows based on height
+        val newCols = MIN_COLS
         val newRows = maxOf(MIN_ROWS, (height / charHeight).toInt())
 
         // Resize buffers if dimensions changed
@@ -352,7 +343,7 @@ class TerminalView @JvmOverloads constructor(
             resizeBuffers(newRows, newCols)
         }
 
-        android.util.Log.i("TerminalView", "calculateFontSize: rows=$rows, cols=$cols, charWidth=$charWidth, charHeight=$charHeight")
+        android.util.Log.i("TerminalView", "calculateFontSize: fontSize=$fontSize, charWidth=$charWidth, targetWidth=$targetCharWidth, rows=$rows, cols=$cols")
     }
 
     private fun resizeBuffers(newRows: Int, newCols: Int) {
