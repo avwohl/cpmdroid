@@ -73,7 +73,7 @@
 
     </LinearLayout>
 
-    <!-- Control Strip (below terminal for portrait) -->
+    <!-- Control Strip (bottom for portrait) -->
     <LinearLayout
         android:id="@+id/controlStrip"
         android:layout_width="match_parent"
@@ -82,7 +82,7 @@
         android:background="#333333"
         android:padding="4dp"
         android:gravity="center_vertical"
-        app:layout_constraintTop_toBottomOf="@id/terminalView"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -159,10 +159,11 @@
     <com.romwbw.cpmdroid.TerminalView
         android:id="@+id/terminalView"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
         android:focusable="true"
         android:focusableInTouchMode="true"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintBottom_toTopOf="@id/controlStrip"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 

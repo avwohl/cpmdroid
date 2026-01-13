@@ -308,37 +308,6 @@ class TerminalView @JvmOverloads constructor(
         calculateFontSize()
     }
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val widthMode = MeasureSpec.getMode(widthMeasureSpec)
-        val widthSize = MeasureSpec.getSize(widthMeasureSpec)
-        val heightMode = MeasureSpec.getMode(heightMeasureSpec)
-        val heightSize = MeasureSpec.getSize(heightMeasureSpec)
-
-        // Calculate terminal dimensions based on width
-        val terminalWidth = widthSize.toFloat()
-        val charWidthAtSize = if (customFontSize > 0) {
-            val tempPaint = android.graphics.Paint(textPaint)
-            tempPaint.textSize = customFontSize * resources.displayMetrics.density
-            tempPaint.measureText("M")
-        } else {
-            terminalWidth / COLS
-        }
-        val charHeightAtSize = charWidthAtSize * 1.8f  // Approximate aspect ratio
-
-        // Calculate height needed for terminal content
-        val terminalHeight = (ROWS * charHeightAtSize).toInt()
-
-        val measuredWidth = widthSize
-        val measuredHeight = when (heightMode) {
-            MeasureSpec.EXACTLY -> heightSize
-            MeasureSpec.AT_MOST -> minOf(terminalHeight, heightSize)
-            else -> terminalHeight
-        }
-
-        android.util.Log.i("TerminalView", "onMeasure: width=$measuredWidth, height=$measuredHeight, terminalHeight=$terminalHeight")
-        setMeasuredDimension(measuredWidth, measuredHeight)
-    }
-
     // Scaling and offset for filling the view
     private var scale = 1f
     private var offsetX = 0f
@@ -379,16 +348,18 @@ class TerminalView @JvmOverloads constructor(
         val terminalWidth = COLS * charWidth
         val terminalHeight = ROWS * charHeight
 
-        // Calculate scale to fill view (uniform scaling)
+        // Scale to fill the view - use the LARGER scale to fill the space
+        // This means text will be larger and fill the screen
+        // Some content may be clipped on the smaller dimension
         val scaleX = width.toFloat() / terminalWidth
         val scaleY = height.toFloat() / terminalHeight
-        scale = minOf(scaleX, scaleY)
+        scale = maxOf(scaleX, scaleY)  // Use max to FILL the view
 
-        // Align terminal to top (with horizontal centering)
-        // This ensures text starts at top and any unused space is at bottom
+        // Center the terminal in both dimensions
         val scaledWidth = terminalWidth * scale
-        offsetX = (width - scaledWidth) / 2f + 4f  // Center horizontally with small left padding
-        offsetY = 0f  // Align to top
+        val scaledHeight = terminalHeight * scale
+        offsetX = (width - scaledWidth) / 2f  // Center horizontally
+        offsetY = (height - scaledHeight) / 2f  // Center vertically
 
         android.util.Log.i("TerminalView", "calculateScaling: scale=$scale, offsetX=$offsetX, offsetY=$offsetY")
     }
