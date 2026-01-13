@@ -1,0 +1,19 @@
+RomWBW emulator for Android -- testers needed
+
+I ported my RomWBW emulator to Android. 
+Runs a RomWBW 3.51 rom in an emulator
+At least 12 different testers are needed to enable
+ Play Store release.
+https://play.google.com/apps/internaltest/4701728052970280078
+All disk images from RomWBW are Available
+Initial release of CPMDroid - a Z80/CP/M emulator for Android.
+Full Z80 CPU emulation with RomWBW BIOS
+VT100 terminal emulation with color support
+Support for multiple CP/M operating systems (CP/M 2.2, ZSDOS, NZCOM, ZPM3, QPM)
+Up to 4 configurable disk images
+File transfer between Android and CP/M using R8/W8 utilities
+Built-in help system with documentation
+Copy/paste support
+Adjustable font size
+Works on phones and tablets
+Open source https://github.com/avwohl/cpmdroid
