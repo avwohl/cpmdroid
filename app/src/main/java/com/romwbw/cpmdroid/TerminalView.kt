@@ -308,6 +308,37 @@ class TerminalView @JvmOverloads constructor(
         calculateFontSize()
     }
 
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val widthMode = MeasureSpec.getMode(widthMeasureSpec)
+        val widthSize = MeasureSpec.getSize(widthMeasureSpec)
+        val heightMode = MeasureSpec.getMode(heightMeasureSpec)
+        val heightSize = MeasureSpec.getSize(heightMeasureSpec)
+
+        // Calculate terminal dimensions based on width
+        val terminalWidth = widthSize.toFloat()
+        val charWidthAtSize = if (customFontSize > 0) {
+            val tempPaint = android.graphics.Paint(textPaint)
+            tempPaint.textSize = customFontSize * resources.displayMetrics.density
+            tempPaint.measureText("M")
+        } else {
+            terminalWidth / COLS
+        }
+        val charHeightAtSize = charWidthAtSize * 1.8f  // Approximate aspect ratio
+
+        // Calculate height needed for terminal content
+        val terminalHeight = (ROWS * charHeightAtSize).toInt()
+
+        val measuredWidth = widthSize
+        val measuredHeight = when (heightMode) {
+            MeasureSpec.EXACTLY -> heightSize
+            MeasureSpec.AT_MOST -> minOf(terminalHeight, heightSize)
+            else -> terminalHeight
+        }
+
+        android.util.Log.i("TerminalView", "onMeasure: width=$measuredWidth, height=$measuredHeight, terminalHeight=$terminalHeight")
+        setMeasuredDimension(measuredWidth, measuredHeight)
+    }
+
     // Scaling and offset for filling the view
     private var scale = 1f
     private var offsetX = 0f
