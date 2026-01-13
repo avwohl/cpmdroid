@@ -26,12 +26,16 @@ class TerminalView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     companion object {
-        private const val ROWS = 25
-        private const val COLS = 80
+        private const val MIN_ROWS = 24
+        private const val MIN_COLS = 80
     }
 
-    private val screenBuffer = Array(ROWS) { CharArray(COLS) { ' ' } }
-    private val colorBuffer = Array(ROWS) { IntArray(COLS) { Color.GREEN } }
+    // Dynamic terminal dimensions based on screen size
+    private var rows = MIN_ROWS
+    private var cols = MIN_COLS
+
+    private var screenBuffer = Array(rows) { CharArray(cols) { ' ' } }
+    private var colorBuffer = Array(rows) { IntArray(cols) { Color.GREEN } }
 
     private var cursorRow = 0
     private var cursorCol = 0
@@ -126,10 +130,10 @@ class TerminalView @JvmOverloads constructor(
     /** Copy entire screen content to clipboard */
     fun copyScreenToClipboard(): Boolean {
         val text = StringBuilder()
-        for (row in 0 until ROWS) {
+        for (row in 0 until rows) {
             val line = String(screenBuffer[row]).trimEnd()
             text.append(line)
-            if (row < ROWS - 1) text.append("\n")
+            if (row < rows - 1) text.append("\n")
         }
         // Remove trailing empty lines
         val content = text.toString().trimEnd('\n')
@@ -308,60 +312,56 @@ class TerminalView @JvmOverloads constructor(
         calculateFontSize()
     }
 
-    // Scaling and offset for filling the view
-    private var scale = 1f
-    private var offsetX = 0f
-    private var offsetY = 0f
-
     private fun calculateFontSize() {
-        // If custom font size is set, use it
+        // Apply font size
         if (customFontSize > 0) {
-            android.util.Log.i("TerminalView", "calculateFontSize: using custom size $customFontSize")
             applyCustomFontSize()
-            calculateScaling()
-            return
+        } else {
+            // Default font size
+            val defaultSize = 14f * resources.displayMetrics.density
+            textPaint.textSize = defaultSize
+            charWidth = textPaint.measureText("M")
+            charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
         }
 
-        // Find font size that fits width (80 columns)
-        val availableWidth = width.toFloat()
-        val maxWidth = availableWidth / COLS
+        // Calculate how many rows and columns fit on screen
+        val newCols = maxOf(MIN_COLS, (width / charWidth).toInt())
+        val newRows = maxOf(MIN_ROWS, (height / charHeight).toInt())
 
-        var testSize = 8f
-        while (testSize < 100f) {
-            textPaint.textSize = testSize
-            val testWidth = textPaint.measureText("M")
-            if (testWidth > maxWidth) {
-                break
-            }
-            testSize += 1f
+        // Resize buffers if dimensions changed
+        if (newCols != cols || newRows != rows) {
+            resizeBuffers(newRows, newCols)
         }
 
-        textPaint.textSize = testSize - 1f
-        charWidth = textPaint.measureText("M")
-        charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
-
-        calculateScaling()
+        android.util.Log.i("TerminalView", "calculateFontSize: rows=$rows, cols=$cols, charWidth=$charWidth, charHeight=$charHeight")
     }
 
-    private fun calculateScaling() {
-        // Calculate terminal size at current font
-        val terminalWidth = COLS * charWidth
-        val terminalHeight = ROWS * charHeight
+    private fun resizeBuffers(newRows: Int, newCols: Int) {
+        val oldRows = rows
+        val oldCols = cols
+        val oldScreenBuffer = screenBuffer
+        val oldColorBuffer = colorBuffer
 
-        // Scale to fill the view - use the LARGER scale to fill the space
-        // This means text will be larger and fill the screen
-        // Some content may be clipped on the smaller dimension
-        val scaleX = width.toFloat() / terminalWidth
-        val scaleY = height.toFloat() / terminalHeight
-        scale = maxOf(scaleX, scaleY)  // Use max to FILL the view
+        rows = newRows
+        cols = newCols
 
-        // Center the terminal in both dimensions
-        val scaledWidth = terminalWidth * scale
-        val scaledHeight = terminalHeight * scale
-        offsetX = (width - scaledWidth) / 2f  // Center horizontally
-        offsetY = (height - scaledHeight) / 2f  // Center vertically
+        // Create new buffers
+        screenBuffer = Array(rows) { CharArray(cols) { ' ' } }
+        colorBuffer = Array(rows) { IntArray(cols) { Color.GREEN } }
 
-        android.util.Log.i("TerminalView", "calculateScaling: scale=$scale, offsetX=$offsetX, offsetY=$offsetY")
+        // Copy old content (as much as fits)
+        for (r in 0 until minOf(oldRows, rows)) {
+            for (c in 0 until minOf(oldCols, cols)) {
+                screenBuffer[r][c] = oldScreenBuffer[r][c]
+                colorBuffer[r][c] = oldColorBuffer[r][c]
+            }
+        }
+
+        // Adjust cursor position if needed
+        cursorRow = cursorRow.coerceIn(0, rows - 1)
+        cursorCol = cursorCol.coerceIn(0, cols - 1)
+
+        android.util.Log.i("TerminalView", "resizeBuffers: $oldRows x $oldCols -> $rows x $cols")
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -373,14 +373,9 @@ class TerminalView @JvmOverloads constructor(
         val metrics = textPaint.fontMetrics
         val baseline = -metrics.ascent
 
-        // Apply scaling and offset
-        canvas.save()
-        canvas.translate(offsetX, offsetY)
-        canvas.scale(scale, scale)
-
-        // Draw characters
-        for (row in 0 until ROWS) {
-            for (col in 0 until COLS) {
+        // Draw characters (no scaling - dynamic rows/cols fill the screen)
+        for (row in 0 until rows) {
+            for (col in 0 until cols) {
                 val ch = screenBuffer[row][col]
                 if (ch != ' ') {
                     textPaint.color = colorBuffer[row][col]
@@ -395,13 +390,11 @@ class TerminalView @JvmOverloads constructor(
         }
 
         // Draw cursor
-        if (cursorVisible && cursorRow < ROWS && cursorCol < COLS) {
+        if (cursorVisible && cursorRow < rows && cursorCol < cols) {
             val cursorX = cursorCol * charWidth
             val cursorY = cursorRow * charHeight + charHeight - 4f
             canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + 3f, cursorPaint)
         }
-
-        canvas.restore()
     }
 
     private var processOutputCount = 0
@@ -460,12 +453,12 @@ class TerminalView @JvmOverloads constructor(
 
         when (command) {
             'H', 'f' -> { // Cursor position
-                cursorRow = (params.getOrElse(0) { 1 } - 1).coerceIn(0, ROWS - 1)
-                cursorCol = (params.getOrElse(1) { 1 } - 1).coerceIn(0, COLS - 1)
+                cursorRow = (params.getOrElse(0) { 1 } - 1).coerceIn(0, rows - 1)
+                cursorCol = (params.getOrElse(1) { 1 } - 1).coerceIn(0, cols - 1)
             }
             'A' -> cursorRow = (cursorRow - params.getOrElse(0) { 1 }).coerceAtLeast(0)
-            'B' -> cursorRow = (cursorRow + params.getOrElse(0) { 1 }).coerceAtMost(ROWS - 1)
-            'C' -> cursorCol = (cursorCol + params.getOrElse(0) { 1 }).coerceAtMost(COLS - 1)
+            'B' -> cursorRow = (cursorRow + params.getOrElse(0) { 1 }).coerceAtMost(rows - 1)
+            'C' -> cursorCol = (cursorCol + params.getOrElse(0) { 1 }).coerceAtMost(cols - 1)
             'D' -> cursorCol = (cursorCol - params.getOrElse(0) { 1 }).coerceAtLeast(0)
             'J' -> { // Erase display
                 when (params.getOrElse(0) { 0 }) {
@@ -498,7 +491,7 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private fun putChar(ch: Char) {
-        if (cursorCol >= COLS) {
+        if (cursorCol >= cols) {
             cursorCol = 0
             newLine()
         }
@@ -509,23 +502,23 @@ class TerminalView @JvmOverloads constructor(
 
     private fun newLine() {
         cursorRow++
-        if (cursorRow >= ROWS) {
+        if (cursorRow >= rows) {
             scrollUp()
-            cursorRow = ROWS - 1
+            cursorRow = rows - 1
         }
     }
 
     private fun scrollUp() {
-        for (row in 0 until ROWS - 1) {
+        for (row in 0 until rows - 1) {
             screenBuffer[row] = screenBuffer[row + 1].copyOf()
             colorBuffer[row] = colorBuffer[row + 1].copyOf()
         }
-        screenBuffer[ROWS - 1] = CharArray(COLS) { ' ' }
-        colorBuffer[ROWS - 1] = IntArray(COLS) { currentFgColor }
+        screenBuffer[rows - 1] = CharArray(cols) { ' ' }
+        colorBuffer[rows - 1] = IntArray(cols) { currentFgColor }
     }
 
     private fun clearScreen() {
-        for (row in 0 until ROWS) {
+        for (row in 0 until rows) {
             screenBuffer[row].fill(' ')
             colorBuffer[row].fill(currentFgColor)
         }
@@ -535,7 +528,7 @@ class TerminalView @JvmOverloads constructor(
 
     private fun clearToEnd() {
         clearLineToEnd()
-        for (row in cursorRow + 1 until ROWS) {
+        for (row in cursorRow + 1 until rows) {
             screenBuffer[row].fill(' ')
             colorBuffer[row].fill(currentFgColor)
         }
@@ -555,7 +548,7 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private fun clearLineToEnd() {
-        for (col in cursorCol until COLS) {
+        for (col in cursorCol until cols) {
             screenBuffer[cursorRow][col] = ' '
             colorBuffer[cursorRow][col] = currentFgColor
         }
