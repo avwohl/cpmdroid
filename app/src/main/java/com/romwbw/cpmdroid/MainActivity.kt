@@ -499,7 +499,7 @@ class MainActivity : AppCompatActivity() {
     private fun bootEmulation() {
         stopEmulation()
         terminalView.clear()
-        terminalView.requestLayout()
+        terminalView.recalculateSize()
         emulator.reset()
 
         // Reload settings in case they changed
@@ -633,7 +633,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         // Force layout recalculation after returning from other activities
-        terminalView.requestLayout()
+        terminalView.recalculateSize()
         if (romLoaded) {
             // Reload settings in case they changed
             val settings = settingsRepo.getSettings()

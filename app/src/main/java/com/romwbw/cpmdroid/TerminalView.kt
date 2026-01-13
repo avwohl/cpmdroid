@@ -312,6 +312,14 @@ class TerminalView @JvmOverloads constructor(
         calculateFontSize()
     }
 
+    /** Force recalculation of terminal dimensions after layout changes */
+    fun recalculateSize() {
+        post {
+            calculateFontSize()
+            invalidate()
+        }
+    }
+
     private fun calculateFontSize() {
         if (width == 0 || height == 0) return
 
