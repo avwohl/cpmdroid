@@ -315,8 +315,8 @@ class TerminalView @JvmOverloads constructor(
     private fun calculateFontSize() {
         if (width == 0 || height == 0) return
 
-        // Use a readable font size (12sp scaled to screen density)
-        val fontSize = 12f * resources.displayMetrics.scaledDensity
+        // Use a readable font size (11sp scaled to screen density)
+        val fontSize = 11f * resources.displayMetrics.scaledDensity
         textPaint.textSize = fontSize
 
         charWidth = textPaint.measureText("M")
