@@ -15,6 +15,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.awohl.cpmdroid"
     compileSdk = 35
+    ndkVersion = "28.0.13004108"
 
     signingConfigs {
         create("release") {
@@ -31,8 +32,8 @@ android {
         applicationId = "com.awohl.cpmdroid"
         minSdk = 24
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
@@ -42,6 +43,7 @@ android {
             cmake {
                 cppFlags += "-std=c++17"
                 arguments += "-DANDROID_STL=c++_shared"
+                arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
         }
     }
