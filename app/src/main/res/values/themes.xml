@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.CPMDroid" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.CPMDroid" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">#1976D2</item>
         <item name="colorPrimaryVariant">#004BA0</item>
         <item name="colorOnPrimary">#FFFFFF</item>
         <item name="colorSecondary">#26A69A</item>
         <item name="colorSecondaryVariant">#00766C</item>
         <item name="colorOnSecondary">#000000</item>
-        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
     </style>
 </resources>

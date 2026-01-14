@@ -7,7 +7,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -45,8 +49,17 @@ class HelpActivity : AppCompatActivity() {
     private val httpClient = OkHttpClient()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_help)
+
+        // Handle window insets for edge-to-edge
+        val rootView = findViewById<View>(android.R.id.content)
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(top = insets.top, bottom = insets.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
 
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         title = "Help"

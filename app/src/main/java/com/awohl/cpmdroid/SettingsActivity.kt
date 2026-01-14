@@ -9,8 +9,12 @@ import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -31,9 +35,17 @@ class SettingsActivity : AppCompatActivity() {
     private val diskNameViews = mutableListOf<TextView>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Handle window insets for edge-to-edge
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(top = insets.top, bottom = insets.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
 
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         title = "Settings"

@@ -14,8 +14,12 @@ import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.awohl.cpmdroid.data.DiskCatalogRepository
 import com.awohl.cpmdroid.data.DiskDownloadManager
@@ -110,8 +114,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // Handle window insets for edge-to-edge
+        val rootLayout = findViewById<View>(R.id.rootLayout)
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { view, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(top = insets.top, bottom = insets.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
 
         settingsRepo = SettingsRepository(this)
         downloadManager = DiskDownloadManager(this)
