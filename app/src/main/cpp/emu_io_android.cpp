@@ -1103,4 +1103,102 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeHostFileCancel(JNIEnv* env, jobject
     emu_host_file_cancel();
 }
 
+//=============================================================================
+// NVRAM Boot Configuration JNI Interface
+//=============================================================================
+
+JNIEXPORT void JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetBootOption(JNIEnv* env, jobject thiz,
+                                                             jstring option) {
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return;
+    }
+    const char* opt = env->GetStringUTFChars(option, nullptr);
+    g_emu->hbios->setBootOption(opt ? opt : "");
+    LOGI("Set boot option: %s", opt ? opt : "(empty)");
+    env->ReleaseStringUTFChars(option, opt);
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetNvram(JNIEnv* env, jobject thiz) {
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return nullptr;
+    }
+    const uint8_t* nvram = g_emu->hbios->getNvram();
+    if (!nvram) {
+        return nullptr;
+    }
+    jbyteArray result = env->NewByteArray(5);
+    env->SetByteArrayRegion(result, 0, 5, reinterpret_cast<const jbyte*>(nvram));
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetNvram(JNIEnv* env, jobject thiz,
+                                                        jbyteArray data) {
+    (void)thiz;
+    if (!g_initialized || !g_emu || data == nullptr) {
+        return;
+    }
+    jsize len = env->GetArrayLength(data);
+    if (len != 5) {
+        LOGE("setNvram: expected 5 bytes, got %d", len);
+        return;
+    }
+    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
+    g_emu->hbios->setNvram(reinterpret_cast<uint8_t*>(bytes));
+    LOGI("NVRAM restored from saved data");
+    env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsNvramInitialized(JNIEnv* env, jobject thiz) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return JNI_FALSE;
+    }
+    return g_emu->hbios->isNvramInitialized() ? JNI_TRUE : JNI_FALSE;
+}
+
+//=============================================================================
+// Manifest Disk Write Warning JNI Interface
+//=============================================================================
+
+JNIEXPORT void JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetDiskIsManifest(JNIEnv* env, jobject thiz,
+                                                                  jint unit, jboolean isManifest) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return;
+    }
+    g_emu->hbios->setDiskIsManifest(unit, isManifest == JNI_TRUE);
+    LOGI("Set disk %d isManifest=%s", unit, isManifest ? "true" : "false");
+}
+
+JNIEXPORT void JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetDiskWarningSuppressed(JNIEnv* env, jobject thiz,
+                                                                         jint unit, jboolean suppressed) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return;
+    }
+    g_emu->hbios->setDiskWarningSuppressed(unit, suppressed == JNI_TRUE);
+    LOGI("Set disk %d warningSuppressed=%s", unit, suppressed ? "true" : "false");
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeCheckManifestWriteWarning(JNIEnv* env, jobject thiz) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return JNI_FALSE;
+    }
+    return g_emu->hbios->pollManifestWriteWarning() ? JNI_TRUE : JNI_FALSE;
+}
+
 } // extern "C"

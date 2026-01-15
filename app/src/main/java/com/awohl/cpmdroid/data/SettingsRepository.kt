@@ -2,6 +2,7 @@ package com.awohl.cpmdroid.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Base64
 import androidx.core.content.edit
 
 class SettingsRepository(context: Context) {
@@ -13,6 +14,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_BOOT_STRING = "boot_string"
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_FIRST_LAUNCH_DONE = "first_launch_done"
+        private const val KEY_MANIFEST_WRITE_WARNING_SUPPRESSED = "manifest_write_warning_suppressed"
+        private const val KEY_NVRAM = "nvram"
 
         private const val DEFAULT_ROM = "emu_avw.rom"
         private const val DEFAULT_FONT_SIZE = 14
@@ -63,5 +66,32 @@ class SettingsRepository(context: Context) {
 
     fun markFirstLaunchDone() {
         prefs.edit { putBoolean(KEY_FIRST_LAUNCH_DONE, true) }
+    }
+
+    fun isManifestWriteWarningSuppressed(): Boolean =
+        prefs.getBoolean(KEY_MANIFEST_WRITE_WARNING_SUPPRESSED, false)
+
+    fun setManifestWriteWarningSuppressed(suppressed: Boolean) {
+        prefs.edit { putBoolean(KEY_MANIFEST_WRITE_WARNING_SUPPRESSED, suppressed) }
+    }
+
+    fun getSavedNvram(): ByteArray? {
+        val encoded = prefs.getString(KEY_NVRAM, null) ?: return null
+        return try {
+            val decoded = Base64.decode(encoded, Base64.DEFAULT)
+            if (decoded.size == 5) decoded else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun saveNvram(nvram: ByteArray?) {
+        prefs.edit {
+            if (nvram != null && nvram.size == 5) {
+                putString(KEY_NVRAM, Base64.encodeToString(nvram, Base64.DEFAULT))
+            } else {
+                remove(KEY_NVRAM)
+            }
+        }
     }
 }

@@ -46,6 +46,17 @@ class EmulatorEngine {
     private external fun nativeHostFileWriteDone()
     private external fun nativeHostFileCancel()
 
+    // NVRAM boot configuration native methods
+    private external fun nativeSetBootOption(option: String)
+    private external fun nativeGetNvram(): ByteArray?
+    private external fun nativeSetNvram(data: ByteArray)
+    private external fun nativeIsNvramInitialized(): Boolean
+
+    // Manifest disk write warning native methods
+    private external fun nativeSetDiskIsManifest(unit: Int, isManifest: Boolean)
+    private external fun nativeSetDiskWarningSuppressed(unit: Int, suppressed: Boolean)
+    private external fun nativeCheckManifestWriteWarning(): Boolean
+
     fun init() {
         Log.i(TAG, "Initializing emulator engine")
         nativeInit()
@@ -125,4 +136,22 @@ class EmulatorEngine {
     fun getHostFileWriteData(): ByteArray? = nativeGetHostFileWriteData()
     fun hostFileWriteDone() = nativeHostFileWriteDone()
     fun hostFileCancel() = nativeHostFileCancel()
+
+    // NVRAM boot configuration methods
+    // Options: "C" (CP/M 2.2), "Z" (ZSDOS), "0" (disk 0), "0.2" (disk 0 slice 2), "H" (show menu)
+    fun setBootOption(option: String) = nativeSetBootOption(option)
+    // Get 5-byte NVRAM array for persistence (save on exit)
+    fun getNvram(): ByteArray? = nativeGetNvram()
+    // Set NVRAM from 5-byte array (restore on startup, recalculates checksum)
+    fun setNvram(data: ByteArray) = nativeSetNvram(data)
+    // Check if NVRAM has been initialized (signature = 'W')
+    fun isNvramInitialized(): Boolean = nativeIsNvramInitialized()
+
+    // Manifest disk write warning methods
+    // Mark a disk as managed by app manifest (can be overwritten on update)
+    fun setDiskIsManifest(unit: Int, isManifest: Boolean) = nativeSetDiskIsManifest(unit, isManifest)
+    // Suppress warning for this disk (user checked "Don't warn about overwrites")
+    fun setDiskWarningSuppressed(unit: Int, suppressed: Boolean) = nativeSetDiskWarningSuppressed(unit, suppressed)
+    // Poll for manifest write warning - returns true once per session when user writes to manifest disk
+    fun checkManifestWriteWarning(): Boolean = nativeCheckManifestWriteWarning()
 }

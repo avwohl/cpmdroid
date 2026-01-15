@@ -306,6 +306,27 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showManifestWriteWarningDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Disk Write Warning")
+            .setMessage("""
+                You are writing to a downloaded disk image.
+
+                This disk may be replaced when the app updates, and your changes could be lost.
+
+                To preserve your data, copy files to a different disk or export them using W8.
+            """.trimIndent())
+            .setPositiveButton("OK", null)
+            .setNeutralButton("Don't warn again") { _, _ ->
+                settingsRepo.setManifestWriteWarningSuppressed(true)
+                // Also suppress for current session
+                for (i in 0 until 16) {
+                    emulator.setDiskWarningSuppressed(i, true)
+                }
+            }
+            .show()
+    }
+
     private fun checkFirstLaunchAndLoad() {
         if (!settingsRepo.isFirstLaunchDone()) {
             // First launch - try to download default disk
@@ -422,6 +443,8 @@ class MainActivity : AppCompatActivity() {
                             if (diskData != null) {
                                 if (emulator.loadDisk(index, diskData)) {
                                     Log.i(TAG, "Disk $index loaded: $filename (${diskData.size} bytes)")
+                                    // Mark as manifest disk (downloaded from catalog, may be overwritten on update)
+                                    emulator.setDiskIsManifest(index, true)
                                     diskCount++
                                 } else {
                                     Log.e(TAG, "Disk $index failed to load: $filename")
@@ -429,6 +452,13 @@ class MainActivity : AppCompatActivity() {
                             } else {
                                 Log.w(TAG, "Disk $index file not found: $filename")
                             }
+                        }
+                    }
+
+                    // Apply manifest write warning suppression from user preferences
+                    if (settingsRepo.isManifestWriteWarningSuppressed()) {
+                        for (i in 0 until 16) {
+                            emulator.setDiskWarningSuppressed(i, true)
                         }
                     }
 
@@ -448,6 +478,14 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     emulator.completeInit()
+
+                    // Restore NVRAM from saved preferences (for boot config persistence)
+                    val savedNvram = settingsRepo.getSavedNvram()
+                    if (savedNvram != null) {
+                        emulator.setNvram(savedNvram)
+                        Log.i(TAG, "NVRAM restored from saved preferences")
+                    }
+
                     romLoaded = true
 
                     mainHandler.post {
@@ -570,6 +608,11 @@ class MainActivity : AppCompatActivity() {
             EmulatorEngine.HOST_FILE_WAITING_READ -> handleHostFileRead()
             EmulatorEngine.HOST_FILE_WRITE_READY -> handleHostFileWrite()
         }
+
+        // Check for manifest disk write warning (fires once per session)
+        if (emulator.checkManifestWriteWarning()) {
+            mainHandler.post { showManifestWriteWarningDialog() }
+        }
     }
 
     /**
@@ -673,6 +716,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        // Save NVRAM for boot config persistence before stopping
+        if (romLoaded && emulator.isNvramInitialized()) {
+            val nvram = emulator.getNvram()
+            settingsRepo.saveNvram(nvram)
+            Log.i(TAG, "NVRAM saved to preferences")
+        }
         stopEmulation()
     }
 
