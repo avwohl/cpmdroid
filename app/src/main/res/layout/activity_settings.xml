@@ -223,11 +223,11 @@
             android:background="#333333"
             android:layout_marginVertical="16dp" />
 
-        <!-- Boot String -->
+        <!-- Boot Configuration -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Boot String"
+            android:text="Boot Configuration"
             android:textColor="#00FF00"
             android:textSize="18sp"
             android:textStyle="bold" />
@@ -235,23 +235,10 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Commands sent after boot (e.g. '0' to boot disk 0)"
+            android:text="Use the ROM's W command (SYSCONF) to configure boot settings. Boot selections are saved automatically."
             android:textColor="#666666"
             android:textSize="12sp"
             android:layout_marginTop="4dp" />
-
-        <EditText
-            android:id="@+id/bootStringEdit"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Enter boot commands..."
-            android:textColor="#00FF00"
-            android:textColorHint="#444444"
-            android:background="#111111"
-            android:padding="12dp"
-            android:layout_marginTop="8dp"
-            android:inputType="text"
-            android:fontFamily="monospace" />
 
         <Button
             android:id="@+id/clearBootConfigButton"
@@ -310,6 +297,24 @@
                 android:minWidth="48dp" />
 
         </LinearLayout>
+
+        <!-- Wrap Lines Checkbox -->
+        <CheckBox
+            android:id="@+id/wrapLinesCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Wrap long lines"
+            android:textColor="#AAFFAA"
+            android:buttonTint="#00FF00" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Wrap lines that exceed screen width instead of truncating"
+            android:textColor="#666666"
+            android:textSize="12sp"
+            android:layout_marginStart="32dp" />
 
         <View
             android:layout_width="match_parent"

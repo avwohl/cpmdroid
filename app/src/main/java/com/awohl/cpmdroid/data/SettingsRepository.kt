@@ -10,8 +10,8 @@ class SettingsRepository(context: Context) {
         private const val PREFS_NAME = "cpmdroid_prefs"
         private const val KEY_ROM_NAME = "rom_name"
         private const val KEY_DISK_SLOT_PREFIX = "disk_slot_"
-        private const val KEY_BOOT_STRING = "boot_string"
         private const val KEY_FONT_SIZE = "font_size"
+        private const val KEY_WRAP_LINES = "wrap_lines"
         private const val KEY_FIRST_LAUNCH_DONE = "first_launch_done"
         private const val KEY_MANIFEST_WRITE_WARNING_SUPPRESSED = "manifest_write_warning_suppressed"
         private const val KEY_NVRAM = "nvram"
@@ -27,8 +27,8 @@ class SettingsRepository(context: Context) {
         return EmulatorSettings(
             romName = prefs.getString(KEY_ROM_NAME, DEFAULT_ROM) ?: DEFAULT_ROM,
             diskSlots = (0..3).map { prefs.getString("$KEY_DISK_SLOT_PREFIX$it", null) },
-            bootString = prefs.getString(KEY_BOOT_STRING, "") ?: "",
-            fontSize = prefs.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE)
+            fontSize = prefs.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE),
+            wrapLines = prefs.getBoolean(KEY_WRAP_LINES, false)
         )
     }
 
@@ -42,8 +42,8 @@ class SettingsRepository(context: Context) {
                     remove("$KEY_DISK_SLOT_PREFIX$index")
                 }
             }
-            putString(KEY_BOOT_STRING, settings.bootString)
             putInt(KEY_FONT_SIZE, settings.fontSize)
+            putBoolean(KEY_WRAP_LINES, settings.wrapLines)
         }
     }
 

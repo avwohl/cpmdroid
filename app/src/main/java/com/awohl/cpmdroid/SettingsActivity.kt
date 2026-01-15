@@ -77,9 +77,6 @@ class SettingsActivity : AppCompatActivity() {
         setupDiskSlotButtons(2, binding.selectDisk2, binding.clearDisk2)
         setupDiskSlotButtons(3, binding.selectDisk3, binding.clearDisk3)
 
-        // Boot string
-        binding.bootStringEdit.setText(currentSettings.bootString)
-
         // Font size
         binding.fontSizeSeekBar.progress = currentSettings.fontSize
         binding.fontSizeText.text = "${currentSettings.fontSize}pt"
@@ -90,6 +87,9 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+
+        // Wrap lines checkbox
+        binding.wrapLinesCheckbox.isChecked = currentSettings.wrapLines
 
         // Browse catalog button
         binding.browseCatalogButton.setOnClickListener {
@@ -264,8 +264,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun saveSettings() {
         currentSettings = currentSettings.copy(
-            bootString = binding.bootStringEdit.text.toString(),
-            fontSize = binding.fontSizeSeekBar.progress
+            fontSize = binding.fontSizeSeekBar.progress,
+            wrapLines = binding.wrapLinesCheckbox.isChecked
         )
         settingsRepo.saveSettings(currentSettings)
     }

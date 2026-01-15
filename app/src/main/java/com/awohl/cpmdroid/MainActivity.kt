@@ -443,11 +443,12 @@ class MainActivity : AppCompatActivity() {
     private fun loadRomAndDisks() {
         val settings = settingsRepo.getSettings()
 
-        // Apply font size
+        // Apply display settings
         terminalView.customFontSize = settings.fontSize.toFloat()
+        terminalView.wrapLines = settings.wrapLines
 
         // Log current settings for debugging
-        Log.i(TAG, "Settings: ROM=${settings.romName}, bootString='${settings.bootString}'")
+        Log.i(TAG, "Settings: ROM=${settings.romName}")
         settings.diskSlots.forEachIndexed { index, filename ->
             Log.i(TAG, "Disk slot $index: ${filename ?: "(empty)"}")
         }
@@ -534,15 +535,6 @@ class MainActivity : AppCompatActivity() {
                         mainHandler.postDelayed({
                             emulator.queueInput(0x0D)
                         }, 500)
-
-                        // Send boot string after a delay if configured
-                        val bootString = settings.bootString
-                        if (bootString.isNotEmpty()) {
-                            mainHandler.postDelayed({
-                                emulator.queueInputString(bootString)
-                                emulator.queueInput(0x0D)
-                            }, 2000)
-                        }
                     }
                 } else {
                     mainHandler.post {
@@ -597,6 +589,7 @@ class MainActivity : AppCompatActivity() {
         // Reload settings in case they changed
         val settings = settingsRepo.getSettings()
         terminalView.customFontSize = settings.fontSize.toFloat()
+        terminalView.wrapLines = settings.wrapLines
 
         // Display version string on terminal before ROM output
         val versionBanner = "CPMDroid v${getVersionString()} (${BuildConfig.BUILD_TIME})\r\n"
@@ -613,15 +606,6 @@ class MainActivity : AppCompatActivity() {
         mainHandler.postDelayed({
             emulator.queueInput(0x0D)
         }, 500)
-
-        // Re-send boot string if configured
-        val bootString = settings.bootString
-        if (bootString.isNotEmpty()) {
-            mainHandler.postDelayed({
-                emulator.queueInputString(bootString)
-                emulator.queueInput(0x0D)
-            }, 2000)
-        }
     }
 
     /**
@@ -735,6 +719,7 @@ class MainActivity : AppCompatActivity() {
             // Reload settings in case they changed
             val settings = settingsRepo.getSettings()
             terminalView.customFontSize = settings.fontSize.toFloat()
+            terminalView.wrapLines = settings.wrapLines
 
             // Check if disk settings changed while in Settings
             val diskSettingsChanged = lastDiskSlots.isNotEmpty() && settings.diskSlots != lastDiskSlots

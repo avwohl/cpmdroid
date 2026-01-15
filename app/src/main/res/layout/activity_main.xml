@@ -26,6 +26,10 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Start/Stop" />
 
+        <View
+            android:layout_width="16dp"
+            android:layout_height="1dp" />
+
         <ImageButton
             android:id="@+id/bootButton"
             android:layout_width="40dp"

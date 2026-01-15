@@ -51,24 +51,25 @@ class TerminalView @JvmOverloads constructor(
         textSize = 32f
     }
 
-    // Custom font size (0 = auto-calculate)
-    var customFontSize: Float = 0f
+    // Font scale factor - 14 = 100% (default), 8 = smaller, 24 = larger
+    // This scales the calculated optimal font size
+    private val defaultFontScale = 14f
+    var fontScaleSetting: Float = defaultFontScale
         set(value) {
             field = value
-            if (value > 0 && width > 0) {
-                applyCustomFontSize()
+            if (width > 0 && height > 0) {
+                calculateFontSize()
+                invalidate()
             }
-            invalidate()
         }
 
-    private fun applyCustomFontSize() {
-        // Convert point size to pixels (roughly)
-        val pixelSize = customFontSize * resources.displayMetrics.density
-        textPaint.textSize = pixelSize
-        charWidth = textPaint.measureText("M")
-        charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
-        android.util.Log.i("TerminalView", "applyCustomFontSize: pixelSize=$pixelSize, charWidth=$charWidth, charHeight=$charHeight")
-    }
+    // For compatibility - maps to fontScaleSetting
+    var customFontSize: Float
+        get() = fontScaleSetting
+        set(value) { fontScaleSetting = value }
+
+    // Whether to wrap long lines (true) or truncate them (false)
+    var wrapLines: Boolean = false
 
     private val bgPaint = Paint().apply {
         color = Color.BLACK
@@ -338,19 +339,22 @@ class TerminalView @JvmOverloads constructor(
         if (availableWidth <= 0 || availableHeight <= 0) return
 
         // Start with preferred font size (11sp)
-        var fontSize = 11f * resources.displayMetrics.scaledDensity
-        textPaint.textSize = fontSize
+        var baseFontSize = 11f * resources.displayMetrics.scaledDensity
+        textPaint.textSize = baseFontSize
         charWidth = textPaint.measureText("M")
 
         // Reduce font size if needed to fit at least MIN_COLS columns
         val maxCharWidth = availableWidth.toFloat() / MIN_COLS
         if (charWidth > maxCharWidth) {
             // Scale down font to fit MIN_COLS
-            fontSize *= (maxCharWidth / charWidth)
-            textPaint.textSize = fontSize
-            charWidth = textPaint.measureText("M")
+            baseFontSize *= (maxCharWidth / charWidth)
         }
 
+        // Apply user's font scale (14 = 100%, 8 = ~57%, 24 = ~171%)
+        val scaleFactor = fontScaleSetting / defaultFontScale
+        val finalFontSize = baseFontSize * scaleFactor
+        textPaint.textSize = finalFontSize
+        charWidth = textPaint.measureText("M")
         charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
 
         // Calculate columns and rows that fill the available space at this font size
@@ -362,7 +366,7 @@ class TerminalView @JvmOverloads constructor(
             resizeBuffers(newRows, newCols)
         }
 
-        android.util.Log.i("TerminalView", "calculateFontSize: fontSize=$fontSize, charWidth=$charWidth, rows=$rows, cols=$cols")
+        android.util.Log.i("TerminalView", "calculateFontSize: baseFontSize=$baseFontSize, scaleFactor=$scaleFactor, finalFontSize=$finalFontSize, charWidth=$charWidth, rows=$rows, cols=$cols")
     }
 
     private fun resizeBuffers(newRows: Int, newCols: Int) {
@@ -525,8 +529,13 @@ class TerminalView @JvmOverloads constructor(
 
     private fun putChar(ch: Char) {
         if (cursorCol >= cols) {
-            cursorCol = 0
-            newLine()
+            if (wrapLines) {
+                cursorCol = 0
+                newLine()
+            } else {
+                // Truncate - don't advance, just stay at end of line
+                return
+            }
         }
         screenBuffer[cursorRow][cursorCol] = ch
         colorBuffer[cursorRow][cursorCol] = currentFgColor
