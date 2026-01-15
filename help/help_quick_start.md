@@ -27,10 +27,12 @@ Use the on-screen keyboard to type commands. The emulator accepts standard CP/M 
 Access Settings from the toolbar to:
 
 - **Disk Slots** - Assign disk images to slots 0-3
-- **Boot String** - Commands sent automatically after boot
-- **Font Size** - Adjust terminal text size (8-24pt)
+- **Font Size** - Adjust terminal text size (scales the display)
+- **Wrap Lines** - Wrap text at screen edge instead of truncating
 - **Browse Catalog** - Download additional disk images
 - **Clear Boot Config** - Reset NVRAM if stuck in autoboot
+
+To set boot commands, use the SYSCONF utility (run at CP/M prompt, then W to write settings).
 
 ## Disk Images
 

@@ -34,6 +34,9 @@ class TerminalView @JvmOverloads constructor(
     private var rows = MIN_ROWS
     private var cols = MIN_COLS
 
+    // How many columns actually fit on screen (may be less than cols with larger fonts)
+    private var visibleCols = MIN_COLS
+
     private var screenBuffer = Array(rows) { CharArray(cols) { ' ' } }
     private var colorBuffer = Array(rows) { IntArray(cols) { Color.GREEN } }
 
@@ -70,6 +73,10 @@ class TerminalView @JvmOverloads constructor(
 
     // Whether to wrap long lines (true) or truncate them (false)
     var wrapLines: Boolean = false
+        set(value) {
+            field = value
+            android.util.Log.i("TerminalView", "wrapLines set to: $value")
+        }
 
     private val bgPaint = Paint().apply {
         color = Color.BLACK
@@ -357,8 +364,11 @@ class TerminalView @JvmOverloads constructor(
         charWidth = textPaint.measureText("M")
         charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
 
-        // Calculate columns and rows that fill the available space at this font size
-        val newCols = maxOf(MIN_COLS, (availableWidth / charWidth).toInt())
+        // Calculate how many columns actually fit on screen at this font size
+        visibleCols = maxOf(1, (availableWidth / charWidth).toInt())
+
+        // Buffer size: at least MIN_COLS for CP/M compatibility, or more if they fit
+        val newCols = maxOf(MIN_COLS, visibleCols)
         val newRows = maxOf(MIN_ROWS, (availableHeight / charHeight).toInt())
 
         // Resize buffers if dimensions changed
@@ -366,7 +376,7 @@ class TerminalView @JvmOverloads constructor(
             resizeBuffers(newRows, newCols)
         }
 
-        android.util.Log.i("TerminalView", "calculateFontSize: baseFontSize=$baseFontSize, scaleFactor=$scaleFactor, finalFontSize=$finalFontSize, charWidth=$charWidth, rows=$rows, cols=$cols")
+        android.util.Log.i("TerminalView", "calculateFontSize: baseFontSize=$baseFontSize, scaleFactor=$scaleFactor, finalFontSize=$finalFontSize, charWidth=$charWidth, rows=$rows, cols=$cols, visibleCols=$visibleCols")
     }
 
     private fun resizeBuffers(newRows: Int, newCols: Int) {
@@ -528,7 +538,11 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private fun putChar(ch: Char) {
-        if (cursorCol >= cols) {
+        // When wrap is enabled, wrap at visible screen edge
+        // When wrap is disabled, truncate at buffer edge (cols)
+        val wrapAt = if (wrapLines) visibleCols else cols
+
+        if (cursorCol >= wrapAt) {
             if (wrapLines) {
                 cursorCol = 0
                 newLine()

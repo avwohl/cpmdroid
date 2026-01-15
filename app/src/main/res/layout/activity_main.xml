@@ -27,7 +27,7 @@
             android:contentDescription="Start/Stop" />
 
         <View
-            android:layout_width="16dp"
+            android:layout_width="32dp"
             android:layout_height="1dp" />
 
         <ImageButton

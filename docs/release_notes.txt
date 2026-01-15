@@ -1,6 +1,18 @@
-CPMDroid Release Notes - Version 1.9
-=====================================
+CPMDroid Release Notes - Version 1.11
+======================================
 Changes since v1.6
+
+Version 1.11
+------------
+- Fix wrap lines to wrap at visible screen edge (not fixed 80 columns)
+- Increase spacing between Play/Pause and Reboot buttons
+
+Version 1.10
+------------
+- Fix font size scaling: user setting now scales the auto-calculated size
+- Add "Wrap Lines" checkbox to wrap text at screen edge
+- Remove boot string input (use SYSCONF/W in ROM instead)
+- Increase gap between toolbar buttons to prevent accidental taps
 
 Version 1.9
 -----------

@@ -80,3 +80,4 @@ The Imports/Exports folders are in Android/data/com.awohl.cpmdroid/files/
 - Tap the terminal screen to show the soft keyboard
 - Use landscape mode for a wider terminal display
 - Adjust font size in Settings for your screen
+- Enable "Wrap Lines" in Settings to wrap text at the screen edge instead of truncating
