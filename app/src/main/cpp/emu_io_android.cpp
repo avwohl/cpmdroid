@@ -808,6 +808,16 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject t
 
     emu_complete_init(g_emu->memory, g_emu->hbios, disk_slices);
 
+    // Register reset callback for SYSRESET (ROM reboot command)
+    g_emu->hbios->setResetCallback([](uint8_t reset_type) {
+        LOGI("[SYSRESET] %s boot - restarting",
+             reset_type == 0x01 ? "Warm" : "Cold");
+        // Switch to ROM bank 0
+        g_emu->memory->select_bank(0x00);
+        // Set PC to 0 to restart from ROM
+        g_emu->cpu->regs.PC.set_pair16(0x0000);
+    });
+
     // Debug: dump drive map after init
     uint8_t* rom = g_emu->memory->get_rom();
     if (rom) {

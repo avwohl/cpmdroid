@@ -281,11 +281,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAboutDialog() {
         val version = getVersionString()
+        val buildTime = BuildConfig.BUILD_TIME
 
         AlertDialog.Builder(this)
             .setTitle("About CPMDroid")
             .setMessage("""
                 CPMDroid v$version
+                Built: $buildTime
 
                 A Z80 CP/M emulator for Android using RomWBW HBIOS.
 

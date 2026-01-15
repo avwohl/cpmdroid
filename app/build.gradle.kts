@@ -1,4 +1,6 @@
 import java.util.Properties
+import java.util.Date
+import java.text.SimpleDateFormat
 
 plugins {
     id("com.android.application")
@@ -32,8 +34,11 @@ android {
         applicationId = "com.awohl.cpmdroid"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.5"
+        versionCode = 7
+        versionName = "1.6"
+
+        // Build timestamp - regenerated every build
+        buildConfigField("String", "BUILD_TIME", "\"${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())}\"")
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
@@ -77,7 +82,9 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
+
 }
 
 dependencies {
