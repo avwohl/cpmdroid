@@ -1,0 +1,20 @@
+See user bug report below.
+I tested on a physical samsung tablet. The font size does nothing.  There is font scaling
+I know for dealing with cellphones that are tall and narrow to scale so 80 charst fit.
+I can see using that as an initial guess for the default font size.  But the user should be able
+to change the font size up or down.
+
+- fix font size to work.  do scaling as is now on cell phone for the default size. but
+changing the font size should work and be remembered
+- add a wrap lines checkbox.  if the user scales up and lines are then too long they should
+wrap (or be truncated)
+- pause and restart are very close together and needlessly so. there are only two buttons on that side pause/play and reset.  but good sized gap between pause/play and reset
+- remove the typein area for the boot text. Say to the rom w command.  Chnage the boot string to be display only.  Leave the clear boot config as it is needed
+- examine the romwbw sound support see if you can answer MAME's AY-3-8910/YM2149 I know some clients do MIDI support.
+
+From: Joao Miguel Duraes <jduraes@gmail.com>
+Adjusting font size seems to make no difference. In fact the font size seems to reduce after a while - can barely read things after a while.
+
+I suggest adding a confirmation pop-up to the "restart" button - it's very easy to press it by accident and poof, everything you were doing is gone. I was beating the CPU on chess and wanted to pause it, pressed the restart accidentaly.
+
+Consider adding MAME's AY-3-8910/YM2149 emulation to it so we can play some nice tunes. 
