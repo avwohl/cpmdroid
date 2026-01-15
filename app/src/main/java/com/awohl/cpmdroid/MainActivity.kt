@@ -23,6 +23,7 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.awohl.cpmdroid.data.DiskCatalogRepository
 import com.awohl.cpmdroid.data.DiskDownloadManager
+import com.awohl.cpmdroid.data.EmulatorSettings
 import com.awohl.cpmdroid.data.SettingsRepository
 import kotlinx.coroutines.launch
 import java.io.File
@@ -73,6 +74,8 @@ class MainActivity : AppCompatActivity() {
     private var romLoaded = false
     private var running = false
     private var initialFocusDone = false
+    private var lastDiskSlots: List<String?> = emptyList()
+    private var cameFromSettings = false
 
     private var runLoopCount = 0
     private var lastNvramSaveCount = 0
@@ -270,6 +273,7 @@ class MainActivity : AppCompatActivity() {
             if (running) {
                 Toast.makeText(this, "Stop emulator before changing settings", Toast.LENGTH_SHORT).show()
             } else {
+                cameFromSettings = true
                 startActivity(Intent(this, SettingsActivity::class.java))
             }
         }
@@ -731,13 +735,30 @@ class MainActivity : AppCompatActivity() {
             // Reload settings in case they changed
             val settings = settingsRepo.getSettings()
             terminalView.customFontSize = settings.fontSize.toFloat()
-            startEmulation()
+
+            // Check if disk settings changed while in Settings
+            val diskSettingsChanged = lastDiskSlots.isNotEmpty() && settings.diskSlots != lastDiskSlots
+            if (diskSettingsChanged) {
+                Log.i(TAG, "Disk settings changed, reloading disks...")
+                reloadDisksFromSettings(settings)
+                Toast.makeText(this, "Disk settings updated. Press Reboot to apply.", Toast.LENGTH_SHORT).show()
+            }
+
+            // Don't auto-resume after Settings - user should manually start/reboot
+            if (cameFromSettings) {
+                cameFromSettings = false
+                updateStatus()  // Update UI to show stopped state
+            } else {
+                startEmulation()
+            }
         }
     }
 
     override fun onPause() {
         super.onPause()
         saveNvramIfNeeded()
+        // Save current disk slots to detect changes on resume
+        lastDiskSlots = settingsRepo.getSettings().diskSlots
         stopEmulation()
     }
 
@@ -749,14 +770,79 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Reload disks from settings when disk configuration changes.
+     * Called from onResume when returning from Settings with changed disk slots.
+     */
+    private fun reloadDisksFromSettings(settings: EmulatorSettings) {
+        executor.execute {
+            var diskCount = 0
+            settings.diskSlots.forEachIndexed { index, filename ->
+                if (filename != null) {
+                    val diskData = downloadManager.loadDiskData(filename)
+                    if (diskData != null) {
+                        if (emulator.loadDisk(index, diskData)) {
+                            Log.i(TAG, "Disk $index reloaded: $filename (${diskData.size} bytes)")
+                            emulator.setDiskIsManifest(index, true)
+                            diskCount++
+                        } else {
+                            Log.e(TAG, "Disk $index failed to reload: $filename")
+                        }
+                    } else {
+                        Log.w(TAG, "Disk $index file not found: $filename")
+                    }
+                }
+            }
+
+            // Update slice counts
+            val autoSlices = when {
+                diskCount <= 1 -> 8
+                diskCount == 2 -> 4
+                else -> 2
+            }
+            for (i in 0 until 16) {
+                if (emulator.isDiskLoaded(i)) {
+                    emulator.setDiskSliceCount(i, autoSlices)
+                }
+            }
+
+            // Reinitialize to update disk tables
+            emulator.completeInit()
+
+            // Restore NVRAM setting
+            val savedNvramSetting = settingsRepo.getSavedNvramSetting()
+            if (!savedNvramSetting.isNullOrEmpty()) {
+                emulator.setNvramSetting(savedNvramSetting)
+            }
+
+            // Reset to apply changes
+            emulator.reset()
+            Log.i(TAG, "Disks reloaded and emulator reset")
+        }
+    }
+
+    /**
      * Save NVRAM to preferences if it has changed since last save.
      * Called periodically from run loop and on pause.
      */
     private fun saveNvramIfNeeded() {
-        if (romLoaded && emulator.hasNvramChange()) {
+        if (!romLoaded) return
+
+        // Check dirty flag first (set by C++ API calls)
+        if (emulator.hasNvramChange()) {
             val setting = emulator.getNvramSetting()  // clears dirty flag
             settingsRepo.saveNvramSetting(setting)
-            Log.i(TAG, "NVRAM saved: \"$setting\"")
+            Log.i(TAG, "NVRAM saved (dirty flag): \"$setting\"")
+            return
+        }
+
+        // Also check if NVRAM differs from saved (catches SYSCONF changes)
+        if (emulator.isNvramInitialized()) {
+            val currentSetting = emulator.getNvramSetting()
+            val savedSetting = settingsRepo.getSavedNvramSetting() ?: ""
+            if (currentSetting != savedSetting) {
+                settingsRepo.saveNvramSetting(currentSetting)
+                Log.i(TAG, "NVRAM saved (diff): \"$currentSetting\" (was \"$savedSetting\")")
+            }
         }
     }
 }
