@@ -452,7 +452,7 @@ class MainActivity : AppCompatActivity() {
 
                     mainHandler.post {
                         // Display version string on terminal before ROM output
-                        val versionBanner = "CPMDroid v${getVersionString()}\r\n"
+                        val versionBanner = "CPMDroid v${getVersionString()} (${BuildConfig.BUILD_TIME})\r\n"
                         terminalView.processOutput(versionBanner.toByteArray())
 
                         updateStatus()
@@ -536,7 +536,7 @@ class MainActivity : AppCompatActivity() {
         terminalView.customFontSize = settings.fontSize.toFloat()
 
         // Display version string on terminal before ROM output
-        val versionBanner = "CPMDroid v${getVersionString()}\r\n"
+        val versionBanner = "CPMDroid v${getVersionString()} (${BuildConfig.BUILD_TIME})\r\n"
         terminalView.processOutput(versionBanner.toByteArray())
 
         startEmulation()

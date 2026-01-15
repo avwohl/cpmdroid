@@ -337,11 +337,20 @@ class TerminalView @JvmOverloads constructor(
         val availableHeight = height - paddingTop - paddingBottom
         if (availableWidth <= 0 || availableHeight <= 0) return
 
-        // Use a readable font size (11sp scaled to screen density)
-        val fontSize = 11f * resources.displayMetrics.scaledDensity
+        // Start with preferred font size (11sp)
+        var fontSize = 11f * resources.displayMetrics.scaledDensity
         textPaint.textSize = fontSize
-
         charWidth = textPaint.measureText("M")
+
+        // Reduce font size if needed to fit at least MIN_COLS columns
+        val maxCharWidth = availableWidth.toFloat() / MIN_COLS
+        if (charWidth > maxCharWidth) {
+            // Scale down font to fit MIN_COLS
+            fontSize *= (maxCharWidth / charWidth)
+            textPaint.textSize = fontSize
+            charWidth = textPaint.measureText("M")
+        }
+
         charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
 
         // Calculate columns and rows that fill the available space at this font size
