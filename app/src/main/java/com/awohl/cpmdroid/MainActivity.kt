@@ -118,11 +118,21 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Handle window insets for edge-to-edge
+        // Handle window insets for edge-to-edge AND keyboard
         val rootLayout = findViewById<View>(R.id.rootLayout)
+
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { view, windowInsets ->
-            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.updatePadding(top = insets.top, bottom = insets.bottom)
+            val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime())
+
+            // Use the larger of system bars or IME for bottom inset
+            val bottomInset = maxOf(systemBars.bottom, ime.bottom)
+
+            Log.i(TAG, "Insets: systemBars.bottom=${systemBars.bottom}, ime.bottom=${ime.bottom}, using bottom=$bottomInset")
+
+            // Apply padding to the root layout
+            view.setPadding(systemBars.left, systemBars.top, systemBars.right, bottomInset)
+
             WindowInsetsCompat.CONSUMED
         }
 
@@ -245,7 +255,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         settingsButton.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+            if (running) {
+                Toast.makeText(this, "Stop emulator before changing settings", Toast.LENGTH_SHORT).show()
+            } else {
+                startActivity(Intent(this, SettingsActivity::class.java))
+            }
         }
 
         helpButton.setOnClickListener {
