@@ -27,7 +27,8 @@ data class HelpTopic(
     val id: String,
     val title: String,
     val description: String,
-    val file: String
+    val filename: String?,  // Relative to base_url
+    val url: String?        // Full URL (overrides base_url + filename)
 )
 
 data class HelpIndex(
@@ -39,8 +40,7 @@ data class HelpIndex(
 class HelpActivity : AppCompatActivity() {
 
     companion object {
-        // Use ioscpm releases for help files (shared with iOS client)
-        private const val INDEX_URL = "https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json"
+        private const val INDEX_URL = "https://github.com/avwohl/cpmdroid/releases/latest/download/help_index.json"
     }
 
     private lateinit var recyclerView: RecyclerView
@@ -123,7 +123,8 @@ class HelpActivity : AppCompatActivity() {
                     id = topicObj.getString("id"),
                     title = topicObj.getString("title"),
                     description = topicObj.optString("description", ""),
-                    file = topicObj.getString("filename")
+                    filename = topicObj.optString("filename").ifEmpty { null },
+                    url = topicObj.optString("url").ifEmpty { null }
                 ))
             }
 
@@ -134,9 +135,10 @@ class HelpActivity : AppCompatActivity() {
     }
 
     private fun openHelpTopic(topic: HelpTopic, baseUrl: String) {
+        val topicUrl = topic.url ?: (baseUrl + topic.filename)
         val intent = Intent(this, HelpTopicActivity::class.java).apply {
             putExtra("topic_title", topic.title)
-            putExtra("topic_url", baseUrl + topic.file)
+            putExtra("topic_url", topicUrl)
         }
         startActivity(intent)
     }
