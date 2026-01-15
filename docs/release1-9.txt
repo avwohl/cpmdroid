@@ -1,0 +1,38 @@
+CPMDroid Release Notes - Version 1.9
+=====================================
+Changes since v1.6
+
+Version 1.9
+-----------
+- Add in-app help system with GitHub-hosted documentation
+- CPMDroid-specific help (Quick Start Guide) served from cpmdroid releases
+- Shared help files (CP/M 2.2, ZSDOS, NZCOM, ZPM3, QPM, File Transfer)
+  served from ioscpm releases for consistency with iOS client
+
+Version 1.8
+-----------
+- Reload disks when returning from Settings if disk slots changed
+- Don't auto-resume after Settings - user must manually start/reboot
+- Show toast "Disk settings updated. Press Reboot to apply."
+- Fix NVRAM persistence for SYSCONF changes
+
+Version 1.7
+-----------
+NVRAM Persistence:
+- Boot configuration (set via 'W' at boot menu) now persists across app restarts
+- Add JNI wrappers for NVRAM boot configuration APIs
+
+Clear Boot Config:
+- Add "Clear Boot Config (NVRAM)" button in Settings
+- Prevents users getting stuck with zero-timeout autoboot
+- Shows confirmation dialog before clearing
+
+Manifest Disk Protection:
+- Downloaded catalog disks marked as manifest disks
+- Show warning dialog on first write to manifest disk
+- "Don't warn again" option available
+
+API Changes:
+- Replace raw byte NVRAM API with string-based interface
+- Use hasNvramChange() dirty flag for efficient periodic saves
+- Fix first-launch disk download when files missing but prefs exist
