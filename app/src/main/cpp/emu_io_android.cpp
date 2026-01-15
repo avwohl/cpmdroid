@@ -1104,53 +1104,40 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeHostFileCancel(JNIEnv* env, jobject
 }
 
 //=============================================================================
-// NVRAM Boot Configuration JNI Interface
+// NVRAM Boot Configuration JNI Interface (String-based API)
 //=============================================================================
 
 JNIEXPORT void JNICALL
-Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetBootOption(JNIEnv* env, jobject thiz,
-                                                             jstring option) {
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetNvramSetting(JNIEnv* env, jobject thiz,
+                                                               jstring setting) {
     (void)thiz;
     if (!g_initialized || !g_emu) {
         return;
     }
-    const char* opt = env->GetStringUTFChars(option, nullptr);
-    g_emu->hbios->setBootOption(opt ? opt : "");
-    LOGI("Set boot option: %s", opt ? opt : "(empty)");
-    env->ReleaseStringUTFChars(option, opt);
+    const char* str = env->GetStringUTFChars(setting, nullptr);
+    g_emu->hbios->setNvramSetting(str ? str : "");
+    LOGI("Set NVRAM setting: %s", str ? str : "(empty)");
+    env->ReleaseStringUTFChars(setting, str);
 }
 
-JNIEXPORT jbyteArray JNICALL
-Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetNvram(JNIEnv* env, jobject thiz) {
+JNIEXPORT jstring JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetNvramSetting(JNIEnv* env, jobject thiz) {
     (void)thiz;
     if (!g_initialized || !g_emu) {
-        return nullptr;
+        return env->NewStringUTF("");
     }
-    const uint8_t* nvram = g_emu->hbios->getNvram();
-    if (!nvram) {
-        return nullptr;
-    }
-    jbyteArray result = env->NewByteArray(5);
-    env->SetByteArrayRegion(result, 0, 5, reinterpret_cast<const jbyte*>(nvram));
-    return result;
+    std::string setting = g_emu->hbios->getNvramSetting();
+    return env->NewStringUTF(setting.c_str());
 }
 
-JNIEXPORT void JNICALL
-Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetNvram(JNIEnv* env, jobject thiz,
-                                                        jbyteArray data) {
+JNIEXPORT jboolean JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeHasNvramChange(JNIEnv* env, jobject thiz) {
+    (void)env;
     (void)thiz;
-    if (!g_initialized || !g_emu || data == nullptr) {
-        return;
+    if (!g_initialized || !g_emu) {
+        return JNI_FALSE;
     }
-    jsize len = env->GetArrayLength(data);
-    if (len != 5) {
-        LOGE("setNvram: expected 5 bytes, got %d", len);
-        return;
-    }
-    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
-    g_emu->hbios->setNvram(reinterpret_cast<uint8_t*>(bytes));
-    LOGI("NVRAM restored from saved data");
-    env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
+    return g_emu->hbios->hasNvramChange() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL

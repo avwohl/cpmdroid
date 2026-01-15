@@ -2,7 +2,6 @@ package com.awohl.cpmdroid.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Base64
 import androidx.core.content.edit
 
 class SettingsRepository(context: Context) {
@@ -75,23 +74,9 @@ class SettingsRepository(context: Context) {
         prefs.edit { putBoolean(KEY_MANIFEST_WRITE_WARNING_SUPPRESSED, suppressed) }
     }
 
-    fun getSavedNvram(): ByteArray? {
-        val encoded = prefs.getString(KEY_NVRAM, null) ?: return null
-        return try {
-            val decoded = Base64.decode(encoded, Base64.DEFAULT)
-            if (decoded.size == 5) decoded else null
-        } catch (e: Exception) {
-            null
-        }
-    }
+    fun getSavedNvramSetting(): String? = prefs.getString(KEY_NVRAM, null)
 
-    fun saveNvram(nvram: ByteArray?) {
-        prefs.edit {
-            if (nvram != null && nvram.size == 5) {
-                putString(KEY_NVRAM, Base64.encodeToString(nvram, Base64.DEFAULT))
-            } else {
-                remove(KEY_NVRAM)
-            }
-        }
+    fun saveNvramSetting(setting: String) {
+        prefs.edit { putString(KEY_NVRAM, setting) }
     }
 }

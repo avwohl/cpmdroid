@@ -46,10 +46,10 @@ class EmulatorEngine {
     private external fun nativeHostFileWriteDone()
     private external fun nativeHostFileCancel()
 
-    // NVRAM boot configuration native methods
-    private external fun nativeSetBootOption(option: String)
-    private external fun nativeGetNvram(): ByteArray?
-    private external fun nativeSetNvram(data: ByteArray)
+    // NVRAM boot configuration native methods (string-based API)
+    private external fun nativeSetNvramSetting(setting: String)
+    private external fun nativeGetNvramSetting(): String
+    private external fun nativeHasNvramChange(): Boolean
     private external fun nativeIsNvramInitialized(): Boolean
 
     // Manifest disk write warning native methods
@@ -137,13 +137,13 @@ class EmulatorEngine {
     fun hostFileWriteDone() = nativeHostFileWriteDone()
     fun hostFileCancel() = nativeHostFileCancel()
 
-    // NVRAM boot configuration methods
-    // Options: "C" (CP/M 2.2), "Z" (ZSDOS), "0" (disk 0), "0.2" (disk 0 slice 2), "H" (show menu)
-    fun setBootOption(option: String) = nativeSetBootOption(option)
-    // Get 5-byte NVRAM array for persistence (save on exit)
-    fun getNvram(): ByteArray? = nativeGetNvram()
-    // Set NVRAM from 5-byte array (restore on startup, recalculates checksum)
-    fun setNvram(data: ByteArray) = nativeSetNvram(data)
+    // NVRAM boot configuration methods (string-based API)
+    // Set boot option: "C" (CP/M), "Z" (ZSDOS), "0" (disk 0), "2.3" (disk 2 slice 3), "H" (menu), "" (clear)
+    fun setNvramSetting(setting: String) = nativeSetNvramSetting(setting)
+    // Get current boot option as string (e.g., "C", "2.3", "" if uninitialized)
+    fun getNvramSetting(): String = nativeGetNvramSetting()
+    // Check if NVRAM was modified since last getNvramSetting() call (dirty flag)
+    fun hasNvramChange(): Boolean = nativeHasNvramChange()
     // Check if NVRAM has been initialized (signature = 'W')
     fun isNvramInitialized(): Boolean = nativeIsNvramInitialized()
 

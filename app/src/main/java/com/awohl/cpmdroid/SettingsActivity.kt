@@ -95,6 +95,19 @@ class SettingsActivity : AppCompatActivity() {
         binding.browseCatalogButton.setOnClickListener {
             showDiskCatalogDialog(slotToAssign = null)
         }
+
+        // Clear boot config button
+        binding.clearBootConfigButton.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Clear Boot Config?")
+                .setMessage("This will clear saved autoboot settings (NVRAM). The boot menu will be shown on next launch.")
+                .setPositiveButton("Clear") { _, _ ->
+                    settingsRepo.saveNvramSetting("")
+                    Toast.makeText(this, "Boot config cleared", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
     }
 
     private fun setupDiskSlotButtons(slot: Int, selectButton: ImageButton, clearButton: ImageButton) {

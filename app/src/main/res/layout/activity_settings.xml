@@ -253,6 +253,22 @@
             android:inputType="text"
             android:fontFamily="monospace" />
 
+        <Button
+            android:id="@+id/clearBootConfigButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Clear Boot Config (NVRAM)"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Clears saved autoboot settings if you get stuck"
+            android:textColor="#666666"
+            android:textSize="12sp"
+            android:layout_marginTop="4dp" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"

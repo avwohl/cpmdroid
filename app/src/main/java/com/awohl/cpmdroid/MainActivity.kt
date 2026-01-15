@@ -75,6 +75,7 @@ class MainActivity : AppCompatActivity() {
     private var initialFocusDone = false
 
     private var runLoopCount = 0
+    private var lastNvramSaveCount = 0
     private val runLoop: Runnable = object : Runnable {
         override fun run() {
             if (running && romLoaded) {
@@ -90,6 +91,12 @@ class MainActivity : AppCompatActivity() {
 
                     // Check host file state for R8/W8 transfers
                     checkHostFileState()
+
+                    // Periodically save NVRAM (~5 seconds = 300 iterations at 16ms)
+                    if (runLoopCount - lastNvramSaveCount >= 300) {
+                        lastNvramSaveCount = runLoopCount
+                        saveNvramIfNeeded()
+                    }
 
                     if (shouldContinue) {
                         mainHandler.postDelayed(self, FRAME_DELAY_MS)
@@ -132,6 +139,11 @@ class MainActivity : AppCompatActivity() {
 
             // Apply padding to the root layout
             view.setPadding(systemBars.left, systemBars.top, systemBars.right, bottomInset)
+
+            // Recalculate terminal size after insets change (fixes first-launch cutoff)
+            if (::terminalView.isInitialized) {
+                terminalView.post { terminalView.recalculateSize() }
+            }
 
             WindowInsetsCompat.CONSUMED
         }
@@ -328,8 +340,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkFirstLaunchAndLoad() {
-        if (!settingsRepo.isFirstLaunchDone()) {
-            // First launch - try to download default disk
+        val settings = settingsRepo.getSettings()
+        val slot0Disk = settings.diskSlots.getOrNull(0)
+        val needsDownload = !settingsRepo.isFirstLaunchDone() ||
+            (slot0Disk != null && !downloadManager.isDiskDownloaded(slot0Disk)) ||
+            (slot0Disk == null && downloadManager.getDownloadedDisks().isEmpty())
+
+        Log.i(TAG, "checkFirstLaunchAndLoad: firstLaunchDone=${settingsRepo.isFirstLaunchDone()}, " +
+            "slot0=$slot0Disk, needsDownload=$needsDownload")
+
+        if (needsDownload) {
+            // First launch or disk files missing - try to download default disk
             downloadDefaultDisk()
         } else {
             loadRomAndDisks()
@@ -480,10 +501,10 @@ class MainActivity : AppCompatActivity() {
                     emulator.completeInit()
 
                     // Restore NVRAM from saved preferences (for boot config persistence)
-                    val savedNvram = settingsRepo.getSavedNvram()
-                    if (savedNvram != null) {
-                        emulator.setNvram(savedNvram)
-                        Log.i(TAG, "NVRAM restored from saved preferences")
+                    val savedNvramSetting = settingsRepo.getSavedNvramSetting()
+                    if (!savedNvramSetting.isNullOrEmpty()) {
+                        emulator.setNvramSetting(savedNvramSetting)
+                        Log.i(TAG, "NVRAM restored: \"$savedNvramSetting\"")
                     }
 
                     romLoaded = true
@@ -716,12 +737,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Save NVRAM for boot config persistence before stopping
-        if (romLoaded && emulator.isNvramInitialized()) {
-            val nvram = emulator.getNvram()
-            settingsRepo.saveNvram(nvram)
-            Log.i(TAG, "NVRAM saved to preferences")
-        }
+        saveNvramIfNeeded()
         stopEmulation()
     }
 
@@ -730,5 +746,17 @@ class MainActivity : AppCompatActivity() {
         stopEmulation()
         executor.shutdown()
         emulator.destroy()
+    }
+
+    /**
+     * Save NVRAM to preferences if it has changed since last save.
+     * Called periodically from run loop and on pause.
+     */
+    private fun saveNvramIfNeeded() {
+        if (romLoaded && emulator.hasNvramChange()) {
+            val setting = emulator.getNvramSetting()  // clears dirty flag
+            settingsRepo.saveNvramSetting(setting)
+            Log.i(TAG, "NVRAM saved: \"$setting\"")
+        }
     }
 }
