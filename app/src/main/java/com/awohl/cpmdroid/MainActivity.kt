@@ -6,7 +6,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.graphics.Rect
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.FrameLayout
@@ -131,14 +133,23 @@ class MainActivity : AppCompatActivity() {
         // Handle window insets for edge-to-edge AND keyboard
         val rootLayout = findViewById<View>(R.id.rootLayout)
 
+        // Track inset values from both methods
+        var lastSystemBarsBottom = 0
+        var lastImeBottom = 0
+        var lastMeasuredKeyboardHeight = 0
+
+        // Method 1: WindowInsets (works for most standard keyboards)
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { view, windowInsets ->
             val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
             val ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime())
 
-            // Use the larger of system bars or IME for bottom inset
-            val bottomInset = maxOf(systemBars.bottom, ime.bottom)
+            lastSystemBarsBottom = systemBars.bottom
+            lastImeBottom = ime.bottom
 
-            Log.i(TAG, "Insets: systemBars.bottom=${systemBars.bottom}, ime.bottom=${ime.bottom}, using bottom=$bottomInset")
+            // Use the larger of all methods: systemBars, IME insets, or measured keyboard height
+            val bottomInset = maxOf(systemBars.bottom, ime.bottom, lastMeasuredKeyboardHeight)
+
+            Log.i(TAG, "Insets: systemBars.bottom=${systemBars.bottom}, ime.bottom=${ime.bottom}, measured=$lastMeasuredKeyboardHeight, using bottom=$bottomInset")
 
             // Apply padding to the root layout
             view.setPadding(systemBars.left, systemBars.top, systemBars.right, bottomInset)
@@ -149,6 +160,48 @@ class MainActivity : AppCompatActivity() {
             }
 
             WindowInsetsCompat.CONSUMED
+        }
+
+        // Method 2: ViewTreeObserver fallback for third-party keyboards that don't report IME insets correctly
+        // This measures the actual visible display frame to detect keyboard presence
+        rootLayout.viewTreeObserver.addOnGlobalLayoutListener {
+            val r = Rect()
+            rootLayout.getWindowVisibleDisplayFrame(r)
+
+            // Get the screen height from the root view's actual size (after initial layout)
+            val screenHeight = rootLayout.rootView.height
+
+            // Calculate keyboard height as the difference between screen and visible area
+            // Subtract status bar / navigation bar space that's already in the visible frame
+            val keyboardHeight = screenHeight - r.bottom
+
+            // Only consider it a keyboard if it's reasonably sized (> 100px)
+            // This filters out small navigation bar differences
+            if (keyboardHeight > 100) {
+                if (keyboardHeight != lastMeasuredKeyboardHeight) {
+                    lastMeasuredKeyboardHeight = keyboardHeight
+                    Log.i(TAG, "Measured keyboard height: $keyboardHeight (screen=$screenHeight, visible.bottom=${r.bottom})")
+
+                    // If measured height is larger than what WindowInsets reported, update padding
+                    val currentBottom = maxOf(lastSystemBarsBottom, lastImeBottom)
+                    if (keyboardHeight > currentBottom) {
+                        Log.i(TAG, "Using measured keyboard height $keyboardHeight instead of insets $currentBottom")
+                        rootLayout.setPadding(
+                            rootLayout.paddingLeft,
+                            rootLayout.paddingTop,
+                            rootLayout.paddingRight,
+                            keyboardHeight
+                        )
+                        if (::terminalView.isInitialized) {
+                            terminalView.post { terminalView.recalculateSize() }
+                        }
+                    }
+                }
+            } else if (lastMeasuredKeyboardHeight > 0) {
+                // Keyboard was hidden
+                lastMeasuredKeyboardHeight = 0
+                Log.i(TAG, "Keyboard hidden (measured height: $keyboardHeight)")
+            }
         }
 
         settingsRepo = SettingsRepository(this)
