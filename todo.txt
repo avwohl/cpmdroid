@@ -1,0 +1,25 @@
+Todo list:
+- add a confirm dialog to restart the emulator
+a user complained of hitting restart instead of pause
+and loosing work
+
+- the new code we added to check for writes to disks in the manifest
+that may be overwritten by a new release got relased and does work.
+however, i deleted the previous version and installed and it came up
+with the checkbox in settings off. by default it should come up on.
+fix the problem. change the settings version so everyone will get the
+default settings
+
+- we tested the smartkeyboard pro changes and they worked.  I did  clean
+install from the store it does not. there is big black band above the keyboard 
+now and we are missing afew lines of text.
+see c:\temp\Screeenshot*
+
+- when the app is run in it somehow is flagged as using sound. i think the romwbw has some sound midi output?
+is there a way to flag it as indcidental? if I am listing to and audio book and run our emulator the book
+stops.  I can see the program might make a bell sound.  But by default books should continue. It may
+make sense to have an enable sound checkbox.
+
+- In a sound releated issue, see docs/midi.md. A user says the RC2014 driver has some clock on it
+so we don't need to slow our emulator. Research the RC2014 driver and see how much work it would be.
+See if it can also do a clock.  See how much could could be in hbios_dispatch and shared and how much would be Android only.  Update this midi.md with findings

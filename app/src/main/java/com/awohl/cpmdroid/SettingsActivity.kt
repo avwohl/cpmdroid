@@ -91,8 +91,11 @@ class SettingsActivity : AppCompatActivity() {
         // Wrap lines checkbox
         binding.wrapLinesCheckbox.isChecked = currentSettings.wrapLines
 
-        // Suppress write warning checkbox
-        binding.suppressWriteWarningCheckbox.isChecked = settingsRepo.isManifestWriteWarningSuppressed()
+        // Warn on manifest writes checkbox
+        binding.warnManifestWritesCheckbox.isChecked = settingsRepo.isWarnManifestWritesEnabled()
+
+        // Sound enabled checkbox
+        binding.soundEnabledCheckbox.isChecked = settingsRepo.isSoundEnabled()
 
         // Browse catalog button
         binding.browseCatalogButton.setOnClickListener {
@@ -271,8 +274,10 @@ class SettingsActivity : AppCompatActivity() {
             wrapLines = binding.wrapLinesCheckbox.isChecked
         )
         settingsRepo.saveSettings(currentSettings)
-        // Save write warning suppression setting separately
-        settingsRepo.setManifestWriteWarningSuppressed(binding.suppressWriteWarningCheckbox.isChecked)
+        // Save warn manifest writes setting separately
+        settingsRepo.setWarnManifestWritesEnabled(binding.warnManifestWritesCheckbox.isChecked)
+        // Save sound enabled setting separately
+        settingsRepo.setSoundEnabled(binding.soundEnabledCheckbox.isChecked)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {

@@ -205,6 +205,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         settingsRepo = SettingsRepository(this)
+        settingsRepo.migrateIfNeeded()
         downloadManager = DiskDownloadManager(this)
 
         terminalView = findViewById(R.id.terminalView)
@@ -319,7 +320,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         bootButton.setOnClickListener {
-            bootEmulation()
+            showRestartConfirmDialog()
         }
 
         settingsButton.setOnClickListener {
@@ -375,6 +376,17 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showRestartConfirmDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Restart Emulator")
+            .setMessage("Are you sure you want to restart? Any unsaved work will be lost.")
+            .setPositiveButton("Restart") { _, _ ->
+                bootEmulation()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun showManifestWriteWarningDialog() {
         AlertDialog.Builder(this)
             .setTitle("Disk Write Warning")
@@ -387,7 +399,7 @@ class MainActivity : AppCompatActivity() {
             """.trimIndent())
             .setPositiveButton("OK", null)
             .setNeutralButton("Don't warn again") { _, _ ->
-                settingsRepo.setManifestWriteWarningSuppressed(true)
+                settingsRepo.setWarnManifestWritesEnabled(false)
                 // Also suppress for current session
                 for (i in 0 until 16) {
                     emulator.setDiskWarningSuppressed(i, true)
@@ -499,6 +511,7 @@ class MainActivity : AppCompatActivity() {
         // Apply display settings
         terminalView.customFontSize = settings.fontSize.toFloat()
         terminalView.wrapLines = settings.wrapLines
+        terminalView.soundEnabled = settingsRepo.isSoundEnabled()
 
         // Log current settings for debugging
         Log.i(TAG, "Settings: ROM=${settings.romName}")
@@ -535,7 +548,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     // Apply manifest write warning suppression from user preferences
-                    if (settingsRepo.isManifestWriteWarningSuppressed()) {
+                    if (!settingsRepo.isWarnManifestWritesEnabled()) {
                         for (i in 0 until 16) {
                             emulator.setDiskWarningSuppressed(i, true)
                         }
@@ -643,6 +656,7 @@ class MainActivity : AppCompatActivity() {
         val settings = settingsRepo.getSettings()
         terminalView.customFontSize = settings.fontSize.toFloat()
         terminalView.wrapLines = settings.wrapLines
+        terminalView.soundEnabled = settingsRepo.isSoundEnabled()
 
         // Display version string on terminal before ROM output
         val versionBanner = "CPMDroid v${getVersionString()} (${BuildConfig.BUILD_TIME})\r\n"
@@ -773,6 +787,7 @@ class MainActivity : AppCompatActivity() {
             val settings = settingsRepo.getSettings()
             terminalView.customFontSize = settings.fontSize.toFloat()
             terminalView.wrapLines = settings.wrapLines
+            terminalView.soundEnabled = settingsRepo.isSoundEnabled()
 
             // Check if disk settings changed while in Settings
             val diskSettingsChanged = lastDiskSlots.isNotEmpty() && settings.diskSlots != lastDiskSlots

@@ -13,7 +13,10 @@ class SettingsRepository(context: Context) {
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_WRAP_LINES = "wrap_lines"
         private const val KEY_FIRST_LAUNCH_DONE = "first_launch_done"
-        private const val KEY_MANIFEST_WRITE_WARNING_SUPPRESSED = "manifest_write_warning_suppressed"
+        private const val KEY_WARN_MANIFEST_WRITES = "warn_manifest_writes"
+        private const val KEY_SOUND_ENABLED = "sound_enabled"
+        private const val KEY_PREFS_VERSION = "prefs_version"
+        private const val CURRENT_PREFS_VERSION = 2
         private const val KEY_NVRAM = "nvram"
 
         private const val DEFAULT_ROM = "emu_avw.rom"
@@ -67,11 +70,30 @@ class SettingsRepository(context: Context) {
         prefs.edit { putBoolean(KEY_FIRST_LAUNCH_DONE, true) }
     }
 
-    fun isManifestWriteWarningSuppressed(): Boolean =
-        prefs.getBoolean(KEY_MANIFEST_WRITE_WARNING_SUPPRESSED, false)
+    fun isWarnManifestWritesEnabled(): Boolean =
+        prefs.getBoolean(KEY_WARN_MANIFEST_WRITES, true)
 
-    fun setManifestWriteWarningSuppressed(suppressed: Boolean) {
-        prefs.edit { putBoolean(KEY_MANIFEST_WRITE_WARNING_SUPPRESSED, suppressed) }
+    fun setWarnManifestWritesEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_WARN_MANIFEST_WRITES, enabled) }
+    }
+
+    fun isSoundEnabled(): Boolean =
+        prefs.getBoolean(KEY_SOUND_ENABLED, false)
+
+    fun setSoundEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_SOUND_ENABLED, enabled) }
+    }
+
+    fun migrateIfNeeded() {
+        val version = prefs.getInt(KEY_PREFS_VERSION, 1)
+        if (version < CURRENT_PREFS_VERSION) {
+            prefs.edit {
+                // Version 2: New warn_manifest_writes setting defaults to true
+                // Reset to default so all users get warnings enabled
+                remove(KEY_WARN_MANIFEST_WRITES)
+                putInt(KEY_PREFS_VERSION, CURRENT_PREFS_VERSION)
+            }
+        }
     }
 
     fun getSavedNvramSetting(): String? = prefs.getString(KEY_NVRAM, null)

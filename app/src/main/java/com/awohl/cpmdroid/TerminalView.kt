@@ -95,6 +95,7 @@ class TerminalView @JvmOverloads constructor(
 
     // Bell sound generator
     private var toneGenerator: ToneGenerator? = null
+    var soundEnabled: Boolean = false
 
     // CGA color palette
     private val cgaColors = intArrayOf(
@@ -125,6 +126,7 @@ class TerminalView @JvmOverloads constructor(
 
     /** Play bell sound (0x07 BEL character) */
     private fun playBell() {
+        if (!soundEnabled) return
         try {
             if (toneGenerator == null) {
                 toneGenerator = ToneGenerator(AudioManager.STREAM_SYSTEM, 50) // 50% volume
