@@ -16,7 +16,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_WARN_MANIFEST_WRITES = "warn_manifest_writes"
         private const val KEY_SOUND_ENABLED = "sound_enabled"
         private const val KEY_PREFS_VERSION = "prefs_version"
-        private const val CURRENT_PREFS_VERSION = 2
+        private const val CURRENT_PREFS_VERSION = 3
         private const val KEY_NVRAM = "nvram"
 
         private const val DEFAULT_ROM = "emu_avw.rom"

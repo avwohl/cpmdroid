@@ -395,7 +395,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showManifestWriteWarningDialog() {
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Disk Write Warning")
             .setMessage("""
                 You are writing to a downloaded disk image.
@@ -405,14 +405,17 @@ class MainActivity : AppCompatActivity() {
                 To preserve your data, copy files to a different disk or export them using W8.
             """.trimIndent())
             .setPositiveButton("OK", null)
-            .setNeutralButton("Don't warn again") { _, _ ->
-                settingsRepo.setWarnManifestWritesEnabled(false)
-                // Also suppress for current session
-                for (i in 0 until 16) {
-                    emulator.setDiskWarningSuppressed(i, true)
-                }
+            .create()
+        // Dismiss on Return key
+        dialog.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == android.view.KeyEvent.KEYCODE_ENTER && event.action == android.view.KeyEvent.ACTION_UP) {
+                dialog.dismiss()
+                true
+            } else {
+                false
             }
-            .show()
+        }
+        dialog.show()
     }
 
     private fun checkFirstLaunchAndLoad() {
@@ -546,9 +549,8 @@ class MainActivity : AppCompatActivity() {
                                     } else {
                                         Log.i(TAG, "Disk $index loaded from catalog: $filename (${diskData.size} bytes)")
                                     }
-                                    // Only mark as manifest disk if not loaded from persisted version
-                                    // (persisted disks won't be overwritten by catalog updates)
-                                    emulator.setDiskIsManifest(index, !isPersisted)
+                                    // Mark all downloaded disks as manifest (warn once per session on write)
+                                    emulator.setDiskIsManifest(index, true)
                                     diskCount++
                                 } else {
                                     Log.e(TAG, "Disk $index failed to load: $filename")
@@ -699,8 +701,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Check for manifest disk write warning (fires once per session)
+        // Delay slightly so the Return key from the command is consumed first
         if (emulator.checkManifestWriteWarning()) {
-            mainHandler.post { showManifestWriteWarningDialog() }
+            mainHandler.postDelayed({ showManifestWriteWarningDialog() }, 100)
         }
     }
 
@@ -855,7 +858,8 @@ class MainActivity : AppCompatActivity() {
                             } else {
                                 Log.i(TAG, "Disk $index reloaded from catalog: $filename (${diskData.size} bytes)")
                             }
-                            emulator.setDiskIsManifest(index, !isPersisted)
+                            // Mark all downloaded disks as manifest (warn once per session on write)
+                            emulator.setDiskIsManifest(index, true)
                             diskCount++
                         } else {
                             Log.e(TAG, "Disk $index failed to reload: $filename")
