@@ -123,6 +123,7 @@ static bool g_initialized = false;
 static std::vector<uint8_t> g_cached_rom;
 static std::vector<uint8_t> g_cached_disks[16];
 static int g_cached_disk_slices[16] = {0};
+static bool g_cached_disk_manifest[16] = {false};  // Track which disks are manifest (downloaded)
 
 //=============================================================================
 // I/O State
@@ -678,6 +679,7 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeInit(JNIEnv* env, jobject thiz) {
     for (int i = 0; i < 16; i++) {
         g_cached_disks[i].clear();
         g_cached_disk_slices[i] = 0;
+        g_cached_disk_manifest[i] = false;
     }
 
     g_callback_obj = env->NewGlobalRef(thiz);
@@ -708,6 +710,7 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeDestroy(JNIEnv* env, jobject thiz) 
     for (int i = 0; i < 16; i++) {
         g_cached_disks[i].clear();
         g_cached_disk_slices[i] = 0;
+        g_cached_disk_manifest[i] = false;
     }
 
     emu_io_cleanup();
@@ -976,6 +979,10 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
             if (g_cached_disk_slices[i] > 0) {
                 g_emu->hbios->setDiskSliceCount(i, g_cached_disk_slices[i]);
             }
+            // Restore manifest flag (for downloaded disk write warning)
+            if (g_cached_disk_manifest[i]) {
+                g_emu->hbios->setDiskIsManifest(i, true);
+            }
         }
     }
 
@@ -1159,10 +1166,14 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetDiskIsManifest(JNIEnv* env, jobj
                                                                   jint unit, jboolean isManifest) {
     (void)env;
     (void)thiz;
-    if (!g_initialized || !g_emu) {
+    if (unit < 0 || unit >= 16) {
         return;
     }
-    g_emu->hbios->setDiskIsManifest(unit, isManifest == JNI_TRUE);
+    // Cache the manifest flag for restoration after reset
+    g_cached_disk_manifest[unit] = (isManifest == JNI_TRUE);
+    if (g_initialized && g_emu) {
+        g_emu->hbios->setDiskIsManifest(unit, isManifest == JNI_TRUE);
+    }
     LOGI("Set disk %d isManifest=%s", unit, isManifest ? "true" : "false");
 }
 

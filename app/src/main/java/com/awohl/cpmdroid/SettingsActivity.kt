@@ -91,6 +91,9 @@ class SettingsActivity : AppCompatActivity() {
         // Wrap lines checkbox
         binding.wrapLinesCheckbox.isChecked = currentSettings.wrapLines
 
+        // Suppress write warning checkbox
+        binding.suppressWriteWarningCheckbox.isChecked = settingsRepo.isManifestWriteWarningSuppressed()
+
         // Browse catalog button
         binding.browseCatalogButton.setOnClickListener {
             showDiskCatalogDialog(slotToAssign = null)
@@ -268,6 +271,8 @@ class SettingsActivity : AppCompatActivity() {
             wrapLines = binding.wrapLinesCheckbox.isChecked
         )
         settingsRepo.saveSettings(currentSettings)
+        // Save write warning suppression setting separately
+        settingsRepo.setManifestWriteWarningSuppressed(binding.suppressWriteWarningCheckbox.isChecked)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {

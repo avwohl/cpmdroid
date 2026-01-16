@@ -316,6 +316,24 @@
             android:textSize="12sp"
             android:layout_marginStart="32dp" />
 
+        <!-- Suppress Download Disk Warnings Checkbox -->
+        <CheckBox
+            android:id="@+id/suppressWriteWarningCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Suppress downloaded disk warnings"
+            android:textColor="#AAFFAA"
+            android:buttonTint="#00FF00" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Don&apos;t warn when writing to downloaded disks (changes may be lost on app update)"
+            android:textColor="#666666"
+            android:textSize="12sp"
+            android:layout_marginStart="32dp" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
