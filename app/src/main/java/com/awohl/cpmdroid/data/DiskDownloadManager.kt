@@ -115,4 +115,64 @@ class DiskDownloadManager(private val context: Context) {
         val file = getDiskFile(filename)
         return if (file.exists()) file.readBytes() else null
     }
+
+    // =========================================================================
+    // Disk Persistence - for saving modified disks
+    // =========================================================================
+
+    /**
+     * Get the directory for persisted (modified) disk images.
+     * These are kept separate from downloaded catalog disks.
+     */
+    fun getPersistedDisksDir(): File {
+        val dir = File(context.getExternalFilesDir(null), "ModifiedDisks")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    /**
+     * Get the file path for a persisted disk image.
+     */
+    fun getPersistedDiskFile(filename: String): File = File(getPersistedDisksDir(), filename)
+
+    /**
+     * Check if a persisted (modified) version of a disk exists.
+     */
+    fun hasPersistedDisk(filename: String): Boolean = getPersistedDiskFile(filename).exists()
+
+    /**
+     * Load a persisted disk if it exists, otherwise fall back to the catalog version.
+     * Returns the disk data and whether it was from the persisted version.
+     */
+    fun loadDiskDataWithPersistence(filename: String): Pair<ByteArray?, Boolean> {
+        val persistedFile = getPersistedDiskFile(filename)
+        if (persistedFile.exists()) {
+            return Pair(persistedFile.readBytes(), true)
+        }
+        val catalogFile = getDiskFile(filename)
+        if (catalogFile.exists()) {
+            return Pair(catalogFile.readBytes(), false)
+        }
+        return Pair(null, false)
+    }
+
+    /**
+     * Save modified disk data to the persisted disks directory.
+     */
+    fun savePersistedDisk(filename: String, data: ByteArray): Boolean {
+        return try {
+            val file = getPersistedDiskFile(filename)
+            file.writeBytes(data)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Delete a persisted disk (revert to catalog version).
+     */
+    fun deletePersistedDisk(filename: String): Boolean {
+        return getPersistedDiskFile(filename).delete()
+    }
 }

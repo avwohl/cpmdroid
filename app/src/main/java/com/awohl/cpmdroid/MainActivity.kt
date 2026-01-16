@@ -81,6 +81,7 @@ class MainActivity : AppCompatActivity() {
 
     private var runLoopCount = 0
     private var lastNvramSaveCount = 0
+    private var lastDiskSaveCount = 0
     private val runLoop: Runnable = object : Runnable {
         override fun run() {
             if (running && romLoaded) {
@@ -101,6 +102,12 @@ class MainActivity : AppCompatActivity() {
                     if (runLoopCount - lastNvramSaveCount >= 300) {
                         lastNvramSaveCount = runLoopCount
                         saveNvramIfNeeded()
+                    }
+
+                    // Periodically save dirty disks (~20 seconds = 1250 iterations at 16ms)
+                    if (runLoopCount - lastDiskSaveCount >= 1250) {
+                        lastDiskSaveCount = runLoopCount
+                        saveDirtyDisks()
                     }
 
                     if (shouldContinue) {
@@ -527,16 +534,21 @@ class MainActivity : AppCompatActivity() {
                 Log.i(TAG, "ROM loaded from assets: $romName (${romData.size} bytes)")
 
                 if (emulator.loadRom(romData)) {
-                    // Load disks from external storage
+                    // Load disks from external storage (prefer persisted versions over catalog)
                     var diskCount = 0
                     settings.diskSlots.forEachIndexed { index, filename ->
                         if (filename != null) {
-                            val diskData = downloadManager.loadDiskData(filename)
+                            val (diskData, isPersisted) = downloadManager.loadDiskDataWithPersistence(filename)
                             if (diskData != null) {
                                 if (emulator.loadDisk(index, diskData)) {
-                                    Log.i(TAG, "Disk $index loaded: $filename (${diskData.size} bytes)")
-                                    // Mark as manifest disk (downloaded from catalog, may be overwritten on update)
-                                    emulator.setDiskIsManifest(index, true)
+                                    if (isPersisted) {
+                                        Log.i(TAG, "Disk $index loaded from persisted: $filename (${diskData.size} bytes)")
+                                    } else {
+                                        Log.i(TAG, "Disk $index loaded from catalog: $filename (${diskData.size} bytes)")
+                                    }
+                                    // Only mark as manifest disk if not loaded from persisted version
+                                    // (persisted disks won't be overwritten by catalog updates)
+                                    emulator.setDiskIsManifest(index, !isPersisted)
                                     diskCount++
                                 } else {
                                     Log.e(TAG, "Disk $index failed to load: $filename")
@@ -647,6 +659,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bootEmulation() {
+        saveDirtyDisks()  // Save any modified disks before reset
         stopEmulation()
         terminalView.clear()
         terminalView.recalculateSize()
@@ -810,6 +823,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveNvramIfNeeded()
+        saveDirtyDisks()
         // Save current disk slots to detect changes on resume
         lastDiskSlots = settingsRepo.getSettings().diskSlots
         stopEmulation()
@@ -817,6 +831,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        saveDirtyDisks()  // Final save before destroying emulator
         stopEmulation()
         executor.shutdown()
         emulator.destroy()
@@ -827,15 +842,20 @@ class MainActivity : AppCompatActivity() {
      * Called from onResume when returning from Settings with changed disk slots.
      */
     private fun reloadDisksFromSettings(settings: EmulatorSettings) {
+        saveDirtyDisks()  // Save any modified disks before reloading
         executor.execute {
             var diskCount = 0
             settings.diskSlots.forEachIndexed { index, filename ->
                 if (filename != null) {
-                    val diskData = downloadManager.loadDiskData(filename)
+                    val (diskData, isPersisted) = downloadManager.loadDiskDataWithPersistence(filename)
                     if (diskData != null) {
                         if (emulator.loadDisk(index, diskData)) {
-                            Log.i(TAG, "Disk $index reloaded: $filename (${diskData.size} bytes)")
-                            emulator.setDiskIsManifest(index, true)
+                            if (isPersisted) {
+                                Log.i(TAG, "Disk $index reloaded from persisted: $filename (${diskData.size} bytes)")
+                            } else {
+                                Log.i(TAG, "Disk $index reloaded from catalog: $filename (${diskData.size} bytes)")
+                            }
+                            emulator.setDiskIsManifest(index, !isPersisted)
                             diskCount++
                         } else {
                             Log.e(TAG, "Disk $index failed to reload: $filename")
@@ -895,6 +915,29 @@ class MainActivity : AppCompatActivity() {
             if (currentSetting != savedSetting) {
                 settingsRepo.saveNvramSetting(currentSetting)
                 Log.i(TAG, "NVRAM saved (diff): \"$currentSetting\" (was \"$savedSetting\")")
+            }
+        }
+    }
+
+    /**
+     * Save dirty disks to persistent storage.
+     * Called periodically from run loop and on pause/exit.
+     */
+    private fun saveDirtyDisks() {
+        if (!romLoaded) return
+
+        val settings = settingsRepo.getSettings()
+        settings.diskSlots.forEachIndexed { index, filename ->
+            if (filename != null && emulator.isDiskDirty(index)) {
+                val diskData = emulator.getDiskData(index)
+                if (diskData != null) {
+                    if (downloadManager.savePersistedDisk(filename, diskData)) {
+                        emulator.clearDiskDirty(index)
+                        Log.i(TAG, "Disk $index saved: $filename (${diskData.size} bytes)")
+                    } else {
+                        Log.e(TAG, "Failed to save disk $index: $filename")
+                    }
+                }
             }
         }
     }

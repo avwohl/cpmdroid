@@ -57,6 +57,11 @@ class EmulatorEngine {
     private external fun nativeSetDiskWarningSuppressed(unit: Int, suppressed: Boolean)
     private external fun nativeCheckManifestWriteWarning(): Boolean
 
+    // Disk persistence native methods
+    private external fun nativeIsDiskDirty(unit: Int): Boolean
+    private external fun nativeClearDiskDirty(unit: Int)
+    private external fun nativeGetDiskData(unit: Int): ByteArray?
+
     fun init() {
         Log.i(TAG, "Initializing emulator engine")
         nativeInit()
@@ -154,4 +159,12 @@ class EmulatorEngine {
     fun setDiskWarningSuppressed(unit: Int, suppressed: Boolean) = nativeSetDiskWarningSuppressed(unit, suppressed)
     // Poll for manifest write warning - returns true once per session when user writes to manifest disk
     fun checkManifestWriteWarning(): Boolean = nativeCheckManifestWriteWarning()
+
+    // Disk persistence methods - for saving modified disks
+    // Check if disk has been modified since loading
+    fun isDiskDirty(unit: Int): Boolean = nativeIsDiskDirty(unit)
+    // Clear dirty flag after saving disk
+    fun clearDiskDirty(unit: Int) = nativeClearDiskDirty(unit)
+    // Get disk data for saving (returns null if not an in-memory disk)
+    fun getDiskData(unit: Int): ByteArray? = nativeGetDiskData(unit)
 }

@@ -417,6 +417,11 @@ void emu_disk_flush(emu_disk_handle handle) {
     // In-memory, nothing to flush
 }
 
+void emu_disk_flush_all() {
+    // In-memory disks - persistence is handled by Java layer via saveDirtyDisks()
+    // This is called on warm boot; Java polls dirty flags periodically and on pause/exit
+}
+
 size_t emu_disk_size(emu_disk_handle handle) {
     if (!handle) return 0;
     disk_mem* disk = static_cast<disk_mem*>(handle);
@@ -1197,6 +1202,57 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeCheckManifestWriteWarning(JNIEnv* e
         return JNI_FALSE;
     }
     return g_emu->hbios->pollManifestWriteWarning() ? JNI_TRUE : JNI_FALSE;
+}
+
+//=============================================================================
+// Disk Persistence JNI Interface
+//=============================================================================
+
+JNIEXPORT jboolean JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsDiskDirty(JNIEnv* env, jobject thiz, jint unit) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return JNI_FALSE;
+    }
+    return g_emu->hbios->isDiskDirty(unit) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeClearDiskDirty(JNIEnv* env, jobject thiz, jint unit) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return;
+    }
+    g_emu->hbios->clearDiskDirty(unit);
+    LOGI("Cleared dirty flag for disk %d", unit);
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetDiskData(JNIEnv* env, jobject thiz, jint unit) {
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return nullptr;
+    }
+
+    const uint8_t* data = g_emu->hbios->getDiskData(unit);
+    size_t size = g_emu->hbios->getDiskDataSize(unit);
+
+    if (data == nullptr || size == 0) {
+        return nullptr;
+    }
+
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(size));
+    if (result == nullptr) {
+        LOGE("Failed to allocate byte array for disk %d data (%zu bytes)", unit, size);
+        return nullptr;
+    }
+
+    env->SetByteArrayRegion(result, 0, static_cast<jsize>(size),
+                            reinterpret_cast<const jbyte*>(data));
+    LOGI("Retrieved disk %d data (%zu bytes)", unit, size);
+    return result;
 }
 
 } // extern "C"
