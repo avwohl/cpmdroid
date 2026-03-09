@@ -31,6 +31,7 @@ class EmulatorEngine {
     private external fun nativeCompleteInit()
     private external fun nativeRun(instructionCount: Int)
     private external fun nativeStop()
+    private external fun nativeIsWaitingForInput(): Boolean
     private external fun nativeQueueInput(ch: Int)
     private external fun nativeQueueInputString(str: String)
     private external fun nativeReset()
@@ -132,6 +133,7 @@ class EmulatorEngine {
     fun isDiskLoaded(unit: Int): Boolean = nativeIsDiskLoaded(unit)
 
     fun isRunning(): Boolean = running.get()
+    fun isWaitingForInput(): Boolean = nativeIsWaitingForInput()
 
     // Host file transfer methods
     fun getHostFileState(): Int = nativeGetHostFileState()

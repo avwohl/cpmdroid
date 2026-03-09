@@ -36,7 +36,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val FRAME_DELAY_MS = 16L // ~60fps
+        private const val FRAME_DELAY_MS = 16L // ~60fps when actively executing
+        private const val IDLE_DELAY_MS = 100L // 10Hz when waiting for keyboard input
     }
 
     private lateinit var terminalView: TerminalView
@@ -111,7 +112,8 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     if (shouldContinue) {
-                        mainHandler.postDelayed(self, FRAME_DELAY_MS)
+                        val delay = if (emulator.isWaitingForInput()) IDLE_DELAY_MS else FRAME_DELAY_MS
+                        mainHandler.postDelayed(self, delay)
                     } else {
                         Log.w(TAG, "runLoop: batch returned false, stopping")
                     }
@@ -246,6 +248,18 @@ class MainActivity : AppCompatActivity() {
         checkFirstLaunchAndLoad()
     }
 
+    /**
+     * Wake the run loop immediately after input is queued.
+     * Cancels any pending delayed post (which may be 100ms away during idle)
+     * and reposts immediately so input is processed without lag.
+     */
+    private fun wakeRunLoop() {
+        if (running && romLoaded) {
+            mainHandler.removeCallbacks(runLoop)
+            mainHandler.post(runLoop)
+        }
+    }
+
     private fun setupEmulator() {
         emulator.init()
         emulator.setOutputListener { data ->
@@ -272,6 +286,7 @@ class MainActivity : AppCompatActivity() {
                 ch
             }
             emulator.queueInput(charToSend)
+            wakeRunLoop()
         }
     }
 
@@ -287,6 +302,7 @@ class MainActivity : AppCompatActivity() {
             controlifyMode = false
             updateCtrlButtonState()
             emulator.queueInput(0x1B)
+            wakeRunLoop()
         }
 
         // Tab sends tab character (0x09)
@@ -294,6 +310,7 @@ class MainActivity : AppCompatActivity() {
             controlifyMode = false
             updateCtrlButtonState()
             emulator.queueInput(0x09)
+            wakeRunLoop()
         }
 
         // Copy screen to clipboard

@@ -855,35 +855,43 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
         return;
     }
 
-    // Check if we're blocked waiting for input (CIOIN called with no data)
-    if (g_emu->hbios->getState() == HBIOS_NEEDS_INPUT) {
-        // Don't execute - just check for output and return
-        // The UI will call us again after input is provided
-    } else {
-        g_running = true;
+    // Debug counter (declared before goto to satisfy C++ scoping rules)
+    static int run_count = 0;
 
-        for (int i = 0; i < instructionCount && g_running; i++) {
-            g_emu->cpu->execute();
+    // Check if we're blocked waiting for input (CIOIN/VDAKRD called with no data)
+    if (g_emu->hbios->isWaitingForInput()) {
+        if (emu_console_has_input()) {
+            // Input arrived - clear waiting flag so CPU will process it
+            g_emu->hbios->clearWaitingForInput();
+        } else {
+            // No input available - skip execution entirely (power saving)
+            // Just flush any pending output below and return
+            goto flush_output;
+        }
+    }
 
-            // Check state after each instruction
-            HBIOSState state = g_emu->hbios->getState();
-            if (state == HBIOS_NEEDS_INPUT) {
-                break;  // Stop executing until input is provided
-            }
-            if (state == HBIOS_HALTED) {
-                g_running = false;
-                break;
-            }
+    g_running = true;
+
+    for (int i = 0; i < instructionCount && g_running; i++) {
+        g_emu->cpu->execute();
+
+        // Check if CPU is now waiting for input
+        if (g_emu->hbios->isWaitingForInput()) {
+            break;  // Stop executing until input is provided
+        }
+        if (g_emu->hbios->getState() == HBIOS_HALTED) {
+            g_running = false;
+            break;
         }
     }
 
     // Debug: log PC after batch
-    static int run_count = 0;
     if (++run_count <= 5) {
         LOGI("nativeRun #%d: PC=0x%04X after %d instructions",
              run_count, g_emu->cpu->regs.PC.get_pair16(), instructionCount);
     }
 
+flush_output:
     // Flush output queue (from direct port 0x01 writes)
     std::vector<uint8_t> output;
     {
@@ -923,6 +931,16 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeStop(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
     g_running = false;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsWaitingForInput(JNIEnv* env, jobject thiz) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_emu) {
+        return JNI_FALSE;
+    }
+    return g_emu->hbios->isWaitingForInput() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
