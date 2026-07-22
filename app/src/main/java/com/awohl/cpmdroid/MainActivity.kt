@@ -23,7 +23,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
-import com.awohl.cpmdroid.data.DiskCatalogRepository
 import com.awohl.cpmdroid.data.DiskDownloadManager
 import com.awohl.cpmdroid.data.EmulatorSettings
 import com.awohl.cpmdroid.data.SettingsRepository
@@ -373,6 +372,59 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun createVersionBanner(): ByteArray {
+        return "CPMDroid v${getVersionString()} (${BuildConfig.BUILD_TIME})\r\n".toByteArray()
+    }
+
+    /**
+     * Load disks from settings, configure slice counts and manifest flags.
+     * Shared by loadRomAndDisks() and reloadDisksFromSettings().
+     */
+    private fun loadDisksAndConfigureSlices(settings: EmulatorSettings, logPrefix: String = "loaded") {
+        var diskCount = 0
+        settings.diskSlots.forEachIndexed { index, filename ->
+            if (filename != null) {
+                val (diskData, isPersisted) = downloadManager.loadDiskDataWithPersistence(filename)
+                if (diskData != null) {
+                    if (emulator.loadDisk(index, diskData)) {
+                        val source = if (isPersisted) "persisted" else "catalog"
+                        Log.i(TAG, "Disk $index $logPrefix from $source: $filename (${diskData.size} bytes)")
+                        emulator.setDiskIsManifest(index, true)
+                        diskCount++
+                    } else {
+                        Log.e(TAG, "Disk $index failed to load: $filename")
+                    }
+                } else {
+                    Log.w(TAG, "Disk $index file not found: $filename")
+                }
+            }
+        }
+
+        val autoSlices = when {
+            diskCount <= 1 -> 8
+            diskCount == 2 -> 4
+            else -> 2
+        }
+        Log.i(TAG, "Disk count: $diskCount, auto slices: $autoSlices")
+
+        for (i in 0 until 16) {
+            if (emulator.isDiskLoaded(i)) {
+                emulator.setDiskSliceCount(i, autoSlices)
+            }
+        }
+
+        applyManifestWarningPreference()
+    }
+
+    /** Re-apply the user's manifest write warning preference to all disks. */
+    private fun applyManifestWarningPreference() {
+        if (!settingsRepo.isWarnManifestWritesEnabled()) {
+            for (i in 0 until 16) {
+                emulator.setDiskWarningSuppressed(i, true)
+            }
+        }
+    }
+
     private fun showAboutDialog() {
         val version = getVersionString()
         val buildTime = BuildConfig.BUILD_TIME
@@ -458,7 +510,7 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "First launch - fetching disk catalog...")
 
         lifecycleScope.launch {
-            val catalogResult = DiskCatalogRepository().fetchCatalog()
+            val catalogResult = downloadManager.fetchCatalog()
             val catalog = catalogResult.getOrNull()
 
             if (catalog != null) {
@@ -554,52 +606,7 @@ class MainActivity : AppCompatActivity() {
                 Log.i(TAG, "ROM loaded from assets: $romName (${romData.size} bytes)")
 
                 if (emulator.loadRom(romData)) {
-                    // Load disks from external storage (prefer persisted versions over catalog)
-                    var diskCount = 0
-                    settings.diskSlots.forEachIndexed { index, filename ->
-                        if (filename != null) {
-                            val (diskData, isPersisted) = downloadManager.loadDiskDataWithPersistence(filename)
-                            if (diskData != null) {
-                                if (emulator.loadDisk(index, diskData)) {
-                                    if (isPersisted) {
-                                        Log.i(TAG, "Disk $index loaded from persisted: $filename (${diskData.size} bytes)")
-                                    } else {
-                                        Log.i(TAG, "Disk $index loaded from catalog: $filename (${diskData.size} bytes)")
-                                    }
-                                    // Mark all downloaded disks as manifest (warn once per session on write)
-                                    emulator.setDiskIsManifest(index, true)
-                                    diskCount++
-                                } else {
-                                    Log.e(TAG, "Disk $index failed to load: $filename")
-                                }
-                            } else {
-                                Log.w(TAG, "Disk $index file not found: $filename")
-                            }
-                        }
-                    }
-
-                    // Apply manifest write warning suppression from user preferences
-                    if (!settingsRepo.isWarnManifestWritesEnabled()) {
-                        for (i in 0 until 16) {
-                            emulator.setDiskWarningSuppressed(i, true)
-                        }
-                    }
-
-                    // Set slice count for drive letter assignment (like CLI does)
-                    // 1 disk = 8 slices, 2 disks = 4 each, 3+ = 2 each
-                    val autoSlices = when {
-                        diskCount <= 1 -> 8
-                        diskCount == 2 -> 4
-                        else -> 2
-                    }
-                    Log.i(TAG, "Disk count: $diskCount, auto slices: $autoSlices")
-
-                    for (i in 0 until 16) {
-                        if (emulator.isDiskLoaded(i)) {
-                            emulator.setDiskSliceCount(i, autoSlices)
-                        }
-                    }
-
+                    loadDisksAndConfigureSlices(settings)
                     emulator.completeInit()
 
                     // Restore NVRAM from saved preferences (for boot config persistence)
@@ -612,9 +619,7 @@ class MainActivity : AppCompatActivity() {
                     romLoaded = true
 
                     mainHandler.post {
-                        // Display version string on terminal before ROM output
-                        val versionBanner = "CPMDroid v${getVersionString()} (${BuildConfig.BUILD_TIME})\r\n"
-                        terminalView.processOutput(versionBanner.toByteArray())
+                        terminalView.processOutput(createVersionBanner())
 
                         updateStatus()
                         startEmulation()
@@ -682,29 +687,25 @@ class MainActivity : AppCompatActivity() {
         stopEmulation()
         terminalView.clear()
         terminalView.recalculateSize()
-        emulator.reset()
 
-        // Reload settings in case they changed
-        val settings = settingsRepo.getSettings()
-        terminalView.customFontSize = settings.fontSize.toFloat()
-        terminalView.wrapLines = settings.wrapLines
-        terminalView.soundEnabled = settingsRepo.isSoundEnabled()
+        // Run reset on executor to avoid racing with an in-flight nativeRun
+        executor.execute {
+            emulator.reset()
+            applyManifestWarningPreference()
 
-        // Display version string on terminal before ROM output
-        val versionBanner = "CPMDroid v${getVersionString()} (${BuildConfig.BUILD_TIME})\r\n"
-        terminalView.processOutput(versionBanner.toByteArray())
+            mainHandler.post {
+                val settings = settingsRepo.getSettings()
+                terminalView.customFontSize = settings.fontSize.toFloat()
+                terminalView.wrapLines = settings.wrapLines
+                terminalView.soundEnabled = settingsRepo.isSoundEnabled()
 
-        startEmulation()
+                terminalView.processOutput(createVersionBanner())
+                startEmulation()
 
-        // Focus terminal after reboot
-        terminalView.post {
-            terminalView.requestFocus()
+                terminalView.post { terminalView.requestFocus() }
+                mainHandler.postDelayed({ emulator.queueInput(0x0D) }, 500)
+            }
         }
-
-        // Send CR to trigger ROM prompt display (same as initial boot)
-        mainHandler.postDelayed({
-            emulator.queueInput(0x0D)
-        }, 500)
     }
 
     /**
@@ -864,52 +865,16 @@ class MainActivity : AppCompatActivity() {
     private fun reloadDisksFromSettings(settings: EmulatorSettings) {
         saveDirtyDisks()  // Save any modified disks before reloading
         executor.execute {
-            var diskCount = 0
-            settings.diskSlots.forEachIndexed { index, filename ->
-                if (filename != null) {
-                    val (diskData, isPersisted) = downloadManager.loadDiskDataWithPersistence(filename)
-                    if (diskData != null) {
-                        if (emulator.loadDisk(index, diskData)) {
-                            if (isPersisted) {
-                                Log.i(TAG, "Disk $index reloaded from persisted: $filename (${diskData.size} bytes)")
-                            } else {
-                                Log.i(TAG, "Disk $index reloaded from catalog: $filename (${diskData.size} bytes)")
-                            }
-                            // Mark all downloaded disks as manifest (warn once per session on write)
-                            emulator.setDiskIsManifest(index, true)
-                            diskCount++
-                        } else {
-                            Log.e(TAG, "Disk $index failed to reload: $filename")
-                        }
-                    } else {
-                        Log.w(TAG, "Disk $index file not found: $filename")
-                    }
-                }
-            }
-
-            // Update slice counts
-            val autoSlices = when {
-                diskCount <= 1 -> 8
-                diskCount == 2 -> 4
-                else -> 2
-            }
-            for (i in 0 until 16) {
-                if (emulator.isDiskLoaded(i)) {
-                    emulator.setDiskSliceCount(i, autoSlices)
-                }
-            }
-
-            // Reinitialize to update disk tables
+            loadDisksAndConfigureSlices(settings, "reloaded")
             emulator.completeInit()
 
-            // Restore NVRAM setting
             val savedNvramSetting = settingsRepo.getSavedNvramSetting()
             if (!savedNvramSetting.isNullOrEmpty()) {
                 emulator.setNvramSetting(savedNvramSetting)
             }
 
-            // Reset to apply changes
             emulator.reset()
+            applyManifestWarningPreference()
             Log.i(TAG, "Disks reloaded and emulator reset")
         }
     }

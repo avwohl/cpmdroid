@@ -195,7 +195,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showDownloadConfirmation(diskInfo: DiskInfo, slotToAssign: Int?, parentDialog: AlertDialog) {
-        val sizeStr = formatSize(diskInfo.size)
+        val sizeStr = formatDiskSize(diskInfo.size)
         AlertDialog.Builder(this)
             .setTitle("Download ${diskInfo.name}?")
             .setMessage("Size: $sizeStr\n\n${diskInfo.description}")
@@ -223,7 +223,7 @@ class SettingsActivity : AppCompatActivity() {
                 val percent = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
                 runOnUiThread {
                     progressDialog.progress = percent
-                    progressDialog.setMessage("$percent% (${formatSize(bytesRead)})")
+                    progressDialog.setMessage("$percent% (${formatDiskSize(bytesRead)})")
                 }
             }
 
@@ -253,14 +253,6 @@ class SettingsActivity : AppCompatActivity() {
         newSlots[slot] = filename
         currentSettings = currentSettings.copy(diskSlots = newSlots)
         updateDiskSlotDisplays()
-    }
-
-    private fun formatSize(bytes: Long): String {
-        return when {
-            bytes >= 1_000_000 -> String.format("%.1f MB", bytes / 1_000_000.0)
-            bytes >= 1_000 -> String.format("%.1f KB", bytes / 1_000.0)
-            else -> "$bytes B"
-        }
     }
 
     override fun onPause() {

@@ -14,7 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
+import com.awohl.cpmdroid.data.sharedHttpClient
 import okhttp3.Request
 import java.io.IOException
 
@@ -23,7 +23,7 @@ class HelpTopicActivity : AppCompatActivity() {
     private lateinit var contentText: TextView
     private lateinit var loadingProgress: ProgressBar
 
-    private val httpClient = OkHttpClient()
+    private val httpClient = sharedHttpClient
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()

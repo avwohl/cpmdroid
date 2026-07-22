@@ -9,6 +9,13 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.StringReader
 import java.util.concurrent.TimeUnit
 
+/** Shared OkHttpClient — single connection pool and thread pool for all network I/O. */
+internal val sharedHttpClient: OkHttpClient = OkHttpClient.Builder()
+    .connectTimeout(30, TimeUnit.SECONDS)
+    .readTimeout(5, TimeUnit.MINUTES)
+    .followRedirects(true)
+    .build()
+
 class DiskCatalogRepository {
 
     companion object {
@@ -18,11 +25,7 @@ class DiskCatalogRepository {
             "https://github.com/avwohl/ioscpm/releases/latest/download/"
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    private val client = sharedHttpClient
 
     suspend fun fetchCatalog(): Result<List<DiskInfo>> = withContext(Dispatchers.IO) {
         try {

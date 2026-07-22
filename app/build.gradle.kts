@@ -34,8 +34,8 @@ android {
         applicationId = "com.awohl.cpmdroid"
         minSdk = 24
         targetSdk = 35
-        versionCode = 16
-        versionName = "1.15"
+        versionCode = 17
+        versionName = "1.16"
 
         // Build timestamp - regenerated every build
         buildConfigField("String", "BUILD_TIME", "\"${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())}\"")

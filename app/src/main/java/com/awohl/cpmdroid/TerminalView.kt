@@ -621,6 +621,7 @@ class TerminalView @JvmOverloads constructor(
 
     fun clear() {
         clearScreen()
+        processOutputCount = 0
         invalidate()
     }
 }

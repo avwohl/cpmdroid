@@ -7,6 +7,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.awohl.cpmdroid.data.DiskInfo
+import com.awohl.cpmdroid.data.formatDiskSize
 
 class DiskCatalogAdapter(
     private val disks: List<DiskInfo>,
@@ -34,7 +35,7 @@ class DiskCatalogAdapter(
 
         holder.diskName.text = disk.name
         holder.diskDescription.text = disk.description
-        holder.diskSize.text = formatSize(disk.size)
+        holder.diskSize.text = formatDiskSize(disk.size)
         holder.diskLicense.text = disk.license
         holder.downloadedIcon.visibility = if (isDownloaded) View.VISIBLE else View.GONE
 
@@ -44,12 +45,4 @@ class DiskCatalogAdapter(
     }
 
     override fun getItemCount(): Int = disks.size
-
-    private fun formatSize(bytes: Long): String {
-        return when {
-            bytes >= 1_000_000 -> String.format("%.1f MB", bytes / 1_000_000.0)
-            bytes >= 1_000 -> String.format("%.1f KB", bytes / 1_000.0)
-            else -> "$bytes B"
-        }
-    }
 }

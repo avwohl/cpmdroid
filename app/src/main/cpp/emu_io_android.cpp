@@ -145,12 +145,22 @@ static volatile bool g_debug_enabled = false;
 // Ctrl+C tracking
 static int g_consecutive_ctrl_c = 0;
 
+// Debug counters (file-scope so they can be reset on reboot)
+static int g_run_count = 0;
+static int g_output_log_count = 0;
+
 // Random number generator
 static std::mt19937 g_rng(std::random_device{}());
 
 // Video state
+// Note: cursor position is approximate — only updated by emu_video_* calls,
+// not by normal console output via emu_console_write_char().  The Kotlin
+// TerminalView tracks the real cursor.  These satisfy the emu_io.h interface
+// but will be stale after any normal console output.
 static int g_cursor_row = 0;
 static int g_cursor_col = 0;
+// Note: g_text_attr satisfies the emu_io.h interface but is not used by
+// Android rendering (colors are driven by VT100 escapes in TerminalView).
 static uint8_t g_text_attr = 0x07;
 
 // Host file transfer state
@@ -653,6 +663,44 @@ const char* emu_host_file_get_write_name() {
 }
 
 //=============================================================================
+// Internal Helpers
+//=============================================================================
+
+static void log_drive_map() {
+    if (!g_emu || !g_emu->memory) return;
+    uint8_t* rom = g_emu->memory->get_rom();
+    if (!rom) return;
+    LOGI("Drive map:");
+    for (int i = 0; i < 16; i++) {
+        uint8_t val = rom[0x120 + i];
+        if (val != 0xFF) {
+            LOGI("  Drive %c: unit=%d, slice=%d (0x%02X)",
+                 'A' + i, val & 0x0F, (val >> 4) & 0x0F, val);
+        }
+    }
+}
+
+static void init_cpu_start_state() {
+    if (!g_emu || !g_emu->cpu) return;
+    g_emu->cpu->set_cpu_mode(qkz80::MODE_Z80);
+    g_emu->cpu->regs.PC.set_pair16(0x0000);
+    g_emu->cpu->regs.SP.set_pair16(0x0000);
+}
+
+static void register_reset_callback() {
+    if (!g_emu || !g_emu->hbios) return;
+    // Custom callback instead of emu_setup_reset_callback() because
+    // emu_disk_flush_all() is a no-op on Android (in-memory disks;
+    // persistence handled by Java layer via saveDirtyDisks()).
+    g_emu->hbios->setResetCallback([](uint8_t reset_type) {
+        LOGI("[SYSRESET] %s boot - restarting",
+             reset_type == 0x01 ? "Warm" : "Cold");
+        g_emu->memory->select_bank(0x00);
+        g_emu->cpu->regs.PC.set_pair16(0x0000);
+    });
+}
+
+//=============================================================================
 // JNI Interface
 //=============================================================================
 
@@ -816,32 +864,9 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject t
 
     emu_complete_init(g_emu->memory, g_emu->hbios, disk_slices);
 
-    // Register reset callback for SYSRESET (ROM reboot command)
-    g_emu->hbios->setResetCallback([](uint8_t reset_type) {
-        LOGI("[SYSRESET] %s boot - restarting",
-             reset_type == 0x01 ? "Warm" : "Cold");
-        // Switch to ROM bank 0
-        g_emu->memory->select_bank(0x00);
-        // Set PC to 0 to restart from ROM
-        g_emu->cpu->regs.PC.set_pair16(0x0000);
-    });
-
-    // Debug: dump drive map after init
-    uint8_t* rom = g_emu->memory->get_rom();
-    if (rom) {
-        LOGI("Drive map after init:");
-        for (int i = 0; i < 16; i++) {
-            uint8_t val = rom[0x120 + i];  // DRVMAP_BASE
-            if (val != 0xFF) {
-                LOGI("  Drive %c: unit=%d, slice=%d (0x%02X)",
-                     'A' + i, val & 0x0F, (val >> 4) & 0x0F, val);
-            }
-        }
-    }
-
-    g_emu->cpu->set_cpu_mode(qkz80::MODE_Z80);
-    g_emu->cpu->regs.PC.set_pair16(0x0000);
-    g_emu->cpu->regs.SP.set_pair16(0x0000);
+    register_reset_callback();
+    log_drive_map();
+    init_cpu_start_state();
 
     LOGI("Emulator ready to run");
 }
@@ -854,9 +879,6 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
         LOGE("nativeRun: not initialized");
         return;
     }
-
-    // Debug counter (declared before goto to satisfy C++ scoping rules)
-    static int run_count = 0;
 
     // Check if we're blocked waiting for input (CIOIN/VDAKRD called with no data)
     if (g_emu->hbios->isWaitingForInput()) {
@@ -886,9 +908,9 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
     }
 
     // Debug: log PC after batch
-    if (++run_count <= 5) {
+    if (++g_run_count <= 5) {
         LOGI("nativeRun #%d: PC=0x%04X after %d instructions",
-             run_count, g_emu->cpu->regs.PC.get_pair16(), instructionCount);
+             g_run_count, g_emu->cpu->regs.PC.get_pair16(), instructionCount);
     }
 
 flush_output:
@@ -905,15 +927,13 @@ flush_output:
     // Also flush HBIOS output buffer (from CIOOUT calls via port 0xEF dispatch)
     if (g_emu->hbios) {
         std::vector<uint8_t> hbios_output = g_emu->hbios->getOutputChars();
-        if (!hbios_output.empty() && run_count <= 5) {
+        if (!hbios_output.empty() && g_run_count <= 5) {
             LOGI("nativeRun: got %zu chars from HBIOS buffer", hbios_output.size());
         }
         output.insert(output.end(), hbios_output.begin(), hbios_output.end());
     }
 
-    // Debug: log output
-    static int output_log_count = 0;
-    if (!output.empty() && output_log_count++ < 3) {
+    if (!output.empty() && g_output_log_count++ < 3) {
         LOGI("nativeRun: sending %zu chars to Java", output.size());
     }
 
@@ -1011,24 +1031,13 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
 
     // Complete initialization (builds drive map, sets up HCB, etc.)
     emu_complete_init(g_emu->memory, g_emu->hbios, g_cached_disk_slices);
+    register_reset_callback();
+    log_drive_map();
+    init_cpu_start_state();
 
-    // Debug: dump drive map after reset
-    uint8_t* rom = g_emu->memory->get_rom();
-    if (rom) {
-        LOGI("Drive map after reset:");
-        for (int i = 0; i < 16; i++) {
-            uint8_t val = rom[0x120 + i];  // DRVMAP_BASE
-            if (val != 0xFF) {
-                LOGI("  Drive %c: unit=%d, slice=%d (0x%02X)",
-                     'A' + i, val & 0x0F, (val >> 4) & 0x0F, val);
-            }
-        }
-    }
-
-    // Set CPU to start state
-    g_emu->cpu->set_cpu_mode(qkz80::MODE_Z80);
-    g_emu->cpu->regs.PC.set_pair16(0x0000);
-    g_emu->cpu->regs.SP.set_pair16(0x0000);
+    // Reset debug counters so post-reboot logging works
+    g_run_count = 0;
+    g_output_log_count = 0;
 
     LOGI("Emulator reset complete (fresh state)");
 }

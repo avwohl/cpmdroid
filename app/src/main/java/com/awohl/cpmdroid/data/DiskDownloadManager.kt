@@ -3,22 +3,18 @@ package com.awohl.cpmdroid.data
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
-import java.util.concurrent.TimeUnit
 
 class DiskDownloadManager(private val context: Context) {
 
     private val catalogRepo = DiskCatalogRepository()
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.MINUTES)
-        .followRedirects(true)
-        .build()
+    private val client = sharedHttpClient
+
+    suspend fun fetchCatalog(): Result<List<DiskInfo>> = catalogRepo.fetchCatalog()
 
     fun getDisksDir(): File {
         val dir = File(context.getExternalFilesDir(null), "Disks")
