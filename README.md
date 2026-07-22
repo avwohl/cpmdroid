@@ -8,7 +8,7 @@ A Z80/CP/M emulator for Android phones and tablets, built on the [RomWBW](https:
 - **RomWBW HBIOS** compatibility for authentic CP/M experience
 - **VT100/ANSI terminal** with escape sequence support (runs Zork, WordStar, etc.)
 - **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
-- **Download disk images** from RomWBW project - no bundled copyrighted content
+- **Download disk images** from the [ioscpm](https://github.com/avwohl/ioscpm) releases - no bundled copyrighted content
 - **Hardware keyboard support** - Bluetooth and USB keyboards
 - **Control strip** - Ctrl, Esc, Tab, Copy, Paste buttons for touch input
 - **Help system** - Built-in documentation downloaded from GitHub
@@ -20,13 +20,14 @@ A Z80/CP/M emulator for Android phones and tablets, built on the [RomWBW](https:
 2. **Open Settings** (gear icon) to configure disks and options
 3. **Download additional disk images** from the disk catalog
 4. **Press Play** to start the emulator
-5. At boot menu, press `0` to boot from disk
+5. At boot menu, press `2` to boot from the first hard disk (units 0 and 1 are the RAM and ROM memory disks and carry no OS)
 
 ### Boot Menu Keys
 - `h` - Help
 - `l` - List ROM applications
 - `d` - List disk devices
-- `0-9` - Boot from device number
+- `w` - Save your choice as the autoboot default
+- `0-9` - Boot from device number (the first hard disk is unit 2)
 
 ### Control Strip
 - **Ctrl** - Toggle control key mode (next key becomes control character)
@@ -52,7 +53,7 @@ To export a file from CP/M:
 
 ## Disk Images
 
-Disk images are downloaded from the official [RomWBW](https://github.com/wwarthen/RomWBW) project:
+Disk images are downloaded from the [avwohl/ioscpm](https://github.com/avwohl/ioscpm) GitHub release, pinned at tag v1.4.5:
 
 | Disk | Description | License |
 |------|-------------|---------|

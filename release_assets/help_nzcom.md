@@ -15,7 +15,7 @@ NZCOM provides ZCPR3 features as a loadable system that runs on CP/M 2.2:
 ## Getting Started
 
 1. Download the "NZCOM" disk image in Z80CPM Settings
-2. Boot from it (press `0` at boot menu)
+2. Boot from it (press `2` at the boot menu - the first hard disk is unit 2; `D` lists disk units)
 3. Run NZCOM to load the Z-System:
    ```
    A>NZCOM

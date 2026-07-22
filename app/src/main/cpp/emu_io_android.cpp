@@ -225,6 +225,14 @@ void emu_console_clear_queue() {
     while (!g_input_queue.empty()) g_input_queue.pop();
 }
 
+bool emu_console_input_exhausted() {
+    return false;  // GUI: more input can always arrive
+}
+
+bool emu_console_input_eof() {
+    return false;  // GUI: no piped stdin
+}
+
 void emu_console_write_char(uint8_t ch) {
     ch &= 0x7F;  // Strip high bit
     std::lock_guard<std::mutex> lock(g_output_mutex);
@@ -375,51 +383,39 @@ size_t emu_file_size(const std::string& path) {
 // Disk Image I/O (In-memory for Android)
 //=============================================================================
 
-// Disk images are loaded entirely into memory on Android
-struct disk_mem {
-    std::vector<uint8_t> data;
-    bool readonly;
-};
+// Android disks are in-memory inside the core (hbios->loadDisk from JNI).
+// The emu_disk_* handle API is only exercised by the core's file-backed
+// loadDiskFromFile path, which has no Android caller, so these are pure
+// link-satisfying stubs (matching the emu_file_* stubs above). The previous
+// implementation here grew its buffer on out-of-bounds writes, which would
+// silently diverge from the v1.34 no-grow contract if ever wired up.
 
 emu_disk_handle emu_disk_open(const std::string& path, const char* mode) {
     (void)path;
     (void)mode;
-    // Disk images are loaded via JNI, not by path
     return nullptr;
 }
 
 void emu_disk_close(emu_disk_handle handle) {
-    if (!handle) return;
-    disk_mem* disk = static_cast<disk_mem*>(handle);
-    delete disk;
+    (void)handle;
 }
 
 size_t emu_disk_read(emu_disk_handle handle, size_t offset,
                      uint8_t* buffer, size_t count) {
-    if (!handle) return 0;
-    disk_mem* disk = static_cast<disk_mem*>(handle);
-
-    if (offset >= disk->data.size()) return 0;
-    size_t avail = disk->data.size() - offset;
-    if (count > avail) count = avail;
-
-    memcpy(buffer, disk->data.data() + offset, count);
-    return count;
+    (void)handle;
+    (void)offset;
+    (void)buffer;
+    (void)count;
+    return 0;
 }
 
 size_t emu_disk_write(emu_disk_handle handle, size_t offset,
                       const uint8_t* buffer, size_t count) {
-    if (!handle) return 0;
-    disk_mem* disk = static_cast<disk_mem*>(handle);
-    if (disk->readonly) return 0;
-
-    size_t needed = offset + count;
-    if (needed > disk->data.size()) {
-        disk->data.resize(needed);
-    }
-
-    memcpy(disk->data.data() + offset, buffer, count);
-    return count;
+    (void)handle;
+    (void)offset;
+    (void)buffer;
+    (void)count;
+    return 0;
 }
 
 void emu_disk_flush(emu_disk_handle handle) {
@@ -433,9 +429,8 @@ void emu_disk_flush_all() {
 }
 
 size_t emu_disk_size(emu_disk_handle handle) {
-    if (!handle) return 0;
-    disk_mem* disk = static_cast<disk_mem*>(handle);
-    return disk->data.size();
+    (void)handle;
+    return 0;
 }
 
 //=============================================================================
@@ -609,7 +604,7 @@ void emu_host_file_close_read() {
     g_host_file_state = HOST_FILE_IDLE;
 }
 
-void emu_host_file_close_write() {
+bool emu_host_file_close_write() {
     // Set state to WRITE_READY so UI can poll and save the file
     if (g_host_file_state == HOST_FILE_WRITING && !g_host_write_buffer.empty()) {
         g_host_file_state = HOST_FILE_WRITE_READY;
@@ -619,6 +614,11 @@ void emu_host_file_close_write() {
         g_host_write_filename.clear();
         g_host_file_state = HOST_FILE_IDLE;
     }
+    // The buffer is handed to the OS asynchronously (UI thread saves it to
+    // the Exports folder), so no failure is detectable here - return true
+    // like the browser backend (v1.34 contract; false would make W8 report
+    // a truncated export).
+    return true;
 }
 
 // Called after UI has saved the write buffer
@@ -824,6 +824,26 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz,
 
     LOGI("Loading disk unit %d, size: %d bytes", unit, len);
 
+    // Hot-patch the miscompiled w8.com tolower: um80 0.3.42 assembled
+    // "add a,'a'-'A'" as "add a,0", so W8 exported UPPERCASE filenames.
+    // Every hd1k image built before 2026-07-21 (including all ioscpm v1.4.5
+    // catalog assets and any persisted copies of them) carries it, and the
+    // broken and fixed builds differ only in this one byte. Images with the
+    // fixed w8.com don't match the signature, so this is a no-op for them.
+    // (On ART, GetByteArrayElements usually returns a direct pointer for
+    // large arrays, so the caller's ByteArray may be patched in place too -
+    // don't rely on it still matching the on-disk file.)
+    static const uint8_t W8_BROKEN[8] =
+        {0xfe, 0x41, 0xd8, 0xfe, 0x5b, 0xd0, 0xc6, 0x00};
+    uint8_t* bytes = reinterpret_cast<uint8_t*>(data);
+    for (jsize i = 0; len >= 8 && i <= len - 8; i++) {
+        if (bytes[i] == 0xfe && memcmp(bytes + i, W8_BROKEN, 8) == 0) {
+            bytes[i + 7] = 0x20;  // add a,0 -> add a,'a'-'A'
+            LOGI("Patched broken w8.com tolower at offset %d in disk %d",
+                 (int)i, unit);
+        }
+    }
+
     // Cache disk data for reboot
     g_cached_disks[unit].assign(reinterpret_cast<uint8_t*>(data),
                                  reinterpret_cast<uint8_t*>(data) + len);
@@ -900,6 +920,12 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
         // Check if CPU is now waiting for input
         if (g_emu->hbios->isWaitingForInput()) {
             break;  // Stop executing until input is provided
+        }
+        // Pause after a completed W8 export until the UI drains it: a queued
+        // second W8 in the same batch would otherwise clobber the write
+        // buffer before checkHostFileState ever sees it.
+        if (emu_host_file_get_state() == HOST_FILE_WRITE_READY) {
+            break;
         }
         if (g_emu->hbios->getState() == HBIOS_HALTED) {
             g_running = false;
@@ -1001,6 +1027,23 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
         while (!g_output_queue.empty()) g_output_queue.pop();
     }
 
+    // Refresh the reboot cache from the live disk images before tearing the
+    // state down. The cache otherwise holds the bytes from the last
+    // nativeLoadDisk (app start), so a reboot would revert every disk to
+    // that stale snapshot - and the next dirty save would then overwrite
+    // the user's newer persisted copy with it.
+    if (g_emu && g_emu->hbios) {
+        for (int i = 0; i < 16; i++) {
+            if (g_emu->hbios->isDiskLoaded(i)) {
+                const uint8_t* data = g_emu->hbios->getDiskData(i);
+                size_t size = g_emu->hbios->getDiskDataSize(i);
+                if (data && size > 0) {
+                    g_cached_disks[i].assign(data, data + size);
+                }
+            }
+        }
+    }
+
     // Destroy old emulator state
     delete g_emu;
     g_emu = nullptr;
@@ -1067,6 +1110,22 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsDiskLoaded(JNIEnv* env, jobject t
         return JNI_FALSE;
     }
     return g_emu->hbios->isDiskLoaded(unit) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeCloseDisk(JNIEnv* env, jobject thiz,
+                                                         jint unit) {
+    (void)env;
+    (void)thiz;
+    if (!g_initialized || !g_emu) return;
+    if (unit < 0 || unit >= 16) return;
+    g_emu->hbios->closeDisk(unit);
+    // Clear the reboot cache too, or nativeReset would resurrect the disk.
+    g_cached_disks[unit].clear();
+    g_cached_disks[unit].shrink_to_fit();
+    g_cached_disk_slices[unit] = 0;
+    g_cached_disk_manifest[unit] = false;
+    LOGI("Closed disk unit %d", unit);
 }
 
 //=============================================================================

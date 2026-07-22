@@ -16,7 +16,7 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.awohl.cpmdroid"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "28.0.13004108"
 
     signingConfigs {
@@ -33,9 +33,9 @@ android {
     defaultConfig {
         applicationId = "com.awohl.cpmdroid"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 17
-        versionName = "1.16"
+        targetSdk = 36
+        versionCode = 18
+        versionName = "1.17"
 
         // Build timestamp - regenerated every build
         buildConfigField("String", "BUILD_TIME", "\"${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())}\"")

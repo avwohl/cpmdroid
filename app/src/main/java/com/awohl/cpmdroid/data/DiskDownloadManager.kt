@@ -158,7 +158,19 @@ class DiskDownloadManager(private val context: Context) {
     fun savePersistedDisk(filename: String, data: ByteArray): Boolean {
         return try {
             val file = getPersistedDiskFile(filename)
-            file.writeBytes(data)
+            // Write-temp-then-rename (like downloadDisk): a crash or disk-full
+            // mid-write must not leave a truncated image that would shadow the
+            // good catalog copy on every future launch.
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeBytes(data)
+            if (file.exists() && !file.delete()) {
+                tmp.delete()
+                return false
+            }
+            if (!tmp.renameTo(file)) {
+                tmp.delete()
+                return false
+            }
             true
         } catch (e: Exception) {
             false

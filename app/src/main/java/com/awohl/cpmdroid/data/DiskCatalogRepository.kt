@@ -19,10 +19,16 @@ internal val sharedHttpClient: OkHttpClient = OkHttpClient.Builder()
 class DiskCatalogRepository {
 
     companion object {
+        // Pinned to an explicit ioscpm release (matching the Windows port):
+        // the core's built-in HBIOS identifies as RomWBW v3.5.1, and boot
+        // slices from other RomWBW releases print a HBIOS/CBIOS mismatch
+        // warning. Bump this tag together with core/ROM upgrades. Help
+        // content (HelpActivity) deliberately stays on releases/latest.
+        private const val RELEASE_TAG = "v1.4.5"
         private const val CATALOG_URL =
-            "https://github.com/avwohl/ioscpm/releases/latest/download/disks.xml"
+            "https://github.com/avwohl/ioscpm/releases/download/$RELEASE_TAG/disks.xml"
         private const val DOWNLOAD_BASE_URL =
-            "https://github.com/avwohl/ioscpm/releases/latest/download/"
+            "https://github.com/avwohl/ioscpm/releases/download/$RELEASE_TAG/"
     }
 
     private val client = sharedHttpClient

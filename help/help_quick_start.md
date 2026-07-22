@@ -52,18 +52,21 @@ At startup, the RomWBW boot menu displays available operating systems:
 Boot [H=Help]:
 ```
 
-Type a number to select an OS, or press Enter for the default. Common options:
-- **0** - Boot from disk in slot 0
+Type a number to select an OS, or press Enter for the default. Units 0 and 1 are the RAM and ROM memory disks and carry no OS; the first hard disk is unit 2. Common options:
+- **2** - Boot from the disk in slot 0
+- **D** - List disk units
+- **L** - List ROM applications
+- **W** - Save your choice as the autoboot default
 - **H** - Display help
 
 ## File Transfer
 
 Use the R8 and W8 utilities to transfer files:
 
-- **R8 filename** - Read file from host to CP/M
-- **W8 filename** - Write file from CP/M to host
+- **R8 filename** - Import a file from the Imports folder into CP/M
+- **W8 filename** - Export a CP/M file to the Exports folder
 
-See the File Transfer help topic for details.
+The Imports and Exports folders are in Android/data/com.awohl.cpmdroid/files/ on your device. See the File Transfer help topic for details.
 
 ## Tips
 

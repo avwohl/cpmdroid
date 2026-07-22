@@ -28,9 +28,11 @@ The control strip provides quick access to special keys:
 
 ## Booting CP/M
 
-1. At the boot prompt `Boot [H=Help]:`, type `0` and press Enter
-2. This boots the default OS from your configured disk
+1. At the boot prompt `Boot [H=Help]:`, type `2` and press Enter
+2. This boots the default OS from the disk in slot 0 (units 0 and 1 are the RAM and ROM memory disks and carry no OS, so the first hard disk is unit 2)
 3. You'll see the `A>` prompt when CP/M is ready
+
+At the boot menu, `D` lists disk units, `L` lists ROM applications, and `W` saves your choice as the autoboot default.
 
 ## Basic Commands
 
@@ -45,9 +47,13 @@ The control strip provides quick access to special keys:
 
 ## Drive Letters
 
+Before booting an OS from a hard disk (for example while running a ROM application), drives are assigned:
+
 - **A:** RAM disk (temporary storage, cleared on restart)
 - **B:** ROM disk (read-only utilities)
 - **C:-J:** Slices from your configured disk images
+
+After booting from a hard disk, the letters are reassigned so that A: is the boot slice.
 
 ## Running Programs
 

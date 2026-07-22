@@ -9,7 +9,9 @@ This guide covers using CP/M 2.2 in the Z80CPM emulator on iOS and macOS.
 1. Open Z80CPM and tap the **gear icon** (Settings)
 2. Scroll to **Download Disk Images** and download "CP/M 2.2" (or "Combo" for more software)
 3. Return to main screen and tap **Play**
-4. At the boot menu, press `0` to boot from disk
+4. At the boot menu, press `2` to boot from the first hard disk
+
+Units 0 and 1 are the RAM and ROM memory disks and carry no operating system, so the first hard disk is unit 2. At the boot menu, `D` lists disk units, `L` lists ROM applications, and `W` saves your choice as the autoboot default.
 
 You'll see the CP/M prompt:
 

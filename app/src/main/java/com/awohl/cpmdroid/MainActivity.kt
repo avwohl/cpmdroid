@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.graphics.Rect
 import android.view.View
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
@@ -80,8 +82,20 @@ class MainActivity : AppCompatActivity() {
     private var cameFromSettings = false
 
     private var runLoopCount = 0
-    private var lastNvramSaveCount = 0
-    private var lastDiskSaveCount = 0
+    // Elapsed-time based (iteration counts stretched ~6x whenever the guest
+    // idles at a prompt, because idle iterations use IDLE_DELAY_MS)
+    private var lastNvramSaveMs = 0L
+    private var lastDiskSaveMs = 0L
+
+    // Filenames of the disks actually mounted per unit. saveDirtyDisks uses
+    // this (not the current Settings slots) so data is always persisted under
+    // the filename it belongs to, even mid-way through a slot reassignment.
+    private val loadedDiskFilenames = arrayOfNulls<String>(16)
+
+    // Units whose last save failed. The core's dirty flag does not survive a
+    // reboot (loadDisk clears it), but the modified bytes do - this keeps the
+    // retry alive until a save succeeds or the unit is reloaded/closed.
+    private val failedSaveUnits = mutableSetOf<Int>()
     private val runLoop: Runnable = object : Runnable {
         override fun run() {
             if (running && romLoaded) {
@@ -98,15 +112,16 @@ class MainActivity : AppCompatActivity() {
                     // Check host file state for R8/W8 transfers
                     checkHostFileState()
 
-                    // Periodically save NVRAM (~5 seconds = 300 iterations at 16ms)
-                    if (runLoopCount - lastNvramSaveCount >= 300) {
-                        lastNvramSaveCount = runLoopCount
+                    // Periodically save NVRAM (~5 seconds)
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastNvramSaveMs >= 5_000) {
+                        lastNvramSaveMs = now
                         saveNvramIfNeeded()
                     }
 
-                    // Periodically save dirty disks (~20 seconds = 1250 iterations at 16ms)
-                    if (runLoopCount - lastDiskSaveCount >= 1250) {
-                        lastDiskSaveCount = runLoopCount
+                    // Periodically save dirty disks (~20 seconds)
+                    if (now - lastDiskSaveMs >= 20_000) {
+                        lastDiskSaveMs = now
                         saveDirtyDisks()
                     }
 
@@ -390,6 +405,8 @@ class MainActivity : AppCompatActivity() {
                         val source = if (isPersisted) "persisted" else "catalog"
                         Log.i(TAG, "Disk $index $logPrefix from $source: $filename (${diskData.size} bytes)")
                         emulator.setDiskIsManifest(index, true)
+                        loadedDiskFilenames[index] = filename
+                        failedSaveUnits.remove(index)
                         diskCount++
                     } else {
                         Log.e(TAG, "Disk $index failed to load: $filename")
@@ -397,6 +414,14 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     Log.w(TAG, "Disk $index file not found: $filename")
                 }
+            } else if (emulator.isDiskLoaded(index)) {
+                // Slot cleared in Settings: unmount, or the old disk stays
+                // resident (and reappears on reboot) collecting guest writes
+                // that saveDirtyDisks would never persist.
+                emulator.closeDisk(index)
+                loadedDiskFilenames[index] = null
+                failedSaveUnits.remove(index)
+                Log.i(TAG, "Disk $index closed (slot cleared)")
             }
         }
 
@@ -455,7 +480,7 @@ class MainActivity : AppCompatActivity() {
     private fun showRestartConfirmDialog() {
         AlertDialog.Builder(this)
             .setTitle("Restart Emulator")
-            .setMessage("Are you sure you want to restart? Any unsaved work will be lost.")
+            .setMessage("Restart the emulator? Disk contents are saved; programs in progress and the RAM disk will be reset.")
             .setPositiveButton("Restart") { _, _ ->
                 bootEmulation()
             }
@@ -678,18 +703,21 @@ class MainActivity : AppCompatActivity() {
         running = false
         emulator.stop()
         mainHandler.removeCallbacks(runLoop)
+        // Flush on stop (v1.34 platform contract); serialized on the executor
+        // behind any in-flight batch, and a no-op when nothing is dirty.
+        executor.execute { saveDirtyDisks() }
         updateStatus()
         Log.i(TAG, "Emulation stopped")
     }
 
     private fun bootEmulation() {
-        saveDirtyDisks()  // Save any modified disks before reset
         stopEmulation()
         terminalView.clear()
         terminalView.recalculateSize()
 
         // Run reset on executor to avoid racing with an in-flight nativeRun
         executor.execute {
+            saveDirtyDisks()  // Save any modified disks before reset
             emulator.reset()
             applyManifestWarningPreference()
 
@@ -733,10 +761,27 @@ class MainActivity : AppCompatActivity() {
         val suggestedName = emulator.getHostFileReadName()
         Log.i(TAG, "R8: Looking for file: $suggestedName")
 
-        // First try exact name, then try first file in Imports folder
+        // R8 reads only from the Imports folder: reject separators/traversal
+        // rather than letting a guest-supplied name escape the sandbox dir.
+        if (suggestedName.contains('/') || suggestedName.contains('\\') ||
+            suggestedName.contains("..")) {
+            Log.w(TAG, "R8: Rejecting path-like name: $suggestedName")
+            emulator.hostFileCancel()
+            mainHandler.post {
+                Toast.makeText(this@MainActivity,
+                    "R8: Use a plain filename from the Imports folder", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        // Exact name, then case-insensitive (the CP/M CCP uppercases the
+        // command tail), then first file in Imports.
         val targetFile = if (suggestedName.isNotEmpty()) {
             val exact = File(importsDir, suggestedName)
-            if (exact.exists() && exact.isFile) exact else null
+            if (exact.exists() && exact.isFile) exact
+            else importsDir.listFiles()?.firstOrNull {
+                it.isFile && it.name.equals(suggestedName, ignoreCase = true)
+            }
         } else null
 
         val fileToRead = targetFile ?: importsDir.listFiles()?.firstOrNull { it.isFile }
@@ -774,7 +819,11 @@ class MainActivity : AppCompatActivity() {
      */
     private fun handleHostFileWrite() {
         val data = emulator.getHostFileWriteData()
-        val filename = emulator.getHostFileWriteName()
+        val rawName = emulator.getHostFileWriteName()
+        // W8 writes only into the Exports folder: strip any path components
+        // from the guest-supplied name.
+        val filename = rawName.substringAfterLast('/').substringAfterLast('\\')
+            .takeUnless { it.isEmpty() || it == "." || it == ".." } ?: "export.bin"
 
         if (data == null || data.isEmpty()) {
             Log.w(TAG, "W8: No data to write")
@@ -843,8 +892,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        saveNvramIfNeeded()
-        saveDirtyDisks()
+        // Run the save on the executor (serialized behind any in-flight
+        // nativeRun batch, so no torn disk snapshot) and wait for it: the
+        // process may be killed any time after onPause returns. The wait is
+        // capped below the ~5s input-dispatch ANR budget; on timeout the save
+        // keeps running on the executor as a best effort.
+        try {
+            executor.submit {
+                saveNvramIfNeeded()
+                saveDirtyDisks()
+            }.get(4, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            Log.e(TAG, "onPause save failed", e)
+        }
         // Save current disk slots to detect changes on resume
         lastDiskSlots = settingsRepo.getSettings().diskSlots
         stopEmulation()
@@ -852,10 +912,24 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        saveDirtyDisks()  // Final save before destroying emulator
         stopEmulation()
-        executor.shutdown()
-        emulator.destroy()
+        // Drain the executor before nativeDestroy: an in-flight batch or a
+        // queued reset touching freed native state is a use-after-free.
+        var drained = false
+        try {
+            executor.execute { saveDirtyDisks() }
+            executor.shutdown()
+            drained = executor.awaitTermination(10, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            Log.e(TAG, "onDestroy save failed", e)
+        }
+        if (drained) {
+            emulator.destroy()
+        } else {
+            // A task is still touching native state; freeing it now would be a
+            // use-after-free. Leak it - the process is exiting anyway.
+            Log.e(TAG, "Executor did not drain before destroy; skipping nativeDestroy")
+        }
     }
 
     /**
@@ -863,8 +937,9 @@ class MainActivity : AppCompatActivity() {
      * Called from onResume when returning from Settings with changed disk slots.
      */
     private fun reloadDisksFromSettings(settings: EmulatorSettings) {
-        saveDirtyDisks()  // Save any modified disks before reloading
         executor.execute {
+            // Save under the outgoing mapping before anything is replaced
+            saveDirtyDisks()
             loadDisksAndConfigureSlices(settings, "reloaded")
             emulator.completeInit()
 
@@ -912,16 +987,24 @@ class MainActivity : AppCompatActivity() {
     private fun saveDirtyDisks() {
         if (!romLoaded) return
 
-        val settings = settingsRepo.getSettings()
-        settings.diskSlots.forEachIndexed { index, filename ->
-            if (filename != null && emulator.isDiskDirty(index)) {
+        loadedDiskFilenames.forEachIndexed { index, filename ->
+            if (filename != null &&
+                (emulator.isDiskDirty(index) || index in failedSaveUnits)) {
                 val diskData = emulator.getDiskData(index)
                 if (diskData != null) {
                     if (downloadManager.savePersistedDisk(filename, diskData)) {
                         emulator.clearDiskDirty(index)
+                        failedSaveUnits.remove(index)
                         Log.i(TAG, "Disk $index saved: $filename (${diskData.size} bytes)")
                     } else {
+                        // Retried at the next flush point (failedSaveUnits
+                        // also survives a reboot, which clears dirty flags)
+                        failedSaveUnits.add(index)
                         Log.e(TAG, "Failed to save disk $index: $filename")
+                        mainHandler.post {
+                            Toast.makeText(this,
+                                "Failed to save disk: $filename", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }

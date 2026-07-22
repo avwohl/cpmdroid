@@ -18,7 +18,7 @@ ZSDOS is a drop-in replacement for the CP/M 2.2 BDOS (Basic Disk Operating Syste
 ## Getting Started
 
 1. Download the "ZSDOS" disk image in Z80CPM Settings
-2. Boot from it (press `0` at boot menu)
+2. Boot from it (press `2` at the boot menu - the first hard disk is unit 2; `D` lists disk units)
 3. You'll see the familiar `A>` prompt
 
 ZSDOS is fully compatible with CP/M 2.2 - all your CP/M programs work unchanged.

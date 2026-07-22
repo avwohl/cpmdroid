@@ -15,7 +15,7 @@ ZPM3 (Z-System Plus/M3) was created by Simeon Cran and provides:
 ## Getting Started
 
 1. Download the "ZPM3" disk image in Z80CPM Settings
-2. Boot from it (press `0` at boot menu)
+2. Boot from it (press `2` at the boot menu - the first hard disk is unit 2; `D` lists disk units)
 3. You'll see a prompt like `A0>`
 
 The `A0>` shows drive A, user 0. This is the ZCPR-style prompt.

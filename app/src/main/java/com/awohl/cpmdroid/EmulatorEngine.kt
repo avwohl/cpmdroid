@@ -37,6 +37,7 @@ class EmulatorEngine {
     private external fun nativeReset()
     private external fun nativeSetDiskSliceCount(unit: Int, slices: Int)
     private external fun nativeIsDiskLoaded(unit: Int): Boolean
+    private external fun nativeCloseDisk(unit: Int)
 
     // Host file transfer native methods
     private external fun nativeGetHostFileState(): Int
@@ -132,6 +133,9 @@ class EmulatorEngine {
 
     fun isDiskLoaded(unit: Int): Boolean = nativeIsDiskLoaded(unit)
 
+    // Unmount a disk unit (also clears it from the reboot cache)
+    fun closeDisk(unit: Int) = nativeCloseDisk(unit)
+
     fun isRunning(): Boolean = running.get()
     fun isWaitingForInput(): Boolean = nativeIsWaitingForInput()
 
@@ -145,7 +149,9 @@ class EmulatorEngine {
     fun hostFileCancel() = nativeHostFileCancel()
 
     // NVRAM boot configuration methods (string-based API)
-    // Set boot option: "C" (CP/M), "Z" (ZSDOS), "0" (disk 0), "2.3" (disk 2 slice 3), "H" (menu), "" (clear)
+    // Set boot option: "C" (CP/M), "Z" (ZSDOS), "2" (first hard disk - units
+    // 0/1 are the RAM/ROM memory disks and carry no OS), "2.3" (unit 2 slice
+    // 3), "H" (menu), "" (clear)
     fun setNvramSetting(setting: String) = nativeSetNvramSetting(setting)
     // Get current boot option as string (e.g., "C", "2.3", "" if uninitialized)
     fun getNvramSetting(): String = nativeGetNvramSetting()

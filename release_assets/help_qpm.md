@@ -15,7 +15,7 @@ QP/M (Quick P/M) was developed by MICROCode Consulting as an enhanced alternativ
 ## Getting Started
 
 1. Download the "QPM" disk image in Z80CPM Settings
-2. Boot from it (press `0` at boot menu)
+2. Boot from it (press `2` at the boot menu - the first hard disk is unit 2; `D` lists disk units)
 3. You'll see the familiar `A>` prompt
 
 QP/M looks and works like CP/M 2.2, with extra features running transparently.
