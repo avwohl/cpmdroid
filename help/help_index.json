@@ -41,8 +41,8 @@
     {
       "id": "disk_transfer",
       "title": "File Transfer (R8/W8)",
-      "description": "Transfer files between host and CP/M",
-      "url": "https://github.com/avwohl/ioscpm/releases/latest/download/help_file_transfer.md"
+      "description": "Transfer files between Android and CP/M",
+      "filename": "help_file_transfer.md"
     }
   ]
 }
