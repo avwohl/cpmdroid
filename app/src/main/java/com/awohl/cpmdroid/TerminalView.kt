@@ -47,6 +47,22 @@ class TerminalView @JvmOverloads constructor(
     private var charWidth = 0f
     private var charHeight = 0f
 
+    // --- Scrollback ---
+    // Lines that have scrolled off the top of the live screen (oldest first).
+    private val historyChars = ArrayDeque<CharArray>()
+    private val historyColors = ArrayDeque<IntArray>()
+    // Max history lines kept (0 disables scrollback). Matches the other ports' default.
+    var scrollbackLines: Int = 1000
+    // How many lines the user has dragged up from the live bottom (0 = at the live prompt).
+    private var userScrollUp = 0
+    // The full (keyboard-hidden) view height, so the soft keyboard shrinking the view
+    // scrolls (see onDraw) instead of shrinking the font. Reset on rotation.
+    private var fullHeight = 0
+    // Touch tracking: drag-to-scroll vs. tap-to-show-keyboard.
+    private var touchDownY = 0f
+    private var touchDownScrollUp = 0
+    private var isDragging = false
+
     private val textPaint = Paint().apply {
         color = Color.GREEN
         typeface = Typeface.MONOSPACE
@@ -181,11 +197,30 @@ class TerminalView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_UP) {
-            // Request focus and show keyboard
-            requestFocus()
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                touchDownY = event.y
+                touchDownScrollUp = userScrollUp
+                isDragging = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dy = event.y - touchDownY
+                if (!isDragging && kotlin.math.abs(dy) > charHeight / 2f) isDragging = true
+                if (isDragging && charHeight > 0f) {
+                    // Drag DOWN reveals older history (scroll up); drag UP returns toward live.
+                    val lines = (dy / charHeight).toInt()
+                    userScrollUp = (touchDownScrollUp + lines).coerceIn(0, historyChars.size)
+                    invalidate()
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!isDragging) {
+                    // Tap (not a drag): focus and show the keyboard.
+                    requestFocus()
+                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
         }
         return true
     }
@@ -318,7 +353,11 @@ class TerminalView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        android.util.Log.i("TerminalView", "onSizeChanged: w=$w, h=$h, customFontSize=$customFontSize")
+        // Track the full (keyboard-hidden) height. A width change means a rotation/reflow
+        // (reset); otherwise keep the tallest height seen so hiding the keyboard restores it
+        // and showing the keyboard (shorter h) does not shrink the font.
+        fullHeight = if (w != oldw) h else maxOf(fullHeight, h)
+        android.util.Log.i("TerminalView", "onSizeChanged: w=$w, h=$h, fullHeight=$fullHeight")
         calculateFontSize()
     }
 
@@ -361,17 +400,29 @@ class TerminalView @JvmOverloads constructor(
 
         // Apply user's font scale (14 = 100%, 8 = ~57%, 24 = ~171%)
         val scaleFactor = fontScaleSetting / defaultFontScale
-        val finalFontSize = baseFontSize * scaleFactor
+        var finalFontSize = baseFontSize * scaleFactor
         textPaint.textSize = finalFontSize
         charWidth = textPaint.measureText("M")
         charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
 
+        // Also shrink the font so the whole fixed-height live screen (MIN_ROWS) fits the
+        // FULL (keyboard-hidden) height. The keyboard case scrolls (see onDraw) rather than
+        // shrinking, so size against fullHeight, not the possibly-shrunk current height.
+        val fitHeight = (if (fullHeight > 0) fullHeight else height) - paddingTop - paddingBottom
+        if (charHeight > 0f && charHeight * MIN_ROWS > fitHeight) {
+            finalFontSize *= fitHeight / (charHeight * MIN_ROWS)
+            textPaint.textSize = finalFontSize
+            charWidth = textPaint.measureText("M")
+            charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
+        }
+
         // Calculate how many columns actually fit on screen at this font size
         visibleCols = maxOf(1, (availableWidth / charWidth).toInt())
 
-        // Buffer size: at least MIN_COLS for CP/M compatibility, or more if they fit
+        // Fixed live screen: MIN_ROWS tall (standard CP/M screen); extra vertical space
+        // shows scrollback history. Columns still fill the width.
         val newCols = maxOf(MIN_COLS, visibleCols)
-        val newRows = maxOf(MIN_ROWS, (availableHeight / charHeight).toInt())
+        val newRows = MIN_ROWS
 
         // Resize buffers if dimensions changed
         if (newCols != cols || newRows != rows) {
@@ -415,35 +466,64 @@ class TerminalView @JvmOverloads constructor(
         // Draw background
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-        val metrics = textPaint.fontMetrics
-        val baseline = -metrics.ascent
-
-        // Account for padding when drawing
+        if (charHeight <= 0f) return
+        val baseline = -textPaint.fontMetrics.ascent
         val offsetX = paddingLeft.toFloat()
         val offsetY = paddingTop.toFloat()
+        val availableHeight = height - paddingTop - paddingBottom
+        val viewportRows = maxOf(1, (availableHeight / charHeight).toInt())
 
-        // Draw characters (no scaling - dynamic rows/cols fill the screen)
-        for (row in 0 until rows) {
-            for (col in 0 until cols) {
-                val ch = screenBuffer[row][col]
-                if (ch != ' ') {
-                    textPaint.color = colorBuffer[row][col]
-                    canvas.drawText(
-                        ch.toString(),
-                        offsetX + col * charWidth,
-                        offsetY + row * charHeight + baseline,
-                        textPaint
-                    )
+        if (viewportRows < rows) {
+            // Live screen taller than the viewport (soft keyboard up / very short view):
+            // scroll within the live screen so the cursor stays visible. Font unchanged.
+            val scrollRows = (cursorRow - viewportRows + 1).coerceIn(0, rows - viewportRows)
+            for (r in 0 until viewportRows) {
+                val liveRow = scrollRows + r
+                if (liveRow >= rows) break
+                drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], r, offsetX, offsetY, baseline)
+            }
+            drawCursor(canvas, cursorRow - scrollRows, viewportRows, offsetX, offsetY)
+        } else {
+            // Live screen fits: anchor it at the bottom, scrollback history fills above.
+            // Combined content = [history..., live 0..rows-1]; the user drags up into history.
+            val historySize = historyChars.size
+            val contentRows = historySize + rows
+            val maxScroll = maxOf(0, contentRows - viewportRows)
+            val scroll = userScrollUp.coerceIn(0, maxScroll)
+            val topLine = contentRows - viewportRows - scroll   // content-line index at viewport row 0
+            for (r in 0 until viewportRows) {
+                val lineIdx = topLine + r
+                if (lineIdx < 0 || lineIdx >= contentRows) continue   // empty area above the history
+                if (lineIdx < historySize) {
+                    drawRow(canvas, historyChars[lineIdx], historyColors[lineIdx], r, offsetX, offsetY, baseline)
+                } else {
+                    val liveRow = lineIdx - historySize
+                    drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], r, offsetX, offsetY, baseline)
+                    if (liveRow == cursorRow) drawCursor(canvas, r, viewportRows, offsetX, offsetY)
                 }
             }
         }
+    }
 
-        // Draw cursor
-        if (cursorVisible && cursorRow < rows && cursorCol < cols) {
-            val cursorX = offsetX + cursorCol * charWidth
-            val cursorY = offsetY + cursorRow * charHeight + charHeight - 4f
-            canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + 3f, cursorPaint)
+    private fun drawRow(canvas: Canvas, chars: CharArray, colors: IntArray, vrow: Int,
+                        offsetX: Float, offsetY: Float, baseline: Float) {
+        val y = offsetY + vrow * charHeight + baseline
+        val n = minOf(chars.size, cols)
+        for (col in 0 until n) {
+            val ch = chars[col]
+            if (ch != ' ') {
+                textPaint.color = colors[col]
+                canvas.drawText(ch.toString(), offsetX + col * charWidth, y, textPaint)
+            }
         }
+    }
+
+    private fun drawCursor(canvas: Canvas, vrow: Int, viewportRows: Int,
+                           offsetX: Float, offsetY: Float) {
+        if (!cursorVisible || vrow < 0 || vrow >= viewportRows || cursorCol >= cols) return
+        val x = offsetX + cursorCol * charWidth
+        val y = offsetY + vrow * charHeight + charHeight - 4f
+        canvas.drawRect(x, y, x + charWidth, y + 3f, cursorPaint)
     }
 
     private var processOutputCount = 0
@@ -451,6 +531,7 @@ class TerminalView @JvmOverloads constructor(
         if (processOutputCount++ < 3) {
             android.util.Log.i("TerminalView", "processOutput: ${data.size} bytes, charWidth=$charWidth, charHeight=$charHeight")
         }
+        if (data.isNotEmpty()) userScrollUp = 0   // snap back to the live prompt on new output
         for (b in data) {
             processChar(b.toInt() and 0xFF)
         }
@@ -567,6 +648,15 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private fun scrollUp() {
+        // Push the top live line into scrollback history before it scrolls off.
+        if (scrollbackLines > 0) {
+            historyChars.addLast(screenBuffer[0].copyOf())
+            historyColors.addLast(colorBuffer[0].copyOf())
+            while (historyChars.size > scrollbackLines) {
+                historyChars.removeFirst()
+                historyColors.removeFirst()
+            }
+        }
         for (row in 0 until rows - 1) {
             screenBuffer[row] = screenBuffer[row + 1].copyOf()
             colorBuffer[row] = colorBuffer[row + 1].copyOf()

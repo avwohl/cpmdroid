@@ -221,9 +221,21 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             } else if (lastMeasuredKeyboardHeight > 0) {
-                // Keyboard was hidden
+                // Keyboard was hidden — restore the padding to just the system bars
+                // and recalc. Without this the keyboard-height bottom padding lingers
+                // as a blank strip along the bottom (the ime inset may report 0 while
+                // this measured value was still driving the padding).
                 lastMeasuredKeyboardHeight = 0
                 Log.i(TAG, "Keyboard hidden (measured height: $keyboardHeight)")
+                rootLayout.setPadding(
+                    rootLayout.paddingLeft,
+                    rootLayout.paddingTop,
+                    rootLayout.paddingRight,
+                    lastSystemBarsBottom
+                )
+                if (::terminalView.isInitialized) {
+                    terminalView.post { terminalView.recalculateSize() }
+                }
             }
         }
 
