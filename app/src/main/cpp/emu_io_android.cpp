@@ -790,6 +790,17 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
     g_cached_rom.assign(reinterpret_cast<uint8_t*>(data),
                         reinterpret_cast<uint8_t*>(data) + len);
 
+    // Ask the core why a ROM is unusable, while the Java array is still
+    // mapped, so the log names the real problem: a corrupt HBIOS
+    // configuration block, or a ROM built for a RomWBW release other than
+    // the pinned one (src/romwbw_pin.h). Before the core validated this, a
+    // bad ROM was accepted and the emulator started a CPU that produced no
+    // output at all. emu_load_rom_from_buffer runs the same check and
+    // refuses too; this only recovers the reason for the log.
+    const char* rom_problem = emu_validate_rom_hcb(
+        reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(len));
+    std::string rom_error = rom_problem ? rom_problem : std::string();
+
     bool success = emu_load_rom_from_buffer(g_emu->memory,
                                             reinterpret_cast<uint8_t*>(data),
                                             static_cast<size_t>(len));
@@ -798,6 +809,8 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 
     if (success) {
         LOGI("ROM loaded successfully");
+    } else if (!rom_error.empty()) {
+        LOGE("Failed to load ROM: %s", rom_error.c_str());
     } else {
         LOGE("Failed to load ROM");
     }
@@ -1054,7 +1067,13 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
     // Reload ROM from cache
     if (!g_cached_rom.empty()) {
         LOGI("Reloading ROM from cache (%zu bytes)", g_cached_rom.size());
-        emu_load_rom_from_buffer(g_emu->memory, g_cached_rom.data(), g_cached_rom.size());
+        // The core can refuse a ROM now, so do not assume this succeeded:
+        // a silent failure here leaves a running CPU with no ROM behind it,
+        // which looks like a hang rather than an error.
+        if (!emu_load_rom_from_buffer(g_emu->memory, g_cached_rom.data(),
+                                      g_cached_rom.size())) {
+            LOGE("Reboot failed: the cached ROM was rejected by the core");
+        }
     }
 
     // Reload disks from cache

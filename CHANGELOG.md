@@ -1,5 +1,31 @@
 # Changelog
 
+## Version 1.19 (versionCode 20)
+
+- Synced with emulator core **v1.35**, which pins the RomWBW release it
+  emulates (v3.5.1) in `src/romwbw_pin.h` and now refuses a ROM built for a
+  different release, or one whose HBIOS configuration block is corrupt,
+  instead of starting a CPU that produces no output at all. This port
+  compiles the core in place from `../romwbw_emu/src`, so it builds with no
+  CMake change.
+- **Refreshed the bundled `emu_avw.rom`.** The shipped copy predated the
+  upstream rebuild; the ROM is now the one that reproduces from
+  `src/emu_hbios.asm`. Verified with `romwbw_emu/roms/verify_romwbw_pin.sh`.
+- A rejected ROM now logs *why* (corrupt HCB, or built for a different
+  RomWBW release), rather than a bare "Failed to load ROM". The user-facing
+  toast is unchanged.
+- Reboot no longer assumes the cached ROM reloads: a rejection is logged
+  instead of leaving a running CPU with no ROM behind it.
+- Not affected by the v1.35 shared file-I/O hardening: this port's
+  `emu_file_*` and `emu_disk_*` are deliberate stubs (Android does file I/O
+  through JNI and keeps disks in memory), so there was nothing to harden.
+
+**Not built or published.** No Android SDK, NDK or JDK was available when
+these changes were made, and the repo ships only `gradlew.bat`. The C++ was
+reviewed and the new expressions were type-checked against the real core
+headers with clang, but neither Gradle nor the NDK has compiled them. Build
+before releasing.
+
 ## Version 1.18 (versionCode 19)
 
 - Version bump for a fresh Google Play submission. Already targets Android 16 (API 36), which meets Play's Aug 31 2026 target-API requirement (min is API 35).
