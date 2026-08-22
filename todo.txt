@@ -23,3 +23,53 @@ make sense to have an enable sound checkbox.
 - In a sound releated issue, see docs/midi.md. A user says the RC2014 driver has some clock on it
 so we don't need to slow our emulator. Research the RC2014 driver and see how much work it would be.
 See if it can also do a clock.  See how much could could be in hbios_dispatch and shared and how much would be Android only.  Update this midi.md with findings
+
+- checked ^R across the ports after a windows user reported "Ctrl R exits me
+from CPM". android is fine, no fix needed here. TerminalView.handleKeyDown
+maps ctrl + KEYCODE_A..Z to 1..26 and returns true (TerminalView.kt:306-312),
+so Ctrl+R sends 0x12 to CP/M like it should. nothing in the app claims a
+Ctrl-letter for itself: no res/menu, no alphabeticShortcut, no
+onCreateOptionsMenu in MainActivity, theme is Material3.DayNight.NoActionBar,
+and every toolbar action is a plain OnClickListener. the windows bug was a
+Ctrl+R accelerator wired to Reset that swallowed the keystroke before the
+terminal saw it, and we never had that mechanism.
+
+- watch out if anyone adds an ActionBar, a Toolbar with menu items, or an
+options menu to MainActivity. android's alphabeticShortcut handling would then
+start claiming Ctrl-letters and would recreate the windows bug exactly. put a
+comment on setupToolbar (MainActivity.kt:361) saying the buttons are
+click-only on purpose because every Ctrl-letter belongs to CP/M.
+
+- the restart confirm dialog at the top of this list is DONE. bootButton calls
+showRestartConfirmDialog (MainActivity.kt:372, :492-501) and it has a Cancel.
+strike that item.
+
+- F1 through F12 do nothing at all. handleKeyDown has no KEYCODE_F1..F12 case
+and unicodeChar is 0 for them, so they fall through to `else -> -1` and get
+dropped. z80cpmw's FEATURE_PARITY.md says all twelve reach CP/M on android,
+which is not true. either add them next to the DPAD case (TerminalView.kt:290)
+sending the VT220 bytes F1=ESC O P, F2=ESC O Q, F3=ESC O R, F4=ESC O S,
+F5=ESC [ 1 5 ~ and up, or fix the doc. no settings flag needed, nothing on
+android competes for those keys.
+
+- a hardware Ctrl only makes control bytes for A-Z. Ctrl+[ Ctrl+\ Ctrl+]
+Ctrl+@ Ctrl+Space and Ctrl+- produce nothing, because the test at
+TerminalView.kt:308 is keycode A..Z only and the printable fallback is gated on
+!isCtrlPressed. the on-screen Ctrl button is better than the hardware path
+here: MainActivity.kt:302 accepts the whole '@'..'_' window. widen the hardware
+side to match.
+
+- more of FEATURE_PARITY.md is wrong than just the F-keys. it credits cpmdroid
+with DEFAULT_KEY_BINDINGS, decodeKeySequence, bindingNameFor, sendNamedKey,
+keymap_<Name> preferences and an on-screen F-key row, and says the tables were
+compared mechanically against z80cpmw. none of that exists at origin/master
+d22308f - zero grep hits. either that work is unpushed on another machine or
+the doc describes what we meant to build. worth settling before anyone trusts
+that section.
+
+- emu_io_android.cpp:251-261 defines emu_console_check_ctrl_c_exit (N
+consecutive ^C exits) and :243-249 emu_console_check_escape. neither has a
+caller in the android build - the only caller is romwbw_emu.cc, which is not in
+our CMakeLists. harmless today, but if anyone ever adds that file to the
+android target, Ctrl+C becomes an app-level exit key. delete them or comment
+why they are dead.
