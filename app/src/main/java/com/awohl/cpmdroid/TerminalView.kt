@@ -732,6 +732,14 @@ class TerminalView @JvmOverloads constructor(
                     0x0D -> cursorCol = 0   // CR
                     0x0A -> newLine()       // LF
                     0x08 -> if (cursorCol > 0) cursorCol-- // BS
+                    0x09 -> { // TAB - next 8-column stop
+                        // Dropped entirely before this: the `else` branch only
+                        // prints 0x20 and above, so every tab vanished and any
+                        // program that lays out columns with them - PIP's
+                        // listings, most assemblers' output - ran its columns
+                        // together. Same rule as the other ports.
+                        cursorCol = ((cursorCol + 8) and 7.inv()).coerceAtMost(cols - 1)
+                    }
                     0x07 -> playBell() // BEL - beep
                     else -> {
                         if (ch >= 0x20) {

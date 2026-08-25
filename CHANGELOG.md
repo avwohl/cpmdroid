@@ -89,6 +89,14 @@ below could not be.
   hard-coding keycodes, because the key carrying '[' is not
   `KEYCODE_LEFT_BRACKET` on every layout. Measured: Ctrl+] and Ctrl+\ reach
   CP/M as ^] and ^\.
+- **TAB was dropped on the floor.** The normal-state parser handled ESC, CR,
+  LF, BS and BEL and then printed anything from 0x20 up, so 0x09 matched
+  nothing and vanished. Every program that lays out columns with tabs ran them
+  together - including RomWBW's own boot banner, whose drive map is
+  tab-indented, and `DIR`, whose four columns collapsed into a ragged line. It
+  now advances to the next 8-column stop, the same rule as the other ports.
+  Measured on the emulator: `DIR` comes out in columns and the drive map is
+  indented.
 - **The terminal bell stopped background audio instead of ducking it.** The
   tone was a bare `ToneGenerator(STREAM_SYSTEM)` with no `AudioAttributes`,
   and nothing anywhere in the app requested or abandoned audio focus - so a
@@ -128,6 +136,12 @@ below could not be.
   full path and the containment check passing.
 - The Settings slider reads 1000, drags to Off, and persists as
   `scrollback_lines` in the preferences file.
+- The terminal parser is thinner than `z80cpmw`'s FEATURE_PARITY.md claimed -
+  its CSI dispatch is `H f A B C D J K m` and nothing else, its SGR handles
+  foreground only, and ESC followed by anything but `[` is discarded, so there
+  is no VT52, no DECSTBM, no DECSC/DECRC, no answerback and no background
+  colour. That column has been corrected in `z80cpmw`; the gap itself is row 13
+  and is not closed here.
 - Not verified, and it cannot be from here: `HBF_HOST_CAPS` and
   `HBF_HOST_GETNAME` reaching a guest. The bundled disk images still carry the
   pre-98eb6a1 `w8.com`, which neither probes nor asks. See `todo.txt`.
