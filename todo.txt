@@ -1,75 +1,92 @@
-Todo list:
-- add a confirm dialog to restart the emulator
-a user complained of hitting restart instead of pause
-and loosing work
+Todo list.  Open items only - finished work is in CHANGELOG.md and in the commit
+messages that made the changes, not kept here.  WIP.md holds the longer-form
+handoff notes.
 
-- the new code we added to check for writes to disks in the manifest
-that may be overwritten by a new release got relased and does work.
-however, i deleted the previous version and installed and it came up
-with the checkbox in settings off. by default it should come up on.
-fix the problem. change the settings version so everyone will get the
-default settings
+- the keyboard-aware scrolling + scrollback fix is committed (690da30) but was
+never visually confirmed on the tablet and has never gone into a published
+build, so a clean install from the store still shows the black band above the
+keyboard and still drops lines of text.  1.18 says "no app code changes since
+1.17" and 1.19 says "not built or published", so nothing carrying the fix has
+shipped.  it was built exactly once: WIP.md records a release-keystore APK
+(versionCode 19 / 1.18) built from these changes and installed on the Samsung
+SM-X200, running with no crash and rows=24 - so that APK is probably still on
+the device and the visual check can start there.  resume from WIP.md: unlock the
+Samsung SM-X200, boot + DIR so lines scroll off, check
+the fixed 24-row screen in portrait AND landscape, drag down into history, drag
+up or new output snaps back to live.  tuning left open: scroll direction feel,
+lines per drag, blank space above the prompt on a fresh boot with empty history,
+and whether a drag should scroll at all while the keyboard is up.  while there:
+scrollbackLines is hardcoded at 1000 with no Settings entry (z80cpmw has
+"Terminal scrollback", 0 = off), and copyScreenToClipboard copies only the live
+screen.  when it is confirmed, fix the CHANGELOG 1.18 entry.
 
-- we tested the smartkeyboard pro changes and they worked.  I did  clean
-install from the store it does not. there is big black band above the keyboard 
-now and we are missing afew lines of text.
-see c:\temp\Screeenshot*
+- the terminal bell is behind a setting now and defaults off, so an ordinary run
+no longer stops an audiobook - but the reported problem is only narrowed, not
+closed.  when a user does enable it the beep is
+ToneGenerator(AudioManager.STREAM_SYSTEM, 50) at TerminalView.kt:148 with no
+AudioAttributes, and nothing anywhere in the app requests or abandons audio
+focus.  flag it as incidental: AudioAttributes with
+USAGE_ASSISTANCE_SONIFICATION, plus requestAudioFocus with
+AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK abandoned right after the tone, so the book
+ducks instead of stopping.  note the romwbw/midi theory in the original report
+was wrong: emu_dsky_beep() at emu_io_android.cpp:557 is an empty stub, so the
+HBIOS SND and DSKY paths make no sound on Android at all and the terminal BEL is
+the only audio this app can produce.
 
-- when the app is run in it somehow is flagged as using sound. i think the romwbw has some sound midi output?
-is there a way to flag it as indcidental? if I am listing to and audio book and run our emulator the book
-stops.  I can see the program might make a bell sound.  But by default books should continue. It may
-make sense to have an enable sound checkbox.
+- put a comment on setupToolbar (MainActivity.kt:363 - the old note said 361)
+saying the toolbar buttons are click-only on purpose.  adding an ActionBar, a
+Toolbar with menu items, or an options menu would turn on android's
+alphabeticShortcut handling, which claims Ctrl-letters and would recreate the
+windows ^R bug exactly; every Ctrl-letter belongs to CP/M.  today there is no
+res/menu, no alphabeticShortcut, no onCreateOptionsMenu, and the theme is
+Material3.DayNight.NoActionBar - so the comment is the whole of the work.
 
-- In a sound releated issue, see docs/midi.md. A user says the RC2014 driver has some clock on it
-so we don't need to slow our emulator. Research the RC2014 driver and see how much work it would be.
-See if it can also do a clock.  See how much could could be in hbios_dispatch and shared and how much would be Android only.  Update this midi.md with findings
-
-- checked ^R across the ports after a windows user reported "Ctrl R exits me
-from CPM". android is fine, no fix needed here. TerminalView.handleKeyDown
-maps ctrl + KEYCODE_A..Z to 1..26 and returns true (TerminalView.kt:306-312),
-so Ctrl+R sends 0x12 to CP/M like it should. nothing in the app claims a
-Ctrl-letter for itself: no res/menu, no alphabeticShortcut, no
-onCreateOptionsMenu in MainActivity, theme is Material3.DayNight.NoActionBar,
-and every toolbar action is a plain OnClickListener. the windows bug was a
-Ctrl+R accelerator wired to Reset that swallowed the keystroke before the
-terminal saw it, and we never had that mechanism.
-
-- watch out if anyone adds an ActionBar, a Toolbar with menu items, or an
-options menu to MainActivity. android's alphabeticShortcut handling would then
-start claiming Ctrl-letters and would recreate the windows bug exactly. put a
-comment on setupToolbar (MainActivity.kt:361) saying the buttons are
-click-only on purpose because every Ctrl-letter belongs to CP/M.
-
-- the restart confirm dialog at the top of this list is DONE. bootButton calls
-showRestartConfirmDialog (MainActivity.kt:372, :492-501) and it has a Cancel.
-strike that item.
-
-- F1 through F12 do nothing at all. handleKeyDown has no KEYCODE_F1..F12 case
+- F1 through F12 do nothing at all.  handleKeyDown has no KEYCODE_F1..F12 case
 and unicodeChar is 0 for them, so they fall through to `else -> -1` and get
-dropped. z80cpmw's FEATURE_PARITY.md says all twelve reach CP/M on android,
-which is not true. either add them next to the DPAD case (TerminalView.kt:290)
-sending the VT220 bytes F1=ESC O P, F2=ESC O Q, F3=ESC O R, F4=ESC O S,
-F5=ESC [ 1 5 ~ and up, or fix the doc. no settings flag needed, nothing on
-android competes for those keys.
+dropped.  add them next to the DPAD case (TerminalView.kt:290) sending the VT220
+bytes F1=ESC O P, F2=ESC O Q, F3=ESC O R, F4=ESC O S, F5=ESC [ 1 5 ~ and up.  no
+settings flag needed, nothing on android competes for those keys.  then correct
+z80cpmw's FEATURE_PARITY.md:170, which still says all twelve reach CP/M here.
 
-- a hardware Ctrl only makes control bytes for A-Z. Ctrl+[ Ctrl+\ Ctrl+]
+- a hardware Ctrl only makes control bytes for A-Z.  Ctrl+[ Ctrl+\ Ctrl+]
 Ctrl+@ Ctrl+Space and Ctrl+- produce nothing, because the test at
-TerminalView.kt:308 is keycode A..Z only and the printable fallback is gated on
-!isCtrlPressed. the on-screen Ctrl button is better than the hardware path
-here: MainActivity.kt:302 accepts the whole '@'..'_' window. widen the hardware
-side to match.
+TerminalView.kt:308 is keycode A..Z only and the printable fallback at :315 is
+gated on !isCtrlPressed.  the on-screen Ctrl button is better than the hardware
+path here: MainActivity.kt:302 accepts the whole '@'..'_' window.  widen the
+hardware side to match.
 
-- more of FEATURE_PARITY.md is wrong than just the F-keys. it credits cpmdroid
-with DEFAULT_KEY_BINDINGS, decodeKeySequence, bindingNameFor, sendNamedKey,
-keymap_<Name> preferences and an on-screen F-key row, and says the tables were
-compared mechanically against z80cpmw. none of that exists at origin/master
-d22308f - zero grep hits. either that work is unpushed on another machine or
-the doc describes what we meant to build. worth settling before anyone trusts
-that section.
+- the FEATURE_PARITY.md dispute is flagged but not settled.  z80cpmw 05260a5
+added a blockquote saying the Android column is unverifiable, but the column
+still asserts the claims and its header still says it was re-verified against
+this port's source at c26aeb7 - which is not a valid object in this repo.  at
+origin/master 7f46e98 there are zero grep hits for DEFAULT_KEY_BINDINGS,
+decodeKeySequence, bindingNameFor, sendNamedKey, keymap_ preferences or an
+on-screen F-key row, and none either for saveProfile, showFileTransferDialog,
+buildKeyRow, VT52 or DECSTBM - so items 1, 11 and 13 are wrong, not just item 1,
+and item 6 is wrong too: HelpActivity fetches help_index.json from
+releases/latest over HTTP and the only thing in app/src/main/assets is
+emu_avw.rom, so nothing is bundled in the APK.  but most of the column does hold
+against this source, so it wants reading rather than deleting: 2 scrollback
+(TerminalView.kt historyChars / scrollbackLines, from 690da30, under different
+names than the doc cites - and hardcoded at 1000 with no Settings entry, so the
+"setting" note is wrong), 3 copy/paste (copyScreenToClipboard /
+pasteFromClipboard on the toolbar), 5 catalog pinned
+(DiskCatalogRepository.kt:27, RELEASE_TAG = "v1.4.5"), 7 NVRAM
+(SettingsRepository.kt:20 KEY_NVRAM), 9 font size (fontSizeSeekBar,
+activity_settings.xml android:min="8" / android:max="24"), 10 Dazzler no-op
+stubs (emu_io_android.cpp:529-541) and 12 the once-per-session manifest warning
+(SettingsRepository.kt:16, EmulatorEngine.kt:168).  decide: find the branch on
+the other machine, or rewrite the column from this source.  same dispute as
+z80cpmw/todo.txt.
 
-- emu_io_android.cpp:251-261 defines emu_console_check_ctrl_c_exit (N
-consecutive ^C exits) and :243-249 emu_console_check_escape. neither has a
-caller in the android build - the only caller is romwbw_emu.cc, which is not in
-our CMakeLists. harmless today, but if anyone ever adds that file to the
-android target, Ctrl+C becomes an app-level exit key. delete them or comment
-why they are dead.
+- emu_io_android.cpp:251-261 still defines emu_console_check_ctrl_c_exit (N
+consecutive ^C exits) with no caller in the android build - CMakeLists does not
+compile romwbw_emu.cc, which is its only caller.  delete it: romwbw_emu v1.36
+removed the declaration from emu_io.h and every other port has dropped its copy,
+z80cpmw in 0f3cc83, so cpmdroid is the last one carrying it.  dead code that
+looks like live ^C interception is a trap for the next person auditing that
+question.  KEEP emu_console_check_escape (:242-249) - emu_io.h still declares it
+and the CLI is still live on it - but take the v1.36 contract change with it:
+escape_char == 0 means no key is reserved, so return false without consuming
+anything.  see romwbw_emu/docs/DOWNSTREAM_2026-08-23.md section 3, and do it
+with the v1.35 -> v1.36 sync.

@@ -53,6 +53,44 @@ before releasing.
 
 - Idle power saving to reduce battery drain when waiting for input
 
+## Version 1.13 (versionCode 14)
+
+Recorded late — this release shipped in January 2026 and was never written up
+here. The items came off `todo.txt` in the cleanup that added this entry.
+
+- **The Boot/Restart button now asks first.** It opens a "Restart Emulator"
+  confirmation with a Cancel, so a tap meant for the neighbouring Pause button
+  no longer resets the machine and loses in-progress work. A user reported
+  exactly that. There is no unconfirmed restart path left — the dialog is the
+  only caller of `bootEmulation()`.
+- **Fixed the downloaded-disk write warning checkbox reading as off on a clean
+  install.** The preference was stored as a negative
+  (`manifest_write_warning_suppressed`, default `false`) behind a checkbox
+  labelled "Suppress downloaded disk warnings", so a fresh install showed it
+  unchecked and looked as though the protection were off. A user reported
+  exactly that. The warning itself was active either way — only the wording was
+  inverted. The key is `warn_manifest_writes` now, defaults to **on**, and the
+  checkbox reads "Warn when writing to downloaded disks", so a ticked box
+  matches the behaviour.
+- Added a stored settings version (`prefs_version`) and a `migrateIfNeeded()`
+  run from `MainActivity.onCreate`, so a later default change can be pushed out
+  to existing installs. It does not act on the old key: the migration removes
+  `warn_manifest_writes`, which an install upgrading from 1.12 does not have
+  yet, so it is a no-op on that path. Those installs land on the corrected
+  default because the renamed key is no longer read; the old
+  `manifest_write_warning_suppressed` entry is left orphaned in
+  SharedPreferences.
+- **Added an "Enable terminal bell sound" setting, off by default.** The BEL
+  character used to beep unconditionally, which paused whatever the device was
+  already playing; with the setting off no audio object is constructed at all,
+  so background audio and audiobooks keep running. Note this only narrows the
+  problem — see `todo.txt` for the audio-focus half, which is still open.
+- Documented the RC2014 MIDI module research in `docs/midi.md`: the Mk2 module
+  has no clock of its own, so MIDI timing still falls to the emulated CPU (or a
+  virtual CTC) and cannot be handed off to the hardware. The write-up also
+  splits the work into what belongs in the shared `hbios_dispatch` and what is
+  Android-only, with effort estimates.
+
 ## Version 1.2 (versionCode 3)
 
 - Renamed package from `com.romwbw.cpmdroid` to `com.awohl.cpmdroid`
