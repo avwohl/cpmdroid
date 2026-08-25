@@ -88,6 +88,22 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
+        // Terminal scrollback. The seek bar steps through a fixed list of
+        // sizes rather than a range, because the useful values are far apart
+        // and a per-line slider would be unusable at 10000.
+        val scrollbackIndex = SettingsRepository.SCROLLBACK_CHOICES
+            .indexOfFirst { it >= currentSettings.scrollbackLines }
+            .let { if (it < 0) SettingsRepository.SCROLLBACK_CHOICES.lastIndex else it }
+        binding.scrollbackSeekBar.progress = scrollbackIndex
+        binding.scrollbackText.text = scrollbackLabel(scrollbackIndex)
+        binding.scrollbackSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                binding.scrollbackText.text = scrollbackLabel(progress)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
         // Wrap lines checkbox
         binding.wrapLinesCheckbox.isChecked = currentSettings.wrapLines
 
@@ -260,10 +276,17 @@ class SettingsActivity : AppCompatActivity() {
         saveSettings()
     }
 
+    private fun scrollbackLabel(index: Int): String {
+        val lines = SettingsRepository.SCROLLBACK_CHOICES.getOrElse(index) { 1000 }
+        return if (lines == 0) "Off" else lines.toString()
+    }
+
     private fun saveSettings() {
         currentSettings = currentSettings.copy(
             fontSize = binding.fontSizeSeekBar.progress,
-            wrapLines = binding.wrapLinesCheckbox.isChecked
+            wrapLines = binding.wrapLinesCheckbox.isChecked,
+            scrollbackLines = SettingsRepository.SCROLLBACK_CHOICES
+                .getOrElse(binding.scrollbackSeekBar.progress) { 1000 }
         )
         settingsRepo.saveSettings(currentSettings)
         // Save warn manifest writes setting separately

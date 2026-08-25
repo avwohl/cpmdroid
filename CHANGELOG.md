@@ -1,5 +1,137 @@
 # Changelog
 
+## Unreleased
+
+Synced to emulator core **v1.36**, and took the four keyboard and terminal
+gaps the cross-port sweep found here. Built and run this time - on a Windows
+machine with the SDK, the NDK and an API 36 emulator - which is what 1.19
+below could not be.
+
+### The core sync
+
+- **`emu_host_path_caps()` is defined, and that is what makes the port build
+  at all.** The v1.36 core declares this function and deliberately does not
+  define it, so a port that syncs without supplying it fails to link:
+  `undefined symbol: emu_host_path_caps()` from `hbios_dispatch.cc`. It
+  answers HBIOS `HBF_HOST_CAPS` (0xE9), the probe the new `W8.COM` makes
+  before it will hand a host path to the emulator, and `W8` believes the
+  answer - which is why the assertion has to be written by the code it is
+  about. It replaced a design where the core returned the bit as a constant,
+  under which a port that had never thought about guest paths claimed to be
+  safe just by compiling.
+- **The guest path is now reduced in the C++ shim, not only in Kotlin.** Both
+  `emu_host_file_open_read()` and `emu_host_file_open_write()` cut the
+  incoming string to a single leaf component before anything else sees it,
+  using a copy of the shared `emu_host_path_basename()` (CMakeLists does not
+  compile `emu_io_common.cc`; it would collide on ten symbols this port
+  defines for Android). The Kotlin checks are still there and still run, but a
+  UI layer was the wrong place for the only copy: `emu_host_path_caps()`
+  speaks for the shim, and a second consumer of the write name would not have
+  inherited a guarantee that lived in the caller. See `romwbw_emu`
+  `docs/DOWNSTREAM_2026-08-25.md` section 0 for the iOS bug this shape exists
+  to prevent - there an unreduced `..` reached `removeItem` and took the
+  user's entire disk library with it.
+- **The exported name is lowercased**, as the CLI and browser backends do. The
+  CCP uppercases the whole command line before the emulator sees it, so the
+  typed case is already gone and the convention is all that is left; a backend
+  that picks differently makes the same `W8` command produce differently-named
+  files on different front ends.
+- **`emu_host_file_get_write_name()` reports the effective destination**, per
+  the tightened v1.36 contract: the full `Exports/` path rather than an echo
+  of what the guest asked for. `W8` prints that string, and on Android it
+  answers the hardest question a transfer raises - `Exports` lives under
+  `getExternalFilesDir()`, which the stock Files app has hidden since Android
+  11. Kotlin hands the path down once at startup through a new
+  `nativeSetHostExportsDir`, since the C++ cannot ask Android where that
+  folder is. Visible to users once the disk images carry the `w8.com` that
+  asks (`HBF_HOST_GETNAME`, 0xE8).
+- **Deleted `emu_console_check_ctrl_c_exit()`.** v1.36 removed the declaration
+  from `emu_io.h` and every other port has dropped its copy; this one had no
+  caller, because CMakeLists does not compile `romwbw_emu.cc`. Dead code that
+  looks like live ^C interception is a trap for the next person auditing that
+  question.
+- **`emu_console_check_escape()` takes the v1.36 contract and becomes a
+  no-op.** It has no caller in this build either, and the old body popped the
+  head of the input queue whenever it matched `escape_char` - with no test for
+  `escape_char == 0`, which the contract defines as "reserve no key at all".
+  The on-screen Ctrl button reaches the whole '@' to '_' window, so Ctrl+@ can
+  queue a real NUL that a caller passing 0 would have eaten. Every Ctrl-letter
+  belongs to CP/M.
+- `emu_rename()` is deliberately *not* defined here, unlike the Windows port.
+  It is declared in `emu_io.h` and defined in `emu_io_common.cc`, which this
+  port does not compile - but nothing calls it either, because
+  `emu_file_save()` is one of this port's stubs. Android writes through JNI.
+
+### Fixed
+
+- **`R8` imported the wrong file rather than admitting it could not find
+  yours.** When the requested name was not in `Imports`, it fell back to *the
+  first file in the folder* and handed that to CP/M under the name the guest
+  asked for - and `R8` printed its usual success line, so the resulting CP/M
+  file was real, plausible, and somebody else's contents. A name the user did
+  type is never a request for a different file, and a miss is now reported. An
+  empty name still means "no preference" and still takes the first file, which
+  is what the older bare-FCB `R8` sends when the guest gave it nothing.
+  Measured on the emulator: with a decoy file present, `R8 NOTTHERE.TXT` now
+  logs "No file found in Imports folder" instead of importing the decoy.
+- **F1 to F12 did nothing at all.** `handleKeyDown` had no case for them and
+  `unicodeChar` is 0 for function keys, so they fell through to `else -> -1`
+  and were dropped. They now send the VT220/xterm sequences every sibling port
+  sends - F1-F4 as ESC O P..S, F5 and up as CSI n ~. Nothing on Android
+  competes for them, so no setting gates them. Measured: F1 reaches CP/M as
+  ^[OP.
+- **A hardware Ctrl only made control bytes for A-Z.** Ctrl+[ (ESC), Ctrl+\
+  (FS), Ctrl+] (GS), Ctrl+^ (RS), Ctrl+_ (US), Ctrl+@ and Ctrl+Space (NUL)
+  produced nothing, because the test was a keycode range over the letters. The
+  hardware path now accepts the same '@' to '_' window the on-screen Ctrl
+  button already accepted - the software path being the better one was
+  backwards. It asks the layout what the key would have typed rather than
+  hard-coding keycodes, because the key carrying '[' is not
+  `KEYCODE_LEFT_BRACKET` on every layout. Measured: Ctrl+] and Ctrl+\ reach
+  CP/M as ^] and ^\.
+- **The terminal bell stopped background audio instead of ducking it.** The
+  tone was a bare `ToneGenerator(STREAM_SYSTEM)` with no `AudioAttributes`,
+  and nothing anywhere in the app requested or abandoned audio focus - so a
+  CP/M program that rings the bell, and some ring it per keystroke, killed
+  whatever the user was listening to. It now declares itself a sonification
+  and takes `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` for the length of the beep,
+  giving it back straight after. The setting and its default (off) are
+  unchanged, so this narrows a problem the setting had only hidden. This is
+  the only sound the app can make: `emu_dsky_beep()` is an empty stub, so the
+  HBIOS SND and DSKY paths are silent on Android.
+
+### Added
+
+- **Terminal scrollback is a setting**, as it is on `z80cpmw`. It was
+  hardcoded at 1000 lines with no way to change or disable it. The slider
+  steps through 0 (Off), 100, 250, 500, 1000, 2000, 5000 and 10000, because
+  the useful values are too far apart for a per-line slider. Lowering it trims
+  the history at once rather than waiting for the next scroll, so a user who
+  chooses Off does not keep a screen they can still drag back through.
+- **Copy takes the scrollback with it.** `copyScreenToClipboard` copied only
+  the live rows, which is the wrong half of what the user can see - the point
+  of scrollback is the output that has already left the screen, and a long
+  `DIR` is exactly what someone reaches for Copy to keep.
+- A comment on `setupToolbar` recording that the toolbar is click-only
+  deliberately: an ActionBar, a Toolbar with menu items or an options menu all
+  switch on Android's `alphabeticShortcut` handling, which claims Ctrl-letters
+  before the focused view sees them. That is the `^R` bug `z80cpmw` shipped,
+  and every Ctrl-letter belongs to CP/M.
+
+### Verified
+
+- Built with the NDK for all four ABIs and run on an API 36 emulator: the app
+  boots, RomWBW reaches the boot loader, CP/M 2.2 comes up, and the new
+  `Host exports dir:` line shows the JNI hand-down landing before any transfer
+  can start.
+- `W8 R8.COM` exports to `Exports/r8.com`, with the destination logged as the
+  full path and the containment check passing.
+- The Settings slider reads 1000, drags to Off, and persists as
+  `scrollback_lines` in the preferences file.
+- Not verified, and it cannot be from here: `HBF_HOST_CAPS` and
+  `HBF_HOST_GETNAME` reaching a guest. The bundled disk images still carry the
+  pre-98eb6a1 `w8.com`, which neither probes nor asks. See `todo.txt`.
+
 ## Version 1.19 (versionCode 20)
 
 - Synced with emulator core **v1.35**, which pins the RomWBW release it
@@ -20,11 +152,12 @@
   `emu_file_*` and `emu_disk_*` are deliberate stubs (Android does file I/O
   through JNI and keeps disks in memory), so there was nothing to harden.
 
-**Not built or published.** No Android SDK, NDK or JDK was available when
-these changes were made, and the repo ships only `gradlew.bat`. The C++ was
-reviewed and the new expressions were type-checked against the real core
-headers with clang, but neither Gradle nor the NDK has compiled them. Build
-before releasing.
+**Not built or published when this was written.** No Android SDK, NDK or JDK
+was available at the time, and the repo ships only `gradlew.bat`; the C++ was
+reviewed and type-checked against the real core headers with clang, but
+neither Gradle nor the NDK had compiled it. That gap is now closed - the
+Unreleased section above was built and run on a machine with the toolchain,
+and this code went through the same compiler on the way. Still unpublished.
 
 ## Version 1.18 (versionCode 19)
 

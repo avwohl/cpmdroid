@@ -47,6 +47,7 @@ class EmulatorEngine {
     private external fun nativeGetHostFileWriteData(): ByteArray?
     private external fun nativeHostFileWriteDone()
     private external fun nativeHostFileCancel()
+    private external fun nativeSetHostExportsDir(dir: String)
 
     // NVRAM boot configuration native methods (string-based API)
     private external fun nativeSetNvramSetting(setting: String)
@@ -147,6 +148,11 @@ class EmulatorEngine {
     fun getHostFileWriteData(): ByteArray? = nativeGetHostFileWriteData()
     fun hostFileWriteDone() = nativeHostFileWriteDone()
     fun hostFileCancel() = nativeHostFileCancel()
+
+    // Tell the native side where W8 exports really land. It cannot ask Android
+    // itself, and emu_host_file_get_write_name() has to report the effective
+    // destination - W8 prints that to the CP/M user (HBF_HOST_GETNAME).
+    fun setHostExportsDir(dir: String) = nativeSetHostExportsDir(dir)
 
     // NVRAM boot configuration methods (string-based API)
     // Set boot option: "C" (CP/M), "Z" (ZSDOS), "2" (first hard disk - units

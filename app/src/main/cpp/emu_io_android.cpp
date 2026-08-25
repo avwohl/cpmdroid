@@ -142,9 +142,6 @@ static jmethodID g_on_output_method = nullptr;
 // Debug and logging state
 static volatile bool g_debug_enabled = false;
 
-// Ctrl+C tracking
-static int g_consecutive_ctrl_c = 0;
-
 // Debug counters (file-scope so they can be reset on reboot)
 static int g_run_count = 0;
 static int g_output_log_count = 0;
@@ -170,6 +167,14 @@ static size_t g_host_read_pos = 0;
 static std::string g_host_read_filename;
 static std::vector<uint8_t> g_host_write_buffer;
 static std::string g_host_write_filename;
+// The app's Exports directory, handed down from Kotlin once at startup. The
+// C++ side has no way to ask Android where getExternalFilesDir() points, and
+// emu_host_file_get_write_name() has to report where the bytes really land -
+// W8 prints that string to the CP/M user.
+static std::string g_host_exports_dir;
+// The effective destination, rebuilt at each open. Held separately from
+// g_host_write_filename so the leaf and the full path cannot drift.
+static std::string g_host_write_destination;
 
 //=============================================================================
 // Platform Utilities
@@ -240,24 +245,18 @@ void emu_console_write_char(uint8_t ch) {
 }
 
 bool emu_console_check_escape(char escape_char) {
-    std::lock_guard<std::mutex> lock(g_input_mutex);
-    if (!g_input_queue.empty() && g_input_queue.front() == escape_char) {
-        g_input_queue.pop();
-        return true;
-    }
-    return false;
-}
-
-bool emu_console_check_ctrl_c_exit(int ch, int count) {
-    if (ch == 0x03) {
-        g_consecutive_ctrl_c++;
-        if (g_consecutive_ctrl_c >= count) {
-            LOGE("Exit: consecutive ^C received");
-            return true;
-        }
-    } else {
-        g_consecutive_ctrl_c = 0;
-    }
+    // Unreachable in this build, and deliberately a no-op rather than the
+    // queue-pop it used to be. The only callers are in romwbw_emu.cc, which
+    // CMakeLists does not compile, and there is no sim> debugger to escape to
+    // on Android - so popping could only take a key away from the guest for
+    // nothing. It took one, too: the old code compared the head of the queue
+    // against escape_char without checking for the v1.36 contract's
+    // escape_char == 0 ("reserve no key at all"), and the on-screen Ctrl
+    // button reaches the whole '@'..'_' window, so Ctrl+@ / Ctrl+Space queue a
+    // real NUL that a caller passing 0 would have eaten.
+    // Every Ctrl-letter belongs to CP/M - see "Ctrl-A..Ctrl-Z Belong to the
+    // Guest" in romwbw_emu/DOWNSTREAM.md. The web backend is the same shape.
+    (void)escape_char;
     return false;
 }
 
@@ -566,23 +565,111 @@ int emu_dsky_get_key() {
 // Host File Transfer Implementation
 //=============================================================================
 
+// A copy of romwbw_emu/src/emu_io_common.cc's emu_host_path_basename(), which
+// CMakeLists does not compile: that file also defines emu_file_*, emu_disk_*
+// and emu_get_time, all of which have Android versions here, so adding it
+// would collide on ten symbols. Keep this in step with the shared original -
+// diverging is what the helper was written to stop (romwbw_emu
+// docs/DOWNSTREAM_2026-08-25.md section 2: three ports had three different
+// answers, and one of them was the iOS data-loss bug).
+static std::string android_host_path_basename(const std::string& path,
+                                              const char* fallback) {
+    const std::string fb = (fallback && *fallback) ? fallback : "download.bin";
+
+    // Ignore trailing separators: "a/b/" names b, not "".
+    size_t end = path.size();
+    while (end > 0 && (path[end - 1] == '/' || path[end - 1] == '\\')) end--;
+    if (end == 0) return fb;
+
+    size_t start = end;
+    while (start > 0 && path[start - 1] != '/' && path[start - 1] != '\\') start--;
+    std::string base = path.substr(start, end - start);
+
+    // A Windows path can name a file with no separator at all ("C:OUT.TXT"),
+    // and the drive letter is not part of the name. Strip exactly that prefix
+    // and nothing else - a colon is a legal character in an Android filename,
+    // so cutting at the last one would turn "my:file.txt" into "file.txt" here
+    // while the CLI wrote "my:file.txt".
+    if (base.size() >= 2 && base[1] == ':' &&
+        ((base[0] >= 'A' && base[0] <= 'Z') || (base[0] >= 'a' && base[0] <= 'z'))) {
+        base = base.substr(2);
+    }
+
+    // What is left has to be a name that cannot escape the directory it will
+    // be joined to. "." and ".." are the two that can.
+    if (base.empty() || base == "." || base == "..") return fb;
+    return base;
+}
+
+// Reduce a guest path to the leaf this app will actually use, lowercased.
+//
+// The lowercasing is a convention, not a recovery: the CCP uppercases the
+// whole command line before the emulator sees it, so the typed case is already
+// gone. The CLI and the browser backends both lowercase the name they create,
+// and a backend that picks differently makes the same W8 command produce
+// differently-named files on different front ends - so this port matches them.
+static std::string android_host_leaf(const char* filename, const char* fallback) {
+    std::string leaf = android_host_path_basename(filename ? filename : "", fallback);
+    for (char& c : leaf) {
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    }
+    return leaf;
+}
+
 emu_host_file_state emu_host_file_get_state() {
     return g_host_file_state;
+}
+
+// What this front end guarantees about a guest-supplied path (HBF_HOST_CAPS,
+// 0xE9). W8.COM refuses to send a host path unless EMU_HOST_CAP_SAFE_PATHS is
+// set, and it believes the answer - which is why the core declares this
+// function and deliberately does not define it, so the assertion is written by
+// the code the assertion is about.
+//
+// This port may set it: a guest path never reaches the filesystem. Both open
+// calls reduce it to a single leaf component right here, before anything else
+// sees the string, so there is nothing left that could name a directory, walk
+// out of one with "..", or be joined to the app's Exports/Imports folders and
+// land outside them. The bit means "never used destructively", not "confined
+// to one directory" - this backend happens to be both.
+//
+// The reduction is deliberately in the C++ rather than in Kotlin, where it
+// used to live alone. The Kotlin check still runs and is still worth having,
+// but a UI layer is the wrong place for the only copy: this function speaks
+// for the shim, and a second consumer of emu_host_file_get_write_name() would
+// not have inherited a guarantee that lived in the caller.
+uint8_t emu_host_path_caps() {
+    return EMU_HOST_CAP_SAFE_PATHS;
 }
 
 bool emu_host_file_open_read(const char* filename) {
     g_host_read_buffer.clear();
     g_host_read_pos = 0;
-    g_host_read_filename = filename ? filename : "";
+    // R8 can be given a host path (romwbw_emu src/r8.asm). This app has no
+    // filesystem outside its sandbox to honour a directory with, so reduce to
+    // the leaf and look for that in Imports rather than refusing outright -
+    // which is what the shared helper exists for, and what every sandboxed
+    // port is asked to do.
+    g_host_read_filename = filename ? android_host_leaf(filename, "") : "";
     g_host_file_state = HOST_FILE_WAITING_READ;
-    LOGI("Host file read requested: %s", filename);
+    LOGI("Host file read requested: %s (from %s)", g_host_read_filename.c_str(),
+         filename ? filename : "");
     return true;
 }
 
 bool emu_host_file_open_write(const char* filename) {
     g_host_write_buffer.clear();
-    g_host_write_filename = filename ? filename : "download.bin";
+    g_host_write_filename = android_host_leaf(filename, "download.bin");
+    // The effective destination, for HBF_HOST_GETNAME. The Exports folder is
+    // where the Kotlin layer will put it, so that is what the CP/M user needs
+    // to be told - the folder is not visible from the guest and, on Android
+    // 11+, the stock Files app does not show it either.
+    g_host_write_destination = g_host_exports_dir.empty()
+                                   ? g_host_write_filename
+                                   : g_host_exports_dir + "/" + g_host_write_filename;
     g_host_file_state = HOST_FILE_WRITING;
+    LOGI("Host file write opened: %s (from %s)", g_host_write_destination.c_str(),
+         filename ? filename : "");
     return true;
 }
 
@@ -612,6 +699,7 @@ bool emu_host_file_close_write() {
     } else {
         g_host_write_buffer.clear();
         g_host_write_filename.clear();
+        g_host_write_destination.clear();
         g_host_file_state = HOST_FILE_IDLE;
     }
     // The buffer is handed to the OS asynchronously (UI thread saves it to
@@ -625,6 +713,7 @@ bool emu_host_file_close_write() {
 void emu_host_file_write_done() {
     g_host_write_buffer.clear();
     g_host_write_filename.clear();
+    g_host_write_destination.clear();
     g_host_file_state = HOST_FILE_IDLE;
     LOGI("Host file write done");
 }
@@ -636,6 +725,7 @@ void emu_host_file_cancel() {
     g_host_read_pos = 0;
     g_host_write_buffer.clear();
     g_host_write_filename.clear();
+    g_host_write_destination.clear();
     LOGI("Host file operation cancelled");
 }
 
@@ -658,8 +748,27 @@ size_t emu_host_file_get_write_size() {
     return g_host_write_buffer.size();
 }
 
+// The effective destination, not an echo of what the guest asked for - see the
+// contract above the declaration in emu_io.h. W8 prints this string, so it has
+// to name a file the user can go and find, and on Android that is the hardest
+// part of a transfer: Exports lives under getExternalFilesDir(), which the
+// stock Files app has hidden since Android 11.
+//
+// The core gates its own use of this on HOST_FILE_WRITING (HBF_HOST_GETNAME),
+// so a guest never sees a stale answer. It deliberately stays readable through
+// HOST_FILE_WRITE_READY, because that is the window in which the Kotlin layer
+// collects the buffer and writes it.
 const char* emu_host_file_get_write_name() {
-    return g_host_write_filename.c_str();
+    return g_host_write_destination.c_str();
+}
+
+// Called once from Kotlin at startup: the absolute path of the Exports folder.
+void emu_host_set_exports_dir(const char* dir) {
+    g_host_exports_dir = dir ? dir : "";
+    while (!g_host_exports_dir.empty() && g_host_exports_dir.back() == '/') {
+        g_host_exports_dir.pop_back();
+    }
+    LOGI("Host exports dir: %s", g_host_exports_dir.c_str());
 }
 
 //=============================================================================
@@ -1170,6 +1279,19 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileWriteName(JNIEnv* env, j
     (void)thiz;
     const char* name = emu_host_file_get_write_name();
     return env->NewStringUTF(name ? name : "");
+}
+
+JNIEXPORT void JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetHostExportsDir(JNIEnv* env, jobject thiz,
+                                                              jstring dir) {
+    (void)thiz;
+    if (dir == nullptr) {
+        emu_host_set_exports_dir(nullptr);
+        return;
+    }
+    const char* chars = env->GetStringUTFChars(dir, nullptr);
+    emu_host_set_exports_dir(chars);
+    env->ReleaseStringUTFChars(dir, chars);
 }
 
 JNIEXPORT void JNICALL

@@ -298,6 +298,50 @@
 
         </LinearLayout>
 
+        <!-- Terminal Scrollback -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Terminal Scrollback"
+            android:textColor="#00FF00"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+
+            <SeekBar
+                android:id="@+id/scrollbackSeekBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:min="0"
+                android:max="7"
+                android:progress="4" />
+
+            <TextView
+                android:id="@+id/scrollbackText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1000"
+                android:textColor="#AAFFAA"
+                android:layout_marginStart="8dp"
+                android:minWidth="56dp" />
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Lines of history kept above the screen, for dragging back through output that has scrolled off. Off keeps none."
+            android:textColor="#666666"
+            android:textSize="12sp" />
+
         <!-- Wrap Lines Checkbox -->
         <CheckBox
             android:id="@+id/wrapLinesCheckbox"
@@ -347,7 +391,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Play a beep for BEL character (may pause background audio)"
+            android:text="Play a short beep for the BEL character. Background audio ducks for the length of the beep instead of stopping."
             android:textColor="#666666"
             android:textSize="12sp"
             android:layout_marginStart="32dp" />

@@ -7,8 +7,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.media.ToneGenerator
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.ToneGenerator
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.KeyEvent
@@ -27,6 +29,8 @@ class TerminalView @JvmOverloads constructor(
 
     companion object {
         private const val MIN_ROWS = 24
+        // Length of the terminal bell, and of the audio focus it takes.
+        private const val BELL_MS = 100
         private const val MIN_COLS = 80
     }
 
@@ -51,8 +55,29 @@ class TerminalView @JvmOverloads constructor(
     // Lines that have scrolled off the top of the live screen (oldest first).
     private val historyChars = ArrayDeque<CharArray>()
     private val historyColors = ArrayDeque<IntArray>()
-    // Max history lines kept (0 disables scrollback). Matches the other ports' default.
+    // Max history lines kept (0 disables scrollback). Matches the other ports'
+    // default, and is now a Settings entry rather than a constant - so it can
+    // shrink while lines are already being held, which the setter has to
+    // honour immediately: leaving them until the next scroll would show a user
+    // who just chose "Off" a screen they can still drag back through.
     var scrollbackLines: Int = 1000
+        set(value) {
+            val bounded = value.coerceAtLeast(0)
+            field = bounded
+            trimHistory()
+        }
+
+    private fun trimHistory() {
+        while (historyChars.size > scrollbackLines) {
+            historyChars.removeFirst()
+            historyColors.removeFirst()
+        }
+        // The user may have been looking further back than what is left.
+        if (userScrollUp > historyChars.size) {
+            userScrollUp = historyChars.size
+        }
+        invalidate()
+    }
     // How many lines the user has dragged up from the live bottom (0 = at the live prompt).
     private var userScrollUp = 0
     // The full (keyboard-hidden) view height, so the soft keyboard shrinking the view
@@ -140,22 +165,103 @@ class TerminalView @JvmOverloads constructor(
         inputListener = listener
     }
 
-    /** Play bell sound (0x07 BEL character) */
+    /**
+     * Play the bell (0x07 BEL), off by default and behind a setting.
+     *
+     * The tone declares itself as a sonification and takes transient audio
+     * focus for the length of the beep. Without either, a CP/M program that
+     * rings the bell - and some ring it per keystroke - stopped whatever the
+     * user was listening to outright, because a bare STREAM_SYSTEM
+     * ToneGenerator tells the system nothing about what kind of sound this is
+     * and nothing asks for or gives back focus. AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+     * asks the music to duck for a moment instead, which is what a terminal
+     * bell should cost.
+     *
+     * This is the only sound the app can make: emu_dsky_beep() is an empty
+     * stub in emu_io_android.cpp, so the HBIOS SND and DSKY paths are silent
+     * on Android.
+     */
     private fun playBell() {
         if (!soundEnabled) return
         try {
             if (toneGenerator == null) {
                 toneGenerator = ToneGenerator(AudioManager.STREAM_SYSTEM, 50) // 50% volume
             }
-            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100) // 100ms beep
+            val gotFocus = requestBellAudioFocus()
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, BELL_MS)
+            // Give it straight back. The tone is asynchronous, so wait out its
+            // own length first - holding focus any longer would duck the
+            // user's audio for as long as the app stayed open. Repeated bells
+            // just re-post; the last one wins and the focus is still released.
+            if (gotFocus) {
+                removeCallbacks(abandonBellFocus)
+                postDelayed(abandonBellFocus, BELL_MS.toLong() + 50)
+            }
         } catch (e: Exception) {
             // Ignore audio errors - some devices may not support this
         }
     }
 
+    // The bell asks for nothing back, so one no-op listener is enough. It has
+    // to be the same object at request and abandon time on the pre-O API, or
+    // the abandon does not match.
+    private val bellFocusListener = AudioManager.OnAudioFocusChangeListener { }
+    private val abandonBellFocus = Runnable { abandonBellAudioFocus() }
+    private var bellFocusRequest: AudioFocusRequest? = null
+
+    /** True if focus was granted and must be given back. */
+    private fun requestBellAudioFocus(): Boolean {
+        val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            ?: return false
+        val result = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val request = bellFocusRequest
+                ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    .setWillPauseWhenDucked(false)
+                    .setOnAudioFocusChangeListener(bellFocusListener)
+                    .build()
+                    .also { bellFocusRequest = it }
+            manager.requestAudioFocus(request)
+        } else {
+            // API 24-25. The typed request does not exist there, and the
+            // stream is the only thing that can carry the intent.
+            @Suppress("DEPRECATION")
+            manager.requestAudioFocus(
+                bellFocusListener,
+                AudioManager.STREAM_SYSTEM,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            )
+        }
+        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun abandonBellAudioFocus() {
+        val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            bellFocusRequest?.let { manager.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            manager.abandonAudioFocus(bellFocusListener)
+        }
+    }
+
     /** Copy entire screen content to clipboard */
     fun copyScreenToClipboard(): Boolean {
+        // Scrollback included. Copying only the live rows was the wrong half of
+        // what the user can see: the point of scrollback is the output that has
+        // already left the screen, and a DIR or a long assembly listing is
+        // exactly the thing someone reaches for Copy to keep. With scrollback
+        // off there is no history and this is the live screen alone, as before.
         val text = StringBuilder()
+        for (line in historyChars) {
+            text.append(String(line).trimEnd())
+            text.append('\n')
+        }
         for (row in 0 until rows) {
             val line = String(screenBuffer[row]).trimEnd()
             text.append(line)
@@ -193,6 +299,63 @@ class TerminalView @JvmOverloads constructor(
         // Only send ASCII characters (0-127)
         if (ch in 0..127) {
             inputListener?.invoke(ch)
+        }
+    }
+
+    /**
+     * Send one function key, F1..F12, as the VT220/xterm sequence every
+     * sibling port sends: F1-F4 are SS3 (ESC O P..S) and F5 up are CSI ~ with
+     * a parameter. The parameter numbers are not contiguous - 16 and 22 are
+     * unassigned - which is why this is a table rather than arithmetic.
+     */
+    private fun sendFunctionKey(n: Int) {
+        if (n < 1 || n > 12) return
+        if (n <= 4) {
+            sendChar(0x1B); sendChar('O'.code); sendChar('P'.code + (n - 1))
+            return
+        }
+        val param = intArrayOf(15, 17, 18, 19, 20, 21, 23, 24)[n - 5]
+        sendChar(0x1B); sendChar('['.code)
+        for (c in param.toString()) sendChar(c.code)
+        sendChar('~'.code)
+    }
+
+    /**
+     * The control byte for a Ctrl+key press, or -1 if this key has none.
+     *
+     * The window is '@' (0x00) through '_' (0x1F) after uppercasing, which is
+     * the same window the on-screen Ctrl button accepts - so the two input
+     * paths now agree. It covers Ctrl+A..Z and also Ctrl+[ (ESC), Ctrl+\
+     * (FS), Ctrl+] (GS), Ctrl+^ (RS), Ctrl+_ (US) and Ctrl+@ (NUL), all of
+     * which CP/M programs use and none of which the old keycode-only test
+     * could produce.
+     *
+     * It asks the layout what the key would have typed rather than hard-coding
+     * keycodes, because the key carrying '[' is not KEYCODE_LEFT_BRACKET on
+     * every layout. The keycode path is kept only as the fallback for a key
+     * the layout maps to nothing.
+     */
+    private fun controlByteFor(keyCode: Int, event: KeyEvent): Int {
+        val ctrlBits = KeyEvent.META_CTRL_ON or
+                KeyEvent.META_CTRL_LEFT_ON or KeyEvent.META_CTRL_RIGHT_ON
+        var ch = event.getUnicodeChar(event.metaState and ctrlBits.inv())
+
+        if (ch == 0) {
+            if (keyCode in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z) {
+                return keyCode - KeyEvent.KEYCODE_A + 1
+            }
+            if (keyCode == KeyEvent.KEYCODE_SPACE) return 0
+            return -1
+        }
+
+        if (ch in 'a'.code..'z'.code) ch -= 32
+        return when {
+            // Ctrl+Space is NUL, as it is on every other port - a real byte a
+            // CP/M program can be waiting for. Space is outside the '@'..'_'
+            // window, so it needs saying separately.
+            ch == ' '.code -> 0
+            ch in '@'.code..'_'.code -> ch - '@'.code
+            else -> -1
         }
     }
 
@@ -303,12 +466,35 @@ class TerminalView @JvmOverloads constructor(
                 sendChar(0x1B); sendChar('['.code); sendChar('D'.code)
                 return true
             }
+            // F1-F12. unicodeChar is 0 for these and there is no keycode
+            // fallback below that covers them, so before this they fell all
+            // the way through to `else -> -1` and were dropped: a hardware
+            // keyboard's function keys did nothing at all in CP/M.
+            //
+            // The bytes are the VT220/xterm set every sibling port sends -
+            // F1-F4 as SS3 (ESC O P..S), F5 and up as CSI ~ with a number -
+            // so a WordStar-family editor keyed for one front end behaves the
+            // same here. Nothing on Android competes for these, so no setting
+            // gates them.
+            in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F12 -> {
+                sendFunctionKey(keyCode - KeyEvent.KEYCODE_F1 + 1)
+                return true
+            }
             else -> {
-                // Handle Ctrl+letter combinations
-                if (ctrl && keyCode >= KeyEvent.KEYCODE_A && keyCode <= KeyEvent.KEYCODE_Z) {
-                    val ctrlChar = keyCode - KeyEvent.KEYCODE_A + 1 // Ctrl+A=1, Ctrl+B=2, etc.
-                    sendChar(ctrlChar)
-                    return true
+                // Ctrl + a key that has a control byte. The window is '@'
+                // (0x00) through '_' (0x1F), not just the letters: Ctrl+[ is
+                // ESC, Ctrl+\ is FS, Ctrl+] is GS, Ctrl+@ and Ctrl+Space are
+                // NUL, and CP/M programs use all of them. The old test was
+                // KEYCODE_A..KEYCODE_Z only, so a hardware keyboard could not
+                // produce any of those five while the on-screen Ctrl button
+                // could - the software path was the better one, which is
+                // backwards.
+                if (ctrl) {
+                    val ctrlChar = controlByteFor(keyCode, event)
+                    if (ctrlChar >= 0) {
+                        sendChar(ctrlChar)
+                        return true
+                    }
                 }
 
                 // Handle printable characters from hardware keyboard
@@ -656,6 +842,11 @@ class TerminalView @JvmOverloads constructor(
                 historyChars.removeFirst()
                 historyColors.removeFirst()
             }
+        } else if (historyChars.isNotEmpty()) {
+            // Scrollback was turned off after lines were already kept.
+            historyChars.clear()
+            historyColors.clear()
+            userScrollUp = 0
         }
         for (row in 0 until rows - 1) {
             screenBuffer[row] = screenBuffer[row + 1].copyOf()

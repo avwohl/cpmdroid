@@ -12,6 +12,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_DISK_SLOT_PREFIX = "disk_slot_"
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_WRAP_LINES = "wrap_lines"
+        private const val KEY_SCROLLBACK_LINES = "scrollback_lines"
         private const val KEY_FIRST_LAUNCH_DONE = "first_launch_done"
         private const val KEY_WARN_MANIFEST_WRITES = "warn_manifest_writes"
         private const val KEY_SOUND_ENABLED = "sound_enabled"
@@ -21,6 +22,10 @@ class SettingsRepository(context: Context) {
 
         private const val DEFAULT_ROM = "emu_avw.rom"
         private const val DEFAULT_FONT_SIZE = 14
+        private const val DEFAULT_SCROLLBACK_LINES = 1000
+        // The seek bar cannot offer every value, so it offers these. 0 is
+        // "off", which the terminal already understands.
+        val SCROLLBACK_CHOICES = intArrayOf(0, 100, 250, 500, 1000, 2000, 5000, 10000)
     }
 
     private val prefs: SharedPreferences =
@@ -31,7 +36,9 @@ class SettingsRepository(context: Context) {
             romName = prefs.getString(KEY_ROM_NAME, DEFAULT_ROM) ?: DEFAULT_ROM,
             diskSlots = (0..3).map { prefs.getString("$KEY_DISK_SLOT_PREFIX$it", null) },
             fontSize = prefs.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE),
-            wrapLines = prefs.getBoolean(KEY_WRAP_LINES, false)
+            wrapLines = prefs.getBoolean(KEY_WRAP_LINES, false),
+            scrollbackLines = prefs.getInt(KEY_SCROLLBACK_LINES, DEFAULT_SCROLLBACK_LINES)
+                .coerceIn(0, SCROLLBACK_CHOICES.last())
         )
     }
 
@@ -47,6 +54,7 @@ class SettingsRepository(context: Context) {
             }
             putInt(KEY_FONT_SIZE, settings.fontSize)
             putBoolean(KEY_WRAP_LINES, settings.wrapLines)
+            putInt(KEY_SCROLLBACK_LINES, settings.scrollbackLines)
         }
     }
 

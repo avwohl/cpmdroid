@@ -288,6 +288,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupEmulator() {
         emulator.init()
+        // The native side reduces a guest path to a leaf and then has to say
+        // where that leaf will land, because W8 prints it. Only Kotlin knows
+        // the answer, so hand it down once, before any transfer can start.
+        emulator.setHostExportsDir(exportsDir.absolutePath)
         emulator.setOutputListener { data ->
             mainHandler.post {
                 terminalView.processOutput(data)
@@ -360,6 +364,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The toolbar is plain ImageButtons with click listeners, and that is
+     * deliberate - do not turn it into an ActionBar, a Toolbar with menu
+     * items, or an options menu.
+     *
+     * Any of those switches on Android's alphabeticShortcut handling, which
+     * claims Ctrl-letter presses before the focused view sees them. Every
+     * Ctrl-letter belongs to CP/M (see "Ctrl-A..Ctrl-Z Belong to the Guest" in
+     * romwbw_emu/DOWNSTREAM.md); z80cpmw shipped exactly that bug, where Ctrl+R
+     * rebooted the machine instead of reaching WordStar. Today there is no
+     * res/menu, no alphabeticShortcut, no onCreateOptionsMenu, and the theme is
+     * Material3.DayNight.NoActionBar - keep it that way.
+     */
     private fun setupToolbar() {
         playPauseButton.setOnClickListener {
             if (running) {
@@ -628,6 +645,7 @@ class MainActivity : AppCompatActivity() {
         terminalView.customFontSize = settings.fontSize.toFloat()
         terminalView.wrapLines = settings.wrapLines
         terminalView.soundEnabled = settingsRepo.isSoundEnabled()
+        terminalView.scrollbackLines = settings.scrollbackLines
 
         // Log current settings for debugging
         Log.i(TAG, "Settings: ROM=${settings.romName}")
@@ -738,6 +756,7 @@ class MainActivity : AppCompatActivity() {
                 terminalView.customFontSize = settings.fontSize.toFloat()
                 terminalView.wrapLines = settings.wrapLines
                 terminalView.soundEnabled = settingsRepo.isSoundEnabled()
+                terminalView.scrollbackLines = settings.scrollbackLines
 
                 terminalView.processOutput(createVersionBanner())
                 startEmulation()
@@ -770,11 +789,14 @@ class MainActivity : AppCompatActivity() {
      * Looks for the file in the Imports folder.
      */
     private fun handleHostFileRead() {
+        // Already reduced to a single leaf component by the native side
+        // (emu_host_file_open_read), so a guest path cannot name a directory
+        // here. The check below is a backstop now, not the only line of
+        // defence - which is what it used to be.
         val suggestedName = emulator.getHostFileReadName()
         Log.i(TAG, "R8: Looking for file: $suggestedName")
 
-        // R8 reads only from the Imports folder: reject separators/traversal
-        // rather than letting a guest-supplied name escape the sandbox dir.
+        // R8 reads only from the Imports folder.
         if (suggestedName.contains('/') || suggestedName.contains('\\') ||
             suggestedName.contains("..")) {
             Log.w(TAG, "R8: Rejecting path-like name: $suggestedName")
@@ -786,17 +808,30 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Exact name, then case-insensitive (the CP/M CCP uppercases the
-        // command tail), then first file in Imports.
-        val targetFile = if (suggestedName.isNotEmpty()) {
+        // Exact name, then case-insensitive - the CP/M CCP uppercases the
+        // command tail, so the case the user typed is gone before we see it.
+        //
+        // There is deliberately no "otherwise take the first file in Imports"
+        // fallback any more. It turned a miss into a silent success: R8
+        // NOTTHERE.TXT imported whatever else happened to be sitting in the
+        // folder, under the name the guest asked for, and R8 printed its usual
+        // success line - so the CP/M file was real, plausible, and somebody
+        // else's contents. A name the user did type is never a request for a
+        // different file. romwbw_emu docs/DOWNSTREAM_2026-08-25.md section 0
+        // describes the same substitution on iOS.
+        //
+        // An empty name still means "no preference", which is what the older
+        // bare-FCB R8 sends when the guest gave it nothing to work with, so
+        // that one case keeps the first-file behaviour.
+        val fileToRead = if (suggestedName.isNotEmpty()) {
             val exact = File(importsDir, suggestedName)
             if (exact.exists() && exact.isFile) exact
             else importsDir.listFiles()?.firstOrNull {
                 it.isFile && it.name.equals(suggestedName, ignoreCase = true)
             }
-        } else null
-
-        val fileToRead = targetFile ?: importsDir.listFiles()?.firstOrNull { it.isFile }
+        } else {
+            importsDir.listFiles()?.firstOrNull { it.isFile }
+        }
 
         if (fileToRead != null && fileToRead.exists()) {
             try {
@@ -831,11 +866,11 @@ class MainActivity : AppCompatActivity() {
      */
     private fun handleHostFileWrite() {
         val data = emulator.getHostFileWriteData()
-        val rawName = emulator.getHostFileWriteName()
-        // W8 writes only into the Exports folder: strip any path components
-        // from the guest-supplied name.
-        val filename = rawName.substringAfterLast('/').substringAfterLast('\\')
-            .takeUnless { it.isEmpty() || it == "." || it == ".." } ?: "export.bin"
+        // The effective destination, already reduced to a leaf and joined to
+        // the Exports folder by the native side (emu_host_file_open_write).
+        // It is the same string W8 printed to the CP/M user, so writing
+        // anywhere else would make that message a lie.
+        val destination = emulator.getHostFileWriteName()
 
         if (data == null || data.isEmpty()) {
             Log.w(TAG, "W8: No data to write")
@@ -843,7 +878,35 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val outputFile = File(exportsDir, filename)
+        // Defence in depth behind the native reduction: resolve the path and
+        // insist it is still inside Exports. Kotlin's File(dir, name) has the
+        // same traversal property as the iOS appendingPathComponent that cost
+        // that port a user's whole Documents folder - it does not escape "..".
+        // Nothing here deletes, so the worst case was never that bad, but the
+        // rule is that the containment is checked where the write happens.
+        val outputFile = if (destination.contains('/') || destination.contains('\\')) {
+            File(destination)
+        } else {
+            File(exportsDir, destination.ifEmpty { "export.bin" })
+        }
+        val exportsRoot = exportsDir.canonicalPath
+        val resolved = try {
+            outputFile.canonicalPath
+        } catch (e: Exception) {
+            Log.e(TAG, "W8: Cannot resolve destination", e)
+            emulator.hostFileWriteDone()
+            return
+        }
+        if (resolved != exportsRoot && !resolved.startsWith(exportsRoot + File.separator)) {
+            Log.w(TAG, "W8: Refusing a destination outside Exports: $resolved")
+            mainHandler.post {
+                Toast.makeText(this@MainActivity,
+                    "W8: Export refused (outside Exports folder)", Toast.LENGTH_SHORT).show()
+            }
+            emulator.hostFileWriteDone()
+            return
+        }
+
         try {
             outputFile.writeBytes(data)
             Log.i(TAG, "W8: Saved ${outputFile.name} (${data.size} bytes)")
@@ -883,6 +946,7 @@ class MainActivity : AppCompatActivity() {
             terminalView.customFontSize = settings.fontSize.toFloat()
             terminalView.wrapLines = settings.wrapLines
             terminalView.soundEnabled = settingsRepo.isSoundEnabled()
+            terminalView.scrollbackLines = settings.scrollbackLines
 
             // Check if disk settings changed while in Settings
             val diskSettingsChanged = lastDiskSlots.isNotEmpty() && settings.diskSlots != lastDiskSlots
