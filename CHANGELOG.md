@@ -184,6 +184,76 @@ been through the NDK or onto a device. It says so where it is, and so does
   `Import File...` is an `ioscpm` feature. The item now says both directions are
   open, which is what `z80cpmw`'s `FEATURE_PARITY.md` Android cell already said.
   The item stays open: a save-as and an import picker are still unwritten.
+- **`todo.txt` is rewritten around what each of its items needs from a person.**
+  Every item left in it needs a device, a publish, or the release order, and the
+  file did not say so; it now has four headed sections that do. Nothing moved to
+  this file - none of the five items is finished - and the corrections below are
+  what the pass found rather than what it fixed.
+- **The un-built change is the first thing in the file now.** Nothing in this
+  tree has been through the NDK since `9b68ab1`, and the zero-byte export fix is
+  `c06fa58`, which is `master` - so a compile failure in it is a compile failure
+  at HEAD, and the next person to open this repository is the first who can find
+  out. The entry now carries the route as well as the gap: only `gradlew.bat` is
+  tracked (there is no POSIX `gradlew`; `gradle-wrapper.jar` and `.properties`
+  are tracked and pin Gradle 8.13, so a non-Windows host needs Android Studio or
+  a system `gradle wrapper` first), `CMakeLists.txt` compiles the core in place
+  from `../romwbw_emu/src` and `../cpmemu/src` so both must be checked out beside
+  this repository, `ndkVersion` is `28.0.13004108`, and `assembleDebug` answers
+  the compile question without a keystore. The status of the fix is unchanged: it
+  is still not built, and **Verified** below still says so.
+- **The `ioscpm` cite in that item pointed at a path that does not exist.** It
+  read `emu_io_ios.mm:483`; the file is `iOSCPM/Core/emu_io_ios.mm`. Re-checked
+  at `ioscpm` HEAD `6b1b731` on 2026-08-26: the bug is still there, and the entry
+  now names `emu_host_file_close_write()` and the
+  `HOST_FILE_WRITING && !g_host_write_buffer.empty()` test rather than a line
+  number. That checkout also has an **uncommitted** fix in its working tree,
+  citing `c06fa58`; the entry records it as uncommitted, not as done.
+- **The device item no longer sends the reader to `WIP.md`.** It said "resume
+  from `WIP.md`", which is the file that had to be corrected last round for
+  describing work as uncommitted. The entry is now self-contained: six numbered
+  checks (fixed 24-row screen in both orientations, output that scrolls off, the
+  drag gestures and the snap-back, the keyboard inset, the scrollback slider
+  lowered with history on screen, and Copy with a non-empty history), the
+  `adb logcat` filter and what the two tags print, and the tuning knobs listed as
+  judgement calls rather than as work. The tablet's APK is explained instead of
+  recommended: it is labelled versionCode 19 / 1.18 but was built from the fix,
+  and it predates `a523d40`, `9b68ab1` and `c06fa58`, each of which touched
+  `TerminalView.kt` or `MainActivity.kt`, so it is the wrong build to check
+  against. The `1.18` CHANGELOG wording is marked as the owner's decision, since
+  whether that entry describes the release or the tree is not a thing a checker
+  can settle.
+- **"The bundled disk images" describes an app this is not.** `cpmdroid` ships no
+  disk image at all - `app/src/main/assets` holds `emu_avw.rom` and nothing else,
+  and there is no `.img` anywhere in the tree. Every disk arrives through
+  `DiskCatalogRepository`'s download from the pinned `ioscpm` release, so
+  "refresh the bundled images" read as a change to make here when it is a release
+  action in another repository. The item says so now. Nothing else in it moved.
+- **The parity item was stale in both halves.** It credited `z80cpmw` `944cf9f`
+  with settling the `c26aeb7` dispute and left "nothing reports the drift" as the
+  open part. Both have moved: `5df0dee` (2026-08-26) found three `c26aeb7`-era
+  claims still standing in `FEATURE_PARITY.md` outside the column it had swept -
+  two in *Suggested priority order*, naming `buildKeyRow` and
+  `TerminalView.sendNamedKey` as a worked example that has never existed here,
+  and one in a row-4 bullet crediting this port with a share sheet and an in-app
+  path display it does not have - and `tools/check-sibling-drift.sh` now exists
+  there and reports the drift mechanically, including a recorded commit that is
+  not an object in the tree it names. It reads only, so it is safe to run from
+  here; on 2026-08-26 it reported this port drifted, read at `9b68ab1` against a
+  HEAD of `c06fa58`. All thirteen Android cells of that snapshot table were
+  re-verified against this source at `c06fa58` and every one reads true; the
+  entry lists what was checked. What stays open is this repository's half:
+  nothing here tells someone changing this tree that another repository's
+  document describes it.
+- **`todo.txt` cites symbols and greppable strings instead of `file:line`,** the
+  convention `z80cpmw` wrote down in `5df0dee` after five of its own eight
+  `file:line` cites were invalidated within twelve hours by its own next two
+  commits. Worth recording that this file's four had *not* rotted:
+  `DiskCatalogRepository.kt:27` still lands on `RELEASE_TAG`, `README.md:47` on
+  the copy-into-`Imports` step, `ContentView.swift:231` on the `Import File...`
+  label, and `emu_io_ios.mm:483` on the bad test - only its directory was wrong.
+  That is the argument rather than an exception to it: they were right this
+  morning and nothing on the page said so, which is what a line number cannot
+  carry.
 
 ### Verified
 
@@ -207,8 +277,15 @@ been through the NDK or onto a device. It says so where it is, and so does
   same as compiling it for Android and is not the same as watching `W8` on a
   device. What that host run did and did not cover is written into the bullet.
 - Not verified, and it cannot be from here: `HBF_HOST_CAPS` and
-  `HBF_HOST_GETNAME` reaching a guest. The bundled disk images still carry the
-  pre-98eb6a1 `w8.com`, which neither probes nor asks. See `todo.txt`.
+  `HBF_HOST_GETNAME` reaching a guest. The disk images this port downloads still
+  carry the pre-`98eb6a1` `w8.com`, which neither probes nor asks. (This entry
+  said "bundled"; nothing is bundled - see the `todo.txt` bullet above.) See
+  `todo.txt`.
+- Nothing was built or run in the 2026-08-26 documentation pass. It changed
+  `todo.txt` and this file and no source, on a machine with no Android SDK, NDK,
+  Gradle or `javac`. Every claim it makes about this tree was checked by reading
+  or grepping the working tree at `c06fa58`; every claim about a sibling was
+  checked against that checkout at the commit named beside it.
 
 ## Version 1.19 (versionCode 20)
 
