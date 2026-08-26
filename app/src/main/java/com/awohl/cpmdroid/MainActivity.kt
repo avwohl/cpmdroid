@@ -872,7 +872,11 @@ class MainActivity : AppCompatActivity() {
         // anywhere else would make that message a lie.
         val destination = emulator.getHostFileWriteName()
 
-        if (data == null || data.isEmpty()) {
+        // An empty array is a zero-byte export, not a failure: W8 on an empty
+        // CP/M file has to produce an empty host file, as the CLI and Windows
+        // backends do and as the browser backend started doing in v1.36. Only
+        // null means there is nothing to collect.
+        if (data == null) {
             Log.w(TAG, "W8: No data to write")
             emulator.hostFileWriteDone()
             return

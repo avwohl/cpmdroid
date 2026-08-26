@@ -5,7 +5,10 @@
 Synced to emulator core **v1.36**, and took the four keyboard and terminal
 gaps the cross-port sweep found here. Built and run this time - on a Windows
 machine with the SDK, the NDK and an API 36 emulator - which is what 1.19
-below could not be.
+below could not be. One bullet is outside that: the zero-byte export fix, last
+under **Fixed**, was written afterwards on a machine with no SDK, and has never
+been through the NDK or onto a device. It says so where it is, and so does
+**Verified**.
 
 ### The core sync
 
@@ -107,6 +110,40 @@ below could not be.
   unchanged, so this narrows a problem the setting had only hidden. This is
   the only sound the app can make: `emu_dsky_beep()` is an empty stub, so the
   HBIOS SND and DSKY paths are silent on Android.
+- **A zero-byte export vanished.** `emu_host_file_close_write()` moved to
+  `WRITE_READY` only when the buffer had bytes in it, so `W8` on an empty CP/M
+  file told the guest it had succeeded and nothing appeared in `Exports`. An
+  empty file is a real file - the CLI and Windows backends both create it, and
+  `romwbw_emu` stopped dropping it in the browser backend for v1.36 - so the
+  test is now on `HOST_FILE_WRITING` alone. Two other places had to move with
+  it, because either would have swallowed the export by itself: the JNI
+  `nativeGetHostFileWriteData` returned `null` whenever the byte count was
+  zero, and `handleHostFileWrite` took `data.isEmpty()` as "nothing to write"
+  and returned before creating the file. `emu_host_file_get_write_data()`
+  returns `nullptr` for an empty buffer by contract, so the *state*, not the
+  pointer, is now what says whether an export is waiting; `null` means there is
+  none, and a zero-byte export arrives as a zero-length array.
+  `ioscpm` has the same bug, in the same shape, at `emu_io_ios.mm:483`, and it
+  is not fixed there - the two backends were written from the same buffering
+  template.
+
+  **Not built, unlike the rest of this section.** The machine this was written
+  on has no SDK, NDK, Gradle or `javac`. What was done instead:
+  `emu_io_android.cpp` was compiled for the host with `g++ -std=c++17` against
+  a stub `jni.h`, the real `romwbw_emu` and `cpmemu` headers and the real core
+  objects, and driven through a whole export. `W8` on an empty file reaches
+  `WRITE_READY`, `emu_host_file_get_write_name()` still reports the full
+  `Exports` path, the JNI hands back a non-null zero-length array, a two-byte
+  export still carries its two bytes, and a guest path is still reduced to a
+  leaf. The same program built against `9b68ab1` fails four of those checks,
+  which is the regression this entry is about. The state test is
+  `WRITE_READY` alone: asked mid-write, the JNI returns `null`. `9b68ab1` did
+  not - with the test on the byte count, a call made while the guest was still
+  handing bytes down returned a partial export as if it were a finished one.
+  Nothing calls it there either - `checkHostFileState()` dispatches only on
+  `WRITE_READY` (`MainActivity.kt:777`) - so it was latent both before and
+  after, but the state test is where it stops being possible. The Kotlin line
+  was read, not compiled.
 
 ### Added
 
@@ -126,6 +163,28 @@ below could not be.
   before the focused view sees them. That is the `^R` bug `z80cpmw` shipped,
   and every Ctrl-letter belongs to CP/M.
 
+### Docs
+
+- **`WIP.md` still said the keyboard-aware scrolling and scrollback work was
+  uncommitted**, and `todo.txt` sends the next person to `WIP.md` to resume it.
+  It has been committed since `690da30` (2026-07-25), which is on `master` and
+  on `origin/master`; the doc was telling the one person who might go and check
+  the device that there was a working tree to protect. Corrected, with the
+  baseline pointed at the current file rather than at `5ae1bdd` - `a523d40` and
+  `9b68ab1` have both touched `TerminalView.kt` since. Its "TO DO on resume"
+  list was stale in the same direction: the Settings entry for `scrollbackLines`
+  and the Copy-takes-scrollback change are both done and are in this section.
+  What is still open there is unchanged - nobody has watched it run.
+- **`todo.txt` claimed an "Import File..." picker this app does not have.** The
+  `W8`/`R8` sandbox item described arrival by staging as already covered by a
+  picker, which made half of parity item 4(a) look done. There is no picker in
+  the tree: no `registerForActivityResult`, `ACTION_OPEN_DOCUMENT`,
+  `ACTION_CREATE_DOCUMENT`, `GetContent` or `DocumentFile` under
+  `app/src/main/java`, and `AndroidManifest.xml` has only `MAIN`/`LAUNCHER`.
+  `Import File...` is an `ioscpm` feature. The item now says both directions are
+  open, which is what `z80cpmw`'s `FEATURE_PARITY.md` Android cell already said.
+  The item stays open: a save-as and an import picker are still unwritten.
+
 ### Verified
 
 - Built with the NDK for all four ABIs and run on an API 36 emulator: the app
@@ -142,6 +201,11 @@ below could not be.
   is no VT52, no DECSTBM, no DECSC/DECRC, no answerback and no background
   colour. That column has been corrected in `z80cpmw`; the gap itself is row 13
   and is not closed here.
+- Not built with the NDK and not run anywhere: the zero-byte export fix, the
+  last bullet under **Fixed**. It was checked by compiling
+  `emu_io_android.cpp` for the host against a stub `jni.h`, which is not the
+  same as compiling it for Android and is not the same as watching `W8` on a
+  device. What that host run did and did not cover is written into the bullet.
 - Not verified, and it cannot be from here: `HBF_HOST_CAPS` and
   `HBF_HOST_GETNAME` reaching a guest. The bundled disk images still carry the
   pre-98eb6a1 `w8.com`, which neither probes nor asks. See `todo.txt`.

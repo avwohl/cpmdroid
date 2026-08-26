@@ -692,8 +692,13 @@ void emu_host_file_close_read() {
 }
 
 bool emu_host_file_close_write() {
-    // Set state to WRITE_READY so UI can poll and save the file
-    if (g_host_file_state == HOST_FILE_WRITING && !g_host_write_buffer.empty()) {
+    // Set state to WRITE_READY so UI can poll and save the file. An empty
+    // buffer still goes through: an empty CP/M file is a real file, the CLI
+    // and Windows backends both create it, and the browser backend stopped
+    // dropping it in v1.36. Requiring a non-empty buffer here made W8 on a
+    // zero-byte file print its usual success line with nothing arriving in
+    // Exports.
+    if (g_host_file_state == HOST_FILE_WRITING) {
         g_host_file_state = HOST_FILE_WRITE_READY;
         LOGI("Host file write ready: %s (%zu bytes)", g_host_write_filename.c_str(), g_host_write_buffer.size());
     } else {
@@ -1315,16 +1320,30 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeProvideHostFileData(JNIEnv* env, jo
 JNIEXPORT jbyteArray JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileWriteData(JNIEnv* env, jobject thiz) {
     (void)thiz;
-    const uint8_t* data = emu_host_file_get_write_data();
-    size_t size = emu_host_file_get_write_size();
-
-    if (data == nullptr || size == 0) {
+    // null means "there is no export to collect", not "the export is empty".
+    // emu_host_file_get_write_data() returns nullptr for an empty buffer (the
+    // shared contract - the browser backend passes a length alongside it), so
+    // the state, not the pointer, is what says whether a file is waiting.
+    // A zero-byte export comes back as a zero-length array and the caller
+    // creates the file.
+    //
+    // WRITE_READY only. HOST_FILE_WRITING means the guest is still handing
+    // bytes down, and a snapshot taken then would be a partial export served
+    // as a finished one - which is what the old byte-count test would have
+    // done. checkHostFileState() dispatches only on WRITE_READY
+    // (MainActivity.kt:777), so nothing asks for the other state today.
+    if (emu_host_file_get_state() != HOST_FILE_WRITE_READY) {
         return nullptr;
     }
 
+    const uint8_t* data = emu_host_file_get_write_data();
+    size_t size = emu_host_file_get_write_size();
+
     jbyteArray result = env->NewByteArray(static_cast<jsize>(size));
-    env->SetByteArrayRegion(result, 0, static_cast<jsize>(size),
-                            reinterpret_cast<const jbyte*>(data));
+    if (result != nullptr && data != nullptr && size > 0) {
+        env->SetByteArrayRegion(result, 0, static_cast<jsize>(size),
+                                reinterpret_cast<const jbyte*>(data));
+    }
     return result;
 }
 

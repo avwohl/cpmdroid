@@ -1,13 +1,26 @@
 # WIP — Terminal keyboard fix + scrollback (Android)
 
 **Status as of 2026-07-25:** implemented, built, installed on the test tablet, **awaiting
-visual confirmation + possible tuning.** Not yet committed.
+visual confirmation + possible tuning.**
+
+**Correction, 2026-08-26:** the rest of this file was written before the checkpoint
+commit and still said the work was uncommitted. It is committed — `690da30`
+(*WIP: Android terminal keyboard-aware scrolling + scrollback*, 2026-07-25), on
+`master` and on `origin/master`, and every later commit builds on it. Nothing here
+is at risk of being lost, and there is no working tree to restore before resuming.
+What is still true is the part that needs a person: **no one has watched it run.**
+It has also never gone into a published build, so a clean install from the store
+still shows the black band and still drops lines. See `todo.txt` for the current
+statement of that item.
 
 ## Baseline
-- HEAD = `5ae1bdd` (*Bump to 1.18 / versionCode 19*) — pushed to origin/master.
-- **Uncommitted** changes sit on top of that:
+- Written against HEAD = `5ae1bdd` (*Bump to 1.18 / versionCode 19*).
+- The changes below landed as `690da30` on top of that:
   - `app/src/main/java/com/awohl/cpmdroid/TerminalView.kt` (~152 lines)
   - `app/src/main/java/com/awohl/cpmdroid/MainActivity.kt` (~14 lines)
+- The tree has moved on since: the version is 1.19 / versionCode 20 as of
+  `d22308f`, and `a523d40` and `9b68ab1` have both touched `TerminalView.kt`
+  again. Diff against the current file, not against `5ae1bdd`.
 
 ## What was done (three linked fixes)
 
@@ -59,14 +72,19 @@ visual confirmation + possible tuning.** Not yet committed.
    - Keyboard-up keeps the prompt visible (already confirmed pre-scrollback).
 2. Likely tuning knobs: scroll **direction** feel, how many lines per drag, fresh-boot blank
    space above the prompt (empty history), whether to also let drag scroll while keyboard up.
-3. **Consider a Settings entry** for `scrollbackLines` (parity with z80cpmw's
-   "Terminal scrollback", 0 = off). Currently hardcoded default 1000.
-4. **Copy button** currently copies only the live screen (`copyScreenToClipboard`) — could
-   extend to include history.
-5. When happy: **commit** the two files (e.g. *"Android terminal: keyboard-aware scrolling +
-   scrollback (fixed 24-row screen, drag to page back)"*) and update `CHANGELOG.md`
-   (currently the 1.18 entry says "no app code changes since 1.17" — that will no longer be
-   true; revise it).
+3. ~~**Consider a Settings entry** for `scrollbackLines`~~ — **done.** A seek bar in
+   Settings steps through `SettingsRepository.SCROLLBACK_CHOICES` (0 = off), and the
+   value reaches `TerminalView` live. Add to the list above: lowering it while history
+   is on screen must not leave the view scrolled past the end. The setter clamps
+   `userScrollUp`, but only a device shows whether it feels right.
+4. ~~**Copy button** copies only the live screen~~ — **done.** `copyScreenToClipboard()`
+   prepends `historyChars`; with scrollback off it is the live screen alone, as before.
+5. ~~**commit** the two files~~ — **done** (`690da30`). The `CHANGELOG.md` half is not:
+   the 1.18 entry still says "No app code changes since 1.17". Published 1.18 came from
+   `5ae1bdd`, before this commit, so that sentence describes the shipped APK correctly
+   and only the source tree briefly carried more under that version number. Which of the
+   two the entry is meant to describe is the owner's call, and `todo.txt` ties it to the
+   visual confirmation.
 
 ## Build / install / inspect commands
 ```bash

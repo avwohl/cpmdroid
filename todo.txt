@@ -50,15 +50,35 @@ fetching them with no update), and no image whose w8.com lacks the 0xE9 probe
 may be published to any tag.  cpmdroid is step 2 of that plan; the code half is
 done as of this round.
 
+- the zero-byte export fix has never been compiled by the NDK or run anywhere.
+emu_host_file_close_write() no longer demands a non-empty buffer, the JNI hands
+back a zero-length array where it used to hand back null, and
+handleHostFileWrite() now treats an empty array as a file to create
+(CHANGELOG.md, Unreleased / Fixed).  the machine it was written on has no SDK,
+NDK, Gradle or javac; what stands behind it is a host build of
+emu_io_android.cpp against a stub jni.h, the real headers and the real core
+objects, driven through an export, and the Kotlin line was read rather than
+compiled.  before publishing: W8 an empty CP/M file on an API 36 AVD, confirm a
+zero-byte file appears in Exports, and confirm a normal export still carries
+all of its bytes.  ioscpm has the same bug in the same shape at
+emu_io_ios.mm:483 and it is not fixed there.
+
 - W8 exports still cannot leave the sandbox by a path, and R8 imports still
 cannot arrive by one - both are reduced to a leaf inside Imports/ and Exports/.
-That is the right shape for Android and it is deliberate, but it is also the
-open half of FEATURE_PARITY item 4(a) for both mobile ports: the parity target
-is ACTION_CREATE_DOCUMENT for a real save-as on export, to sit beside the
-Import File... picker that already covers arrival by staging.
-
-- a zero-byte export is silently dropped.  emu_host_file_close_write() only
-moves to WRITE_READY when the buffer is non-empty, so W8 on an empty CP/M file
-tells the guest it succeeded and no file appears in Exports.  The CLI and
-Windows backends both create the zero-byte file.  Small, and nobody has hit it,
-but it is a divergence in the same contract this round was tightening.
+That is the right shape for Android and it is deliberate, but it is also
+FEATURE_PARITY item 4(a), which is open in BOTH directions here: a real save-as
+on export (ACTION_CREATE_DOCUMENT) and a real picker on import
+(ACTION_OPEN_DOCUMENT or GetContent) are equally missing.
+  this entry used to say the export half was the only one left, "to sit beside
+the Import File... picker that already covers arrival by staging".  There is no
+such picker and there never was one here.  Checked at 9b68ab1: no
+registerForActivityResult, no ACTION_OPEN_DOCUMENT, no ACTION_CREATE_DOCUMENT,
+no GetContent and no DocumentFile anywhere under app/src/main/java, and
+AndroidManifest.xml has only MAIN/LAUNCHER - no share and no view
+intent-filter, so a file cannot arrive from another app either.  Arrival works
+because the user copies the file into Imports/ with a file manager, which is
+what README.md:47 tells them to do, and on Android 11+ the stock Files app does
+not show Android/data at all, so even the staging is a fight.  "Import File..."
+is an ioscpm feature (iOSCPM/Views/ContentView.swift:231); it was read into
+this port's column by the same 2026-08-07 pass that FEATURE_PARITY has already
+corrected, and its Android cell says the same thing this entry now says.
