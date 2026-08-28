@@ -24,6 +24,15 @@ CMakeLists.txt compiles the core in place from ../romwbw_emu/src and
 MANUAL_CHECKS.md.  Until both have happened, CHANGELOG.md's Verified section
 must keep saying this fix was not built.
 
+- [ANDROID] that same build is the first compile of the ANSI-to-CGA colour fix
+in TerminalView.kt, which is uncommitted in the working tree.  ansiToCgaIndex()
+is new and its two call sites are the SGR 30-37 and 90-97 branches; nothing has
+type-checked it, so it is a candidate for a build failure that has nothing to do
+with c06fa58 and should not be read as one.  Then run check 3 in
+MANUAL_CHECKS.md, which is the only way to see a coloured character.  Until both
+have happened, CHANGELOG.md's Verified section must keep saying this fix was not
+built and not run.
+
 - [WINDOWS] gradle.properties pinned org.gradle.java.home to a Windows JDK path,
 which Gradle rejects on every other host before it reads a build script, so the
 line is commented out.  A Windows shell build now needs JAVA_HOME set instead;

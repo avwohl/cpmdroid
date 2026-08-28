@@ -94,3 +94,31 @@ Left open deliberately, and only a device can settle them: scroll direction feel
 how many lines a drag should move, how much blank space sits above the prompt on
 a fresh boot with empty history, and whether a drag should scroll at all while
 the keyboard is up.
+
+---
+
+## 3. ANSI colour through the SGR parser (uncommitted `TerminalView.kt`)
+
+Also half a build check: the `ansiToCgaIndex()` change in `TerminalView.kt` has
+never been compiled by anything, so getting it to run at all settles as much as
+looking at it. Do it in the same session as check 1.
+
+1. Boot to CP/M and get one coloured word out per colour. Getting an ESC byte
+   past the CCP is the awkward part and nobody has picked a way yet - a short
+   MBASIC program is the obvious one if MBASIC is on the disk
+   (`PRINT CHR$(27);"[31mRED";CHR$(27);"[0m"`), otherwise any program on the
+   disk that is known to colour its own output. Whoever runs this should write
+   down what they used.
+2. Watch the four that were wrong: `ESC[31m` must be **red**, `ESC[34m` must be
+   **blue**, `ESC[33m` must be **brown/yellow**, `ESC[36m` must be **cyan**. If
+   red and blue are still swapped, the conversion is either not being applied
+   or being applied twice; the two are indistinguishable on screen, because the
+   mapping is its own inverse.
+3. Watch the four that were already right and must not have moved: `ESC[30m`
+   black, `ESC[32m` green, `ESC[35m` magenta, `ESC[37m` light grey. A change
+   here means the palette was reordered rather than the index converted.
+4. Bright range if anything on the disk uses it: `ESC[91m` light red, `ESC[94m`
+   light blue, `ESC[93m` yellow, `ESC[96m` light cyan.
+
+Until steps 1 to 3 have happened, `CHANGELOG.md`'s **Verified** section must keep
+saying this fix was not built and not run.

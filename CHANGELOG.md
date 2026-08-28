@@ -5,12 +5,13 @@
 Synced to emulator core **v1.36**, and took the four keyboard and terminal
 gaps the cross-port sweep found here. Built and run this time - on a Windows
 machine with the SDK, the NDK and an API 36 emulator - which is what 1.19
-below could not be. One bullet is outside that: the zero-byte export fix, last
-under **Fixed**, was written afterwards on a machine with no SDK, and has never
-been through the NDK or onto a device. It says so where it is, and so does
-**Verified**. **The build** section is outside it in the other direction: it was
-written on that same machine, and the wrapper it adds was run there as far as
-`--version` and no further.
+below could not be. Two bullets are outside that: the zero-byte export fix and
+the ANSI colour fix under it, the last two under **Fixed**, were each written
+afterwards on a machine with no SDK, and neither has been through the NDK or
+onto a device. They say so where they are, and so does **Verified**. **The
+build** section is outside it in the other direction: it was written on that
+same machine, and the wrapper it adds was run there as far as `--version` and
+no further.
 
 ### The core sync
 
@@ -147,6 +148,38 @@ written on that same machine, and the wrapper it adds was run there as far as
   `WRITE_READY` (`MainActivity.kt:777`) - so it was latent both before and
   after, but the state test is where it stops being possible. The Kotlin line
   was read, not compiled.
+
+- **A program that asked for blue got red, and one that asked for red got
+  blue.** The SGR handler indexed the CGA palette with the ANSI colour number
+  taken straight out of the escape sequence - `cgaColors[p - 30]` - and the two
+  orderings are not the same list. ANSI counts the primaries red, green, blue;
+  a CGA attribute byte counts them blue, green, red. They agree on black,
+  green, magenta and light grey and disagree on the other four, so `ESC[31m` drew
+  blue, `ESC[34m` drew red, `ESC[33m` (yellow) drew cyan, and `ESC[36m` (cyan)
+  drew brown. The bright range was wrong in the same four places among
+  `ESC[91m`-`ESC[96m` (91, 93, 94 and 96; 92 and 95 were already right), because it indexed the same palette with the same number
+  plus eight. Any CP/M program that colours its own output was affected - a
+  menu that draws its highlight in red came up blue - and the wrongness was
+  stable rather than random, which is why it could sit here this long looking
+  like a deliberate palette.
+
+  A new `ansiToCgaIndex()` beside the palette converts at the parse site, and
+  only there. It is a swap of bit 0 and bit 2 - `0->0 1->4 2->2 3->6 4->1 5->5
+  6->3 7->7`, its own inverse - and the bright branch maps the low three bits
+  before adding eight. `cgaColors` itself is untouched and stays in CGA order,
+  which is the point: that order is a real attribute byte, the value a guest
+  can hand down through HBIOS VDA to `emu_video_set_attr()`, and reordering the
+  palette would have fixed the escape sequences by breaking that. Android
+  stores that byte without drawing it - `g_text_attr` in `emu_io_android.cpp`
+  carries a comment saying exactly that - but `ioscpm` and `z80cpmw` draw from
+  it directly. The default attribute does not move: 7 maps to 7 and 0 maps to
+  0. The `0x08` intensity bit is not a colour index and never goes through the
+  function.
+
+  The same bug, from the same assumption, was fixed in `ioscpm` and `z80cpmw`
+  in the same session. `romwbw_emu`'s web frontend renders through xterm.js and
+  has always read SGR as ANSI, so this is the three native ports catching up to
+  it rather than a new convention. **Not built** - see **Verified**.
 
 ### Added
 
@@ -375,10 +408,27 @@ written on that same machine, and the wrapper it adds was run there as far as
   module list has no `java.instrument`, so a Gradle daemon cannot fork there.
   Read none of the above as evidence that this app compiles. The zero-byte export
   fix is still not built and still not run.
-- The 2026-08-27 pass changed no app behaviour. Its only edits to compiled files
-  are two comment lines, and they were not compiled; the rest is `gradlew`,
-  `gradle.properties`, `README.md`, `todo.txt`, `MANUAL_CHECKS.md` and this file.
-  No device or emulator was involved at any point.
+- The 2026-08-27 documentation and wrapper pass changed no app behaviour. Its
+  only edits to compiled files are two comment lines, and they were not
+  compiled; the rest is `gradlew`, `gradle.properties`, `README.md`,
+  `todo.txt`, `MANUAL_CHECKS.md` and this file. No device or emulator was
+  involved at any point. The ANSI colour fix landed later the same day and is
+  the exception - it does change what the user sees, and it is covered by the
+  bullet below.
+- **The ANSI colour fix was not built and not run.** Same machine as the
+  wrapper work above: no Android SDK, no NDK, no Gradle, and no usable JVM, so
+  `TerminalView.kt` was not compiled by anything, not even to check that it
+  parses. What was checked instead: `ansiToCgaIndex`'s body was read back out
+  of the source file, translated operator-for-operator into Python, and run
+  over all eight indices. It produces `0->0 1->4 2->2 3->6 4->1 5->5 6->3
+  7->7`; it is a bijection on 0-7 and its own inverse; and driven through the
+  sixteen palette entries parsed out of `cgaColors` in the same file, `ESC[31m`
+  now selects Red, `ESC[33m` Brown, `ESC[34m` Blue and `ESC[36m` Cyan, with the
+  other four unmoved, and `ESC[91m` through `ESC[97m` select the matching
+  bright entries. The first run of that check failed, which is the reason to
+  record it: Kotlin's `or` on an `Int` is bitwise and Python's is not, so the
+  translation, not the Kotlin, was wrong. That is the whole of the evidence.
+  Nobody has seen a coloured character from this build.
 
 ## Version 1.19 (versionCode 20)
 

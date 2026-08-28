@@ -159,6 +159,32 @@ class TerminalView @JvmOverloads constructor(
         Color.WHITE            // 15 - White
     )
 
+    /**
+     * Translate an ANSI SGR colour index into an index into cgaColors.
+     *
+     * SGR parameters 30-37 and 90-97 carry ANSI colour indices:
+     *     0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white
+     * cgaColors above is in CGA attribute order, and must stay that way:
+     *     0 black, 1 blue, 2 green, 3 cyan, 4 red, 5 magenta, 6 brown, 7 light grey
+     * That ordering is not incidental. It is the order of a real CGA attribute
+     * byte, which is the value the emulator itself deals in: a CP/M guest can
+     * hand one down through HBIOS VDA, and it arrives at emu_video_set_attr()
+     * in emu_io_android.cpp - stored there rather than drawn, because Android
+     * renders from the VT100 escapes this parser handles, but ioscpm and
+     * z80cpmw do draw from that byte, against palettes in this same order. So
+     * the palette is not the thing to reorder. The ANSI index is converted
+     * where it is parsed, and nowhere else.
+     *
+     * The two orders differ only in which bit means red and which means blue,
+     * so the conversion is a swap of bit 0 and bit 2, and is its own inverse:
+     *     0->0  1->4  2->2  3->6  4->1  5->5  6->3  7->7
+     * Pass only a 0-7 colour index. The 0x08 intensity bit is not a colour
+     * index and must never go through here; the bright SGR range maps its low
+     * three bits and then adds 8.
+     */
+    private fun ansiToCgaIndex(ansi: Int): Int =
+        ((ansi and 1) shl 2) or (ansi and 2) or ((ansi shr 2) and 1)
+
     // Input handling
     private var inputListener: ((Int) -> Unit)? = null
 
@@ -806,8 +832,8 @@ class TerminalView @JvmOverloads constructor(
                     for (p in params) {
                         when {
                             p == 0 -> currentFgColor = Color.GREEN
-                            p in 30..37 -> currentFgColor = cgaColors[p - 30]
-                            p in 90..97 -> currentFgColor = cgaColors[p - 90 + 8]
+                            p in 30..37 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 30)]
+                            p in 90..97 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 90) + 8]
                         }
                     }
                 }
