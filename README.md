@@ -114,11 +114,40 @@ Uses RomWBW hd1k format:
 - Android NDK 27+
 
 ### Build Steps
-1. Clone sibling projects (cpmemu, romwbw_emu)
-2. Open project in Android Studio
+1. Clone sibling projects (cpmemu, romwbw_emu) beside this one - `CMakeLists.txt`
+   compiles the core in place from `../romwbw_emu/src` and `../cpmemu/src`, so
+   CMake stops with a `FATAL_ERROR` if they are missing
+2. Open project in Android Studio, or build from a shell with the wrapper -
+   `./gradlew assembleDebug` on Linux/macOS, `gradlew.bat assembleDebug` on
+   Windows. Both scripts read `gradle/wrapper/gradle-wrapper.properties`, which
+   pins Gradle 8.13 and downloads it on first run
 3. Sync Gradle
 4. Build and run
+
 ## Related Projects
+
+**This port is described from outside it.** `z80cpmw`'s
+[FEATURE_PARITY.md](https://github.com/avwohl/z80cpmw/blob/master/FEATURE_PARITY.md)
+carries an Android column that describes CPMDroid row by row - thirteen
+front-end features, each read out of *this source* at a recorded commit rather
+than from the CHANGELOG or the release notes. So a change made here goes stale
+there, and the person making it is the last one who could notice and the first
+one who does not. The rows this repository backs are the terminal parser and
+its escape sequences, key handling and the control strip, the fixed `Imports/`
+and `Exports/` transfer folders, the pinned disk-catalog release tag, help
+fetching, NVRAM autoboot, the font-size and scrollback settings, and the
+Dazzler/DSKY stubs. Touch any of those and that column needs re-reading.
+
+The commits each column was read at are recorded in that file's
+`sibling-readings` block, and a script beside it reports how far the checkouts
+have moved since:
+
+    sh ../z80cpmw/tools/check-sibling-drift.sh
+
+It reads only - it never writes to a sibling - and exits non-zero when any
+column is behind the tree it describes.
+
+The other repositories in and around this family:
 
 - [80un](https://github.com/avwohl/80un) - Unpacker for the CP/M archive and compression formats LBR, ARC, squeeze, crunch, and CrLZH.
 - [cpmemu](https://github.com/avwohl/cpmemu) - Z80/CP/M emulator for Linux and Windows, with Z80 and 8080 CPU cores. It translates the BDOS and BIOS calls of CP/M 2.2 programs to the host file system.

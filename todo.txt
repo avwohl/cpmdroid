@@ -1,228 +1,79 @@
 Todo list.  Open items only - finished work is in CHANGELOG.md and in the commit
-messages that made the changes, not kept here.  WIP.md holds the longer-form
-handoff notes.
+messages that made the changes, not kept here.  Checks that need a person with a
+device are in MANUAL_CHECKS.md, one line each here.  WIP.md holds the
+longer-form handoff notes.
 
-Cites in this file name a symbol or a greppable string, not a file:line.
-z80cpmw wrote that convention down on 2026-08-26 (5df0dee) after five of the
-eight file:line cites in its own todo.txt were invalidated within twelve hours
-of being written, by that repo's own next two commits, and nothing on the page
-said which five.  A line number reads as evidence while carrying none.
+Cites name a symbol or a greppable string, not a file:line; a line number reads
+as evidence while carrying none.  Each item is tagged with what the machine
+picking it up has to have.
 
 
 NOTHING IN THIS TREE HAS BEEN THROUGH THE NDK SINCE 9b68ab1
 ------------------------------------------------------------
 
-- BUILD THIS BEFORE ANYTHING ELSE.  c06fa58 - the zero-byte export fix - has
-never been compiled by the NDK, never linked into an .so, and never run on a
-device or an emulator.  It is the newest commit on master, so a build that
-fails here fails at HEAD, and the next person to open this repo is the first
-person who can find out.
-  The change is three edits in two files.  emu_host_file_close_write() in
-app/src/main/cpp/emu_io_android.cpp no longer requires a non-empty buffer to
-reach HOST_FILE_WRITE_READY; nativeGetHostFileWriteData() in the same file
-gates on that state instead of on the byte count, so it hands back a
-zero-length array where it used to hand back null; and handleHostFileWrite() in
-MainActivity.kt treats an empty array as a file to create, with only null
-meaning there is nothing to collect.  CHANGELOG.md, Unreleased / Fixed, has the
-argument.
-  What stands behind it, and what does not.  The machine it was written on has
-no SDK, no NDK, no Gradle and no javac.  emu_io_android.cpp was compiled for
-the host with g++ -std=c++17 against a stub jni.h, the real romwbw_emu and
-cpmemu headers and the real core objects, and driven through a whole export;
-that run says the state machine and the JNI accessor behave, and it says
-nothing about whether the file compiles for Android.  The Kotlin line was read,
-not compiled - no part of MainActivity.kt has been near a compiler in this
-round.  A host g++ build is not an NDK build: different toolchain, different
-jni.h, different warning set, and clang -Werror settings this file has never
-met.
-  To build (and there is a snag in the first step):
-  * only gradlew.bat is tracked - there is no POSIX gradlew script in the
-    repo.  gradle/wrapper/gradle-wrapper.jar and .properties are tracked and
-    pin Gradle 8.13, so on a non-Windows host either open the project in
-    Android Studio or regenerate the script with a system gradle:
-    "gradle wrapper".  On Windows, gradlew.bat works as it stands.
-  * cpmdroid does not vendor the core.  CMakeLists.txt compiles it in place
-    from ../romwbw_emu/src and ../cpmemu/src, so both must be checked out
-    beside this repository or CMake stops with its own FATAL_ERROR.
-  * ndkVersion is 28.0.13004108 and abiFilters is arm64-v8a, armeabi-v7a,
-    x86_64 and x86.  "gradlew.bat assembleDebug" is enough to answer the
-    compile question and needs no keystore.
-  Then, on an API 36 AVD: W8 an empty CP/M file, confirm a zero-byte file
-appears in Exports and not merely a success message to the guest; and W8 a
-normal file and confirm it still carries all of its bytes.  Until that has
-happened, CHANGELOG.md's Verified section must keep saying this bullet was not
-built - do not quietly promote it.
-  The same bug, in the same shape, is still live in ioscpm at HEAD 6b1b731:
-emu_host_file_close_write() in iOSCPM/Core/emu_io_ios.mm tests
-"g_host_file_state == HOST_FILE_WRITING && !g_host_write_buffer.empty()".
-(Checked 2026-08-26.  That checkout has an uncommitted fix in its working
-tree, citing c06fa58, so this may already have landed by the time you read it;
-it had not been committed when this was written.)
+- [ANDROID] build c06fa58 before anything else.  It is the newest source commit
+on master - emu_host_file_close_write() no longer requires a non-empty buffer to
+reach HOST_FILE_WRITE_READY, nativeGetHostFileWriteData() gates on that state
+rather than on the byte count, and handleHostFileWrite() treats an empty array
+as a file to create - and it has never been compiled by the NDK, so a failure in
+it is a failure at HEAD.  Both wrapper scripts are tracked now and pin Gradle
+8.13; romwbw_emu and cpmemu must be checked out beside this repository, because
+CMakeLists.txt compiles the core in place from ../romwbw_emu/src and
+../cpmemu/src and stops with a FATAL_ERROR if they are missing; ndkVersion is
+28.0.13004108 and assembleDebug needs no keystore.  Then run check 1 in
+MANUAL_CHECKS.md.  Until both have happened, CHANGELOG.md's Verified section
+must keep saying this fix was not built.
+
+- [WINDOWS] gradle.properties pinned org.gradle.java.home to a Windows JDK path,
+which Gradle rejects on every other host before it reads a build script, so the
+line is commented out.  A Windows shell build now needs JAVA_HOME set instead;
+Android Studio picks its own JDK and never read that property.  Confirm on the
+next Windows build.
 
 
 NEEDS A DEVICE OR AN EMULATOR
 ------------------------------
 
-- THE KEYBOARD-AWARE SCROLLING AND SCROLLBACK WORK HAS STILL NEVER BEEN WATCHED
-BY A PERSON.  Oldest open item in this file.  Everything needed to run the
-check is written out below; WIP.md is the history of how it was built, not the
-instructions, and you should not need to open it.
-  Why it still matters.  The work is committed - 690da30, 2026-07-25, on master
-and on origin/master - and it has never gone into a published build, so a clean
-install from the Play Store still shows the black band above the keyboard and
-still drops lines of text.  Published 1.18 came from 5ae1bdd, before the
-commit, which is why its CHANGELOG entry says "No app code changes since 1.17"
-and is right about the shipped APK.  1.19 (versionCode 20, what
-app/build.gradle.kts carries now) was built but never published.
-  Where to run it.  An API 36 AVD boots the app and CP/M in about forty
-seconds, and that is how the rest of this round was checked; it reaches all six
-steps below.  Step 4 is still worth repeating on the tablet - Samsung SM-X200,
-Galaxy Tab A8, Android 14 - because that is where the third-party IME (Smart
-Keyboard Pro) is, and a stock AVD keyboard is not evidence about it.  It does
-report IME insets correctly (ime.bottom=636 was measured in July), so detection
-was never the problem; what has never been looked at is the drawing.
-  There is a release-keystore APK on that tablet from 2026-07-25, labelled
-versionCode 19 / 1.18 but built from the fix - which is the one thing about it
-worth knowing, because it is NOT the published 1.18.  Do not check against it
-anyway.  It predates a523d40, 9b68ab1 and c06fa58, all three of which touched
-TerminalView.kt or MainActivity.kt.  Install a fresh build.
-  What to look at, in order:
-  1. Fresh boot, portrait.  The live screen is fixed at 24 rows
-     (TerminalView.kt, MIN_ROWS) with the prompt at the bottom and history
-     above.  Look for a giant black void below the content - that is the bug
-     this design replaced, and it was worst in portrait.  Then rotate to
-     landscape and look again; rotation resets fullHeight, so the font is
-     re-sized from the full keyboard-hidden height.
-  2. Make output that scrolls off: boot to CP/M and run DIR, or press D or L
-     at the boot menu.
-  3. Drag DOWN in the terminal to page back into history; drag UP, or let new
-     output arrive, and it should snap back to the live prompt.  A tap with no
-     drag must still raise the keyboard.  The gesture is in
-     TerminalView.onTouchEvent; the snap-back is processOutput resetting
-     userScrollUp.
-  4. Tablet only: raise the keyboard and confirm the prompt stays visible.
-     When the viewport is shorter than 24 rows, onDraw scrolls within the live
-     screen to the cursor rather than shrinking the font.  This half was
-     confirmed by the user in July, before scrollback existed; it is here
-     because scrollback changed the drawing path underneath it.
-  5. Settings, scrollback slider.  SettingsRepository.SCROLLBACK_CHOICES is 0
-     (Off), 100, 250, 500, 1000, 2000, 5000, 10000 and the value reaches
-     TerminalView live.  With history on screen, lower it - the view must not
-     be left scrolled past the end.  The setter clamps userScrollUp against
-     historyChars.size, so this is a question about how it feels, not whether
-     it crashes.  Choosing Off must clear the history rather than leave a
-     screen the user can still drag back through.
-  6. Copy, with scrollback non-empty: copyScreenToClipboard prepends the
-     history, so what lands on the clipboard should include the lines that
-     have already left the screen.
-  Live logs while doing it:
-    adb logcat -d | grep -E 'TerminalView|MainActivity: (Insets|Keyboard)'
-  TerminalView logs onSizeChanged and calculateFontSize (watch for rows=24 and
-a sane font size); MainActivity logs the inset and keyboard transitions.
-  Tuning knobs deliberately left open, all of them judgement calls that only a
-device can settle: scroll direction feel, how many lines a drag should move,
-how much blank space sits above the prompt on a fresh boot with empty history,
-and whether a drag should scroll at all while the keyboard is up.
-  OWNER DECISION, not a check - and the only reason this item cannot be closed
-by whoever runs the steps above.  CHANGELOG.md's 1.18 entry says "No app code
-changes since 1.17".  That describes the published APK correctly.  The source
-tree briefly carried 690da30 under the same version number, and the tablet
-build is the proof.  Whether that entry is meant to describe the release or the
-tree is the owner's call; it is left alone until he makes it.
+- [ANDROID DEVICE] the keyboard-aware scrolling and scrollback work (690da30, on
+master, never in a published build) has still never been watched by a person.
+Oldest open item here.  Six checks, in order, in MANUAL_CHECKS.md.
+
+- [DECISION] CHANGELOG.md's 1.18 entry says "No app code changes since 1.17".
+That is true of the published APK and false of the source tree, which briefly
+carried 690da30 under the same version number.  Decide which the entry is meant
+to describe; it is left alone until then.
 
 
 THE DISK IMAGES ARE BEHIND THE CORE
 ------------------------------------
 
-- the disk images this port serves still carry the pre-98eb6a1 w8.com, so
-nothing this port gained from the v1.36 core is visible to a user yet.  Note
-that this app bundles no disk image at all - app/src/main/assets holds only
-emu_avw.rom - so "the images" means the ones DiskCatalogRepository downloads
-from the pinned ioscpm release, and refreshing them is a release action in
-another repository, not an edit here.  The old W8 neither probes HBF_HOST_CAPS
-(0xE9) nor asks HBF_HOST_GETNAME (0xE8), so the capability bit this port now
-asserts and the Exports path it now reports both go unread; W8 still truncates
-a binary export at the first 1Ah byte; and the old R8's ambiguous-FCB bug,
-which erases every matching CP/M file before creating the new one, is still
-live.
-  READ romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md BEFORE PUBLISHING ANYTHING.
-The refresh is what arms a data-destruction bug in ioscpm, so the port fixes go
-first; refreshed images must never be attached to the existing v1.4.5 tag
-(RELEASE_TAG in data/DiskCatalogRepository.kt pins it, and every installed app
-would start fetching them with no update); and no image whose w8.com lacks the
-0xE9 probe may be published to any tag.  cpmdroid is step 2 of that plan and
-the code half is done as of this round - though that document still says this
-repository is not checked out on the machine, which was true when it was
-written and is not now.
+- [RELEASE] the disk images this port serves still carry the pre-98eb6a1 w8.com,
+so nothing this port gained from the v1.36 core is visible to a user.  This app
+bundles no disk image - app/src/main/assets holds only emu_avw.rom - so the
+refresh is a release action in ioscpm, not an edit here.
+romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md owns the order and the reasons; read
+it before publishing anything.  cpmdroid is step 2 of that plan and its code
+half is done.  The residue that is genuinely this repository's: repin
+RELEASE_TAG in data/DiskCatalogRepository.kt once the refreshed images have a
+new tag, and never onto v1.4.5, which every installed app already fetches.
 
 
-PARITY, AND THE DOCUMENT THAT DESCRIBES THIS PORT FROM OUTSIDE IT
-------------------------------------------------------------------
+PARITY WITH THE OTHER PORTS
+----------------------------
 
-- z80cpmw's FEATURE_PARITY.md Android column was rewritten from this source in
-944cf9f (2026-08-25), so the c26aeb7 dispute is settled: that commit is not a
-valid object in this repo, the branch never surfaced, and the column now
-describes origin/master.  Two things have happened since that was written, and
-one of them is the reason this item is still open.
-  The column rewrite was not the whole document.  5df0dee (2026-08-26) found
-three c26aeb7-era claims still standing in that file, every one of them outside
-the column: two in "Suggested priority order", which is not a row - #2 named
-buildKeyRow in MainActivity.kt and TerminalView.sendNamedKey as "the worked
-example" for an on-screen key row, and #4 said arbitrary-path R8/W8 here was
-"now only the export half" - and one in a bullet of row 4, saying findability
-was "done on Android (share sheet plus the paths shown in-app)".  Neither
-symbol has ever existed in this repository (setupControlStrip is Ctrl, Esc,
-Tab, Copy and Paste and nothing else), this port has neither half of parity
-item 4(a), and there is no ACTION_SEND, no FileProvider and no res/xml
-anywhere in the tree.  All three are corrected there.  The lesson is theirs but
-it runs both ways: sweeping a column is not sweeping the document, so grep the
-whole file for the port's name afterwards.
-  The drift has a reporter now, on their side.  z80cpmw
-tools/check-sibling-drift.sh reads the sibling-readings block in
-FEATURE_PARITY.md - one "<repo> <sha> <date>" line per port - finds each
-checkout beside it, fails if the recorded sha is not an object in that tree
-(the c26aeb7 failure caught mechanically rather than by argument), and lists
-what has landed since.  It reads only and never writes to a sibling, so it is
-safe to run from here:
+z80cpmw's FEATURE_PARITY.md describes this port from outside it, and README.md's
+Related Projects section says which of these files back which rows.  After
+changing them, run the reporter from here:
     sh ../z80cpmw/tools/check-sibling-drift.sh
-On 2026-08-26 it reported this port DRIFTED - read at 9b68ab1, HEAD is
-c06fa58, one commit since - which that file's snapshot section already accounts
-for by hand.
-  What is left is the half a script cannot do, and it is this repository's
-half.  Nothing here says that a change made in this tree is described in
-another repository's document, so the person making the change is the last one
-who could notice the drift and the first one who does not.  A note next to any
-change here that a sibling parity doc names is still the only thing that would
-fix it, and there is nowhere in this repo that such a note lives yet.
-  Re-verified against this source at c06fa58, 2026-08-26: every Android cell of
-that snapshot table reads true today.  No key map at all (row 1, and the fixed
-table is VT220 now, with F1-F12 and the full Ctrl window); scrollback slider
-including Off (2); control-strip Copy that takes the history, no selection (3);
-both transfer folders fixed, no picker, no share, no path UI (4); RELEASE_TAG
-pinned to v1.4.5 (5); help fetched from releases/latest with nothing bundled
-and no cache (6); NVRAM persisted, no bootString auto-type (7); font slider
-8-24 (9); Dazzler and DSKY explicit no-op stubs (10); flat SharedPreferences,
-no named profiles (11); suppressible overwrite warning (12); and a CSI dispatch
-of H f A B C D J K m with foreground-only SGR and no VT52 (13).  That is a
-reading, and it is only as good as the next commit.
+It reads only, and exits non-zero when a column is behind the tree it describes.
+Correcting a column is an edit in z80cpmw.
 
-- W8 exports still cannot leave the sandbox by a path, and R8 imports still
-cannot arrive by one - both are reduced to a leaf inside Imports/ and Exports/.
-That is the right shape for Android and it is deliberate, but it is also
-FEATURE_PARITY item 4(a), which is open in BOTH directions here: a real save-as
-on export (ACTION_CREATE_DOCUMENT) and a real picker on import
-(ACTION_OPEN_DOCUMENT or GetContent) are equally missing.
-  this entry used to say the export half was the only one left, "to sit beside
-the Import File... picker that already covers arrival by staging".  There is no
-such picker and there never was one here.  Re-checked at c06fa58: no
-registerForActivityResult, no ACTION_OPEN_DOCUMENT, no ACTION_CREATE_DOCUMENT,
-no GetContent and no DocumentFile anywhere under app/src/main/java, and
-AndroidManifest.xml has only MAIN/LAUNCHER - no share and no view
-intent-filter, so a file cannot arrive from another app either.  Arrival works
-because the user copies the file into Imports/ with a file manager, which is
-what README.md tells them to do under "To import a file to CP/M", and on
-Android 11+ the stock Files app does not show Android/data at all, so even the
-staging is a fight.  "Import File..." is an ioscpm feature - grep its
-ContentView.swift for showingImportToInbox - and it was read into this
-port's column by the same 2026-08-07 pass that FEATURE_PARITY has already
-corrected.
+- [ANDROID] parity item 4(a) is open in both directions.  W8 exports cannot
+leave the sandbox by a path and R8 imports cannot arrive by one; both are
+reduced to a leaf inside Exports/ and Imports/.  There is no save-as
+(ACTION_CREATE_DOCUMENT), no picker (ACTION_OPEN_DOCUMENT or GetContent), and no
+share or view intent-filter in AndroidManifest.xml, so nothing can arrive from
+another app either.  Files get in only by the user staging them into Imports/
+with a file manager, which README.md tells them to do and which Android 11+
+makes a fight - the stock Files app does not show Android/data at all.  The
+leaf-only shape is deliberate for Android; the missing UI is not.

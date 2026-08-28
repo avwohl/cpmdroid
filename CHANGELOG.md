@@ -8,7 +8,9 @@ machine with the SDK, the NDK and an API 36 emulator - which is what 1.19
 below could not be. One bullet is outside that: the zero-byte export fix, last
 under **Fixed**, was written afterwards on a machine with no SDK, and has never
 been through the NDK or onto a device. It says so where it is, and so does
-**Verified**.
+**Verified**. **The build** section is outside it in the other direction: it was
+written on that same machine, and the wrapper it adds was run there as far as
+`--version` and no further.
 
 ### The core sync
 
@@ -123,9 +125,10 @@ been through the NDK or onto a device. It says so where it is, and so does
   returns `nullptr` for an empty buffer by contract, so the *state*, not the
   pointer, is now what says whether an export is waiting; `null` means there is
   none, and a zero-byte export arrives as a zero-length array.
-  `ioscpm` has the same bug, in the same shape, at `emu_io_ios.mm:483`, and it
-  is not fixed there - the two backends were written from the same buffering
-  template.
+  `ioscpm` had the same bug, in the same shape, in
+  `emu_host_file_close_write()` - the two backends were written from the same
+  buffering template - and it has since been fixed there too, in `15f48e9` on
+  `origin/main`, which cites this commit.
 
   **Not built, unlike the rest of this section.** The machine this was written
   on has no SDK, NDK, Gradle or `javac`. What was done instead:
@@ -163,6 +166,39 @@ been through the NDK or onto a device. It says so where it is, and so does
   before the focused view sees them. That is the `^R` bug `z80cpmw` shipped,
   and every Ctrl-letter belongs to CP/M.
 
+### The build
+
+- **A POSIX `gradlew` is tracked at last, so this repository can be built off
+  Windows.** `gradle/wrapper/gradle-wrapper.jar` and `.properties` have been
+  tracked since the project started and pin Gradle 8.13, but only `gradlew.bat`
+  was there to use them - every non-Windows contributor was stopped at step one
+  of this repository's own top-priority item, which is building the un-built
+  fix above. The script is Gradle 8.13's own `gradlew`, byte for byte apart
+  from `DEFAULT_JVM_OPTS`, which follows `gradlew.bat`'s `"-Xmx64m" "-Xms64m"`
+  rather than Gradle's own project setting, so the two scripts now agree about
+  the JVM they launch. Mode 755, LF endings like the `.bat`. It is a new
+  untracked file: `git add gradlew`, then check `git ls-files -s gradlew`
+  reports mode `100755`, or every cloner gets a script they cannot run.
+- **`gradle.properties` pinned `org.gradle.java.home` to an absolute Windows
+  path**, `C:\Program Files\Android\openjdk\jdk-21.0.8`, in a tracked file, and
+  had done since `f4fa7fe`, this repository's second commit. Gradle rejects it
+  outright on any other host - *Value ... given for org.gradle.java.home Gradle
+  property is invalid* -
+  before it reads a single build script, so a POSIX `gradlew` on its own would
+  have moved the wall one step rather than removed it. Found by running the new
+  wrapper, not by reading it. The line is commented out with the reason beside
+  it; per-machine JDK selection belongs in the user's own
+  `~/.gradle/gradle.properties`. A Windows shell build now needs `JAVA_HOME`
+  set instead - Android Studio picks its own JDK and never read this property -
+  which is the one thing this change could break and is a `[WINDOWS]` item in
+  `todo.txt` until someone confirms it.
+- **`README.md`'s Build Steps never mentioned a wrapper**, because there was no
+  usable one; they now give `./gradlew assembleDebug` and
+  `gradlew.bat assembleDebug`, say that both read the properties file pinning
+  8.13, and say that `cpmemu` and `romwbw_emu` have to be checked out *beside*
+  this repository because `CMakeLists.txt` compiles the core in place and stops
+  with a `FATAL_ERROR` if they are not.
+
 ### Docs
 
 - **`WIP.md` still said the keyboard-aware scrolling and scrollback work was
@@ -193,10 +229,10 @@ been through the NDK or onto a device. It says so where it is, and so does
   tree has been through the NDK since `9b68ab1`, and the zero-byte export fix is
   `c06fa58`, which is `master` - so a compile failure in it is a compile failure
   at HEAD, and the next person to open this repository is the first who can find
-  out. The entry now carries the route as well as the gap: only `gradlew.bat` is
-  tracked (there is no POSIX `gradlew`; `gradle-wrapper.jar` and `.properties`
-  are tracked and pin Gradle 8.13, so a non-Windows host needs Android Studio or
-  a system `gradle wrapper` first), `CMakeLists.txt` compiles the core in place
+  out. The entry now carries the route as well as the gap: the missing POSIX
+  `gradlew`, which stopped a non-Windows host before anything else and has since
+  been written and tracked - see **The build** above - `CMakeLists.txt`
+  compiles the core in place
   from `../romwbw_emu/src` and `../cpmemu/src` so both must be checked out beside
   this repository, `ndkVersion` is `28.0.13004108`, and `assembleDebug` answers
   the compile question without a keystore. The status of the fix is unchanged: it
@@ -206,8 +242,12 @@ been through the NDK or onto a device. It says so where it is, and so does
   at `ioscpm` HEAD `6b1b731` on 2026-08-26: the bug is still there, and the entry
   now names `emu_host_file_close_write()` and the
   `HOST_FILE_WRITING && !g_host_write_buffer.empty()` test rather than a line
-  number. That checkout also has an **uncommitted** fix in its working tree,
-  citing `c06fa58`; the entry records it as uncommitted, not as done.
+  number. That checkout also had an **uncommitted** fix in its working tree,
+  citing `c06fa58`; the entry recorded it as uncommitted, not as done. It has
+  landed since, in `ioscpm` `15f48e9` on `origin/main`, and the whole passage is
+  out of `todo.txt` now - a sibling's closed bug is not this repository's open
+  work. Worth knowing for the next person who greps that tree: its local branch
+  is two commits behind, so the working copy still shows the old test.
 - **The device item no longer sends the reader to `WIP.md`.** It said "resume
   from `WIP.md`", which is the file that had to be corrected last round for
   describing work as uncommitted. The entry is now self-contained: six numbered
@@ -254,6 +294,37 @@ been through the NDK or onto a device. It says so where it is, and so does
   That is the argument rather than an exception to it: they were right this
   morning and nothing on the page said so, which is what a line number cannot
   carry.
+- **Nothing in this tree said that another repository describes it.** `z80cpmw`'s
+  `FEATURE_PARITY.md` reads thirteen front-end features out of *this source* at a
+  recorded commit, so a change made here goes stale there, and the person making
+  it is the last one who could notice and the first one who does not. `README.md`'s
+  Related Projects section now opens with what that column is, which of this
+  port's features are rows in it, and the read-only drift reporter
+  (`sh ../z80cpmw/tools/check-sibling-drift.sh`) that says how far the reading
+  has fallen behind. The two files that back the most rows carry a one-line
+  header saying so: `TerminalView.kt` (rows 1, 2, 3, 9 and 13) and
+  `data/DiskCatalogRepository.kt` (row 5, the pinned `RELEASE_TAG`). Row 6 is
+  deliberately not claimed on the latter - help fetching stays on
+  `releases/latest` in `HelpActivity`. Those two comment lines are the only
+  change to any source file in this pass, and they were not compiled.
+- **`todo.txt` is 228 lines down to 79, and the checks a person has to run by
+  hand are in a new `MANUAL_CHECKS.md`.** The file had been growing by closing
+  items: every finished thing left behind a paragraph explaining that it was
+  finished, longer than the item had been, and roughly two lines in three were
+  not open work. Deleted outright: the `ioscpm` zero-byte paragraph (that bug is
+  fixed, see above), the whole `c26aeb7` / `FEATURE_PARITY` history (settled in
+  `z80cpmw` `944cf9f` and `5df0dee`), the thirteen-cell re-reading of the parity
+  table (a reading, not a task, and duplicated in this section), a frozen
+  snapshot of the drift reporter's output (already one commit stale when it was
+  written), and the second half of the `W8`/`R8` item (a post-mortem of a
+  correction that is in `c06fa58`'s message and in this section). What survives
+  is five items, each tagged with what the machine picking it up has to have -
+  `[ANDROID]`, `[WINDOWS]`, `[ANDROID DEVICE]`, `[DECISION]`, `[RELEASE]` - so
+  the next session on another OS can see at a glance what it can take. The two
+  device checklists moved to `MANUAL_CHECKS.md` in full, in the order they should
+  be run and with what right looks like at each step; that file says at the top
+  that a check is deleted once someone runs it, and the result goes under
+  **Verified** here.
 
 ### Verified
 
@@ -286,6 +357,28 @@ been through the NDK or onto a device. It says so where it is, and so does
   Gradle or `javac`. Every claim it makes about this tree was checked by reading
   or grepping the working tree at `c06fa58`; every claim about a sibling was
   checked against that checkout at the commit named beside it.
+- The new `gradlew` was run, twice and by two passes, on macOS 27 arm64:
+  `JAVA_HOME=... GRADLE_USER_HOME=<scratch> ./gradlew --version` downloaded the
+  pinned `gradle-8.13-bin.zip` and printed `Gradle 8.13`, launcher JVM 21.0.6,
+  exit 0. So the script, the tracked wrapper jar and the pin in
+  `gradle-wrapper.properties` all work together, and `GradleWrapperMain` really
+  ran rather than merely being reached. It was also checked with `sh -n` under
+  `sh`, `bash`, `dash` and `zsh`; through a symlink, a daisy-chained relative
+  symlink and a foreign working directory with `CDPATH` set, all three resolving
+  `APP_HOME` to this repository; and against an invalid `JAVA_HOME`, which
+  refuses with the same wording as `gradlew.bat`. The Gradle user home was in
+  scratch and was deleted afterwards, so nothing landed in `~/.gradle`.
+- **Nothing past `--version` was attempted, and no Android build happened.** The
+  machine has no Android SDK - `ANDROID_HOME` is empty and there is no
+  `~/Library/Android/sdk` - and the only JVM on it is a stripped runtime bundled
+  inside another application, whose `bin` holds `java` and nothing else and whose
+  module list has no `java.instrument`, so a Gradle daemon cannot fork there.
+  Read none of the above as evidence that this app compiles. The zero-byte export
+  fix is still not built and still not run.
+- The 2026-08-27 pass changed no app behaviour. Its only edits to compiled files
+  are two comment lines, and they were not compiled; the rest is `gradlew`,
+  `gradle.properties`, `README.md`, `todo.txt`, `MANUAL_CHECKS.md` and this file.
+  No device or emulator was involved at any point.
 
 ## Version 1.19 (versionCode 20)
 

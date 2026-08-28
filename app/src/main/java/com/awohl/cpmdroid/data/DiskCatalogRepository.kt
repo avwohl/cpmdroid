@@ -1,3 +1,4 @@
+// Backs row 5 of z80cpmw/FEATURE_PARITY.md - repinning RELEASE_TAG dates that column.
 package com.awohl.cpmdroid.data
 
 import android.util.Xml

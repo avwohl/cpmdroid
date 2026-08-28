@@ -1,3 +1,4 @@
+// Backs rows 1, 2, 3, 9 and 13 of z80cpmw/FEATURE_PARITY.md - a change here dates that column.
 package com.awohl.cpmdroid
 
 import android.content.ClipData
