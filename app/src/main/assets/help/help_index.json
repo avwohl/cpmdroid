@@ -12,31 +12,31 @@
       "id": "cpm22",
       "title": "CP/M 2.2 User Guide",
       "description": "Complete guide to CP/M 2.2 operating system",
-      "url": "https://github.com/avwohl/ioscpm/releases/latest/download/help_cpm22.md"
+      "filename": "help_cpm22.md"
     },
     {
       "id": "zsdos",
       "title": "ZSDOS User Guide",
       "description": "Z-System DOS with date/time stamping",
-      "url": "https://github.com/avwohl/ioscpm/releases/latest/download/help_zsdos.md"
+      "filename": "help_zsdos.md"
     },
     {
       "id": "nzcom",
       "title": "NZCOM User Guide",
       "description": "Z-System for CP/M 2.2 environments",
-      "url": "https://github.com/avwohl/ioscpm/releases/latest/download/help_nzcom.md"
+      "filename": "help_nzcom.md"
     },
     {
       "id": "zpm3",
       "title": "ZPM3 User Guide",
       "description": "Z-System Plus/M3 enhanced CP/M 3",
-      "url": "https://github.com/avwohl/ioscpm/releases/latest/download/help_zpm3.md"
+      "filename": "help_zpm3.md"
     },
     {
       "id": "qpm",
       "title": "QPM User Guide",
       "description": "QP/M operating system",
-      "url": "https://github.com/avwohl/ioscpm/releases/latest/download/help_qpm.md"
+      "filename": "help_qpm.md"
     },
     {
       "id": "disk_transfer",
