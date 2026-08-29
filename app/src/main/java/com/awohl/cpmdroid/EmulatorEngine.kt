@@ -43,7 +43,7 @@ class EmulatorEngine {
     private external fun nativeGetHostFileState(): Int
     private external fun nativeGetHostFileReadName(): String
     private external fun nativeGetHostFileWriteName(): String
-    private external fun nativeProvideHostFileData(data: ByteArray?)
+    private external fun nativeProvideHostFileData(data: ByteArray?, source: String)
     private external fun nativeGetHostFileWriteData(): ByteArray?
     private external fun nativeHostFileWriteDone()
     private external fun nativeHostFileCancel()
@@ -142,9 +142,20 @@ class EmulatorEngine {
 
     // Host file transfer methods
     fun getHostFileState(): Int = nativeGetHostFileState()
+    // What the guest ASKED for, reduced to a leaf - the lookup key, not an
+    // answer about what was opened. The answer travels the other way, through
+    // provideHostFileData's `source`.
     fun getHostFileReadName(): String = nativeGetHostFileReadName()
     fun getHostFileWriteName(): String = nativeGetHostFileWriteName()
-    fun provideHostFileData(data: ByteArray?) = nativeProvideHostFileData(data)
+    // `source` is the absolute path of the file the bytes came out of, and it
+    // is what R8 prints on its "Reading:" line (HBF_HOST_GETRNAME). The native
+    // side cannot work it out: the resolution against Imports happens up here,
+    // case-insensitively, and for a bare-FCB R8 that names no file at all the
+    // answer is whichever file was picked - which nothing below this layer
+    // knows. Passing null data still means "cancel", and the source is then
+    // ignored.
+    fun provideHostFileData(data: ByteArray?, source: String) =
+        nativeProvideHostFileData(data, source)
     fun getHostFileWriteData(): ByteArray? = nativeGetHostFileWriteData()
     fun hostFileWriteDone() = nativeHostFileWriteDone()
     fun hostFileCancel() = nativeHostFileCancel()

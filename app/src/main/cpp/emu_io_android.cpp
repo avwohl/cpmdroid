@@ -164,7 +164,16 @@ static uint8_t g_text_attr = 0x07;
 static emu_host_file_state g_host_file_state = HOST_FILE_IDLE;
 static std::vector<uint8_t> g_host_read_buffer;
 static size_t g_host_read_pos = 0;
+// What the guest ASKED FOR, reduced to a leaf: the Kotlin layer's lookup key,
+// handed up by nativeGetHostFileReadName().
 static std::string g_host_read_filename;
+// What was actually OPENED, handed back down by the Kotlin layer once it has
+// resolved the request against Imports. This is the one
+// emu_host_file_get_read_name() answers with, and the two are deliberately
+// separate strings: the contract in emu_io.h calls the getter "not an echo of
+// what was passed to emu_host_file_open_read()", and a single string used for
+// both purposes can only ever be the echo.
+static std::string g_host_read_source;
 static std::vector<uint8_t> g_host_write_buffer;
 static std::string g_host_write_filename;
 // The app's Exports directory, handed down from Kotlin once at startup. The
@@ -565,6 +574,66 @@ int emu_dsky_get_key() {
 // Host File Transfer Implementation
 //=============================================================================
 
+// Back a cut position off any UTF-8 continuation byte, so a truncated name is
+// still a valid byte sequence. Guest command lines are 8-bit and pass through
+// the CCP untouched, so a name arriving here can genuinely be UTF-8 typed on a
+// modern host; cutting mid-sequence produces a name that displays as a
+// replacement character in every file manager that will accept it at all.
+static size_t android_back_off_utf8(const std::string& s, size_t cut) {
+    while (cut > 0 && (unsigned char)s[cut] >= 0x80 && (unsigned char)s[cut] < 0xC0) {
+        cut--;
+    }
+    return cut;
+}
+
+// The same boundary from the other side: move a cut position FORWARD off a
+// continuation byte, for a cut that keeps the TAIL. Backing up is right only
+// when the cut keeps the head, where it shortens the answer; on a tail-keeping
+// cut it LENGTHENS it, and a cap that can return more than the cap is not one.
+static size_t android_advance_off_utf8(const std::string& s, size_t cut) {
+    while (cut < s.size() && (unsigned char)s[cut] >= 0x80 && (unsigned char)s[cut] < 0xC0) {
+        cut++;
+    }
+    return cut;
+}
+
+// Cap one path component at EMU_HOST_NAME_MAX bytes, keeping the extension.
+// See the note on EMU_HOST_NAME_MAX in emu_io.h for why the extension is the
+// half worth keeping: a name cut to "aaaa...aaa" with the ".txt" thrown away
+// opens in nothing, while "aaa....txt" still opens in the right application -
+// and on Android that matters more than anywhere else in this family, because
+// Exports is browsed through a share sheet that routes by extension.
+static std::string android_host_path_cap_name(const std::string& base) {
+    if (base.size() <= EMU_HOST_NAME_MAX) return base;
+
+    // The extension is the last dot and what follows, and only if there is a
+    // stem in front of it: ".bashrc" is a name, not an extension, and keeping
+    // "" + ".bashrc" out of a 5000-character name would throw the whole name
+    // away.
+    size_t dot = base.rfind('.');
+    std::string ext;
+    if (dot != std::string::npos && dot > 0) ext = base.substr(dot);
+
+    // No room for a stem beside it - a name that is nearly all "extension" -
+    // so there is no extension worth preserving. Keep the END, which is where
+    // whatever structure the name has runs out, and is the same choice
+    // HBF_HOST_GETNAME makes when it has to cut a path.
+    if (ext.size() >= EMU_HOST_NAME_MAX) {
+        size_t start = android_advance_off_utf8(base, base.size() - EMU_HOST_NAME_MAX);
+        // The whole window was continuation bytes, so there is no character
+        // boundary to cut on: the tail is not valid UTF-8 whatever is done to
+        // it. Take the last EMU_HOST_NAME_MAX bytes rather than the empty
+        // string, which is what skipping to the end would produce - a name a
+        // caller then has to invent, from a function whose whole job is to
+        // supply one.
+        if (start >= base.size()) start = base.size() - EMU_HOST_NAME_MAX;
+        return base.substr(start);
+    }
+
+    size_t keep = android_back_off_utf8(base, EMU_HOST_NAME_MAX - ext.size());
+    return base.substr(0, keep) + ext;
+}
+
 // A copy of romwbw_emu/src/emu_io_common.cc's emu_host_path_basename(), which
 // CMakeLists does not compile: that file also defines emu_file_*, emu_disk_*
 // and emu_get_time, all of which have Android versions here, so adding it
@@ -572,6 +641,15 @@ int emu_dsky_get_key() {
 // diverging is what the helper was written to stop (romwbw_emu
 // docs/DOWNSTREAM_2026-08-25.md section 2: three ports had three different
 // answers, and one of them was the iOS data-loss bug).
+//
+// The promise in the line above was broken once already and is worth naming so
+// it is not broken the same way twice. The shared original grew the
+// EMU_HOST_NAME_MAX cap; this copy did not, for a year, and the reason it was
+// never a live bug is not a reason it was safe: R8 and W8 both build the path
+// in a 128-byte buffer, so nothing SHIPPED could hand this function a longer
+// component. That is a property of the guest programs on today's disk images,
+// not of this function's contract, and the next caller does not inherit it.
+// The three helpers above are the cap, ported whole.
 static std::string android_host_path_basename(const std::string& path,
                                               const char* fallback) {
     const std::string fb = (fallback && *fallback) ? fallback : "download.bin";
@@ -598,7 +676,12 @@ static std::string android_host_path_basename(const std::string& path,
     // What is left has to be a name that cannot escape the directory it will
     // be joined to. "." and ".." are the two that can.
     if (base.empty() || base == "." || base == "..") return fb;
-    return base;
+
+    // The cap is last, as it is in the shared original: it operates on a
+    // component, and the two reductions above are what turn a path into one.
+    // The fallback is deliberately NOT capped on the way out - it is this
+    // file's own string, not the guest's.
+    return android_host_path_cap_name(base);
 }
 
 // Reduce a guest path to the leaf this app will actually use, lowercased.
@@ -610,6 +693,35 @@ static std::string android_host_path_basename(const std::string& path,
 // differently-named files on different front ends - so this port matches them.
 static std::string android_host_leaf(const char* filename, const char* fallback) {
     std::string leaf = android_host_path_basename(filename ? filename : "", fallback);
+
+    // The shared original can still answer "" from its cap, and the guard for
+    // that is here rather than in the copy above, so the copy stays byte-for-
+    // byte the shared function and the next sweep finds no drift to file.
+    //
+    // The hole: emu_host_path_cap_name()'s head-keeping branch backs the cut
+    // off a UTF-8 continuation byte and has no floor, so a component longer
+    // than EMU_HOST_NAME_MAX whose first 255 bytes are continuation bytes
+    // backs all the way to 0 and returns the empty string. Its tail-keeping
+    // branch guards exactly this ("if (start >= base.size())"); the other one
+    // was not given the same floor. Reproducer, and it is not exotic - a guest
+    // command line is 8 bits wide and passes through the CCP untouched:
+    //     emu_host_path_basename(std::string(256, '\x80'), "download.bin") == ""
+    // The declared contract in emu_io.h says the opposite in as many words -
+    // "a result of "", ".", ".." or a bare drive letter is replaced by
+    // `fallback`" - so this restores what the caller was promised rather than
+    // inventing a rule.
+    //
+    // It matters on the write side. An empty leaf makes
+    // g_host_write_destination the Exports FOLDER, and a UI layer that then
+    // opens that path for writing is asking the filesystem to truncate a
+    // directory. On the read side the fallback is deliberately "" - an empty
+    // name means "no preference" to the bare-FCB R8 - so this is a no-op
+    // there, which is the behaviour that path already wanted.
+    //
+    // Reported upstream in todo.txt; delete this when the shared function
+    // grows the floor and this copy is re-synced.
+    if (leaf.empty()) leaf = (fallback && *fallback) ? fallback : "";
+
     for (char& c : leaf) {
         if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
     }
@@ -651,6 +763,12 @@ bool emu_host_file_open_read(const char* filename) {
     // which is what the shared helper exists for, and what every sandboxed
     // port is asked to do.
     g_host_read_filename = filename ? android_host_leaf(filename, "") : "";
+    // The previous transfer's answer, dropped before this one has one. The
+    // getter's HOST_FILE_READING gate already makes it unreadable between here
+    // and the Kotlin layer's reply, so this is not load-bearing - it is what
+    // stops the invariant from being an argument about a state machine two
+    // files away.
+    g_host_read_source.clear();
     g_host_file_state = HOST_FILE_WAITING_READ;
     LOGI("Host file read requested: %s (from %s)", g_host_read_filename.c_str(),
          filename ? filename : "");
@@ -688,6 +806,13 @@ bool emu_host_file_write_byte(uint8_t byte) {
 void emu_host_file_close_read() {
     g_host_read_buffer.clear();
     g_host_read_pos = 0;
+    // Both names go with the buffer. Neither was cleared here before, so they
+    // outlived the transfer that set them - harmless while the core gated its
+    // own call on HOST_FILE_READING, and exactly the stale answer that gate
+    // exists to make impossible. A name that survives its file is a name that
+    // will eventually be printed beside a different one.
+    g_host_read_filename.clear();
+    g_host_read_source.clear();
     g_host_file_state = HOST_FILE_IDLE;
 }
 
@@ -728,15 +853,51 @@ void emu_host_file_cancel() {
     g_host_file_state = HOST_FILE_IDLE;
     g_host_read_buffer.clear();
     g_host_read_pos = 0;
+    g_host_read_filename.clear();
+    g_host_read_source.clear();
     g_host_write_buffer.clear();
     g_host_write_filename.clear();
     g_host_write_destination.clear();
     LOGI("Host file operation cancelled");
 }
 
-// Get the suggested read filename
+// Which file emu_host_file_read_byte() is really reading, for HBF_HOST_GETRNAME
+// (0xEA) - see the contract above the declaration in emu_io.h. R8 prints this
+// on its "Reading:" line and presents it as fact, so it has to be one.
+//
+// It used to return g_host_read_filename, the guest's own request basenamed
+// and lowercased: a claim about what was opened, assembled out of what was
+// asked for. The two agree whenever the exact name is present in Imports and
+// part company everywhere else - on the case-insensitive fallback, and on the
+// bare-FCB R8 that sends no name at all and is handed whichever file the
+// filesystem lists first. That last case is the one that mattered: R8 printed
+// the empty request, so the line read "Reading: " with nothing after it, for a
+// file that was very much being read.
+//
+// The honest answer is the one the Kotlin layer settled on, which is why it
+// comes back down through nativeProvideHostFileData rather than being guessed
+// at here - the resolution happens in Kotlin, against a folder this shim
+// cannot see. It is an absolute path, as the CLI's realpath() and the Windows
+// port's resolveRealPathExisting() both are, and as this port's own write side
+// already is: Imports lives under getExternalFilesDir(), which the stock Files
+// app has hidden since Android 11, so a bare leaf answers "which file" only
+// for someone who already knows where to look.
+//
+// HOST_FILE_READING only. The core gates its own call the same way
+// (hbios_dispatch.cc, HBF_HOST_GETRNAME) and the CLI and Windows backends both
+// gate their getters, so this is the family's shape rather than this port's
+// idea - but it matters more here than anywhere else, because of WHEN R8 asks.
+// R8 calls 0xEA between the open and the read loop, and on this port an open
+// only parks the request at HOST_FILE_WAITING_READ for the Kotlin layer to
+// pick up on its next poll. So the state at 0xEA time is usually still
+// WAITING_READ, this answers "", and R8 falls back to printing what was typed
+// - which is the documented behaviour for a backend that cannot yet say, and
+// is the truth at that moment. Whether the poll has landed first is a race
+// against the 50000-instruction batch, and the gate is what makes both
+// outcomes honest instead of making one of them a stale echo.
 const char* emu_host_file_get_read_name() {
-    return g_host_read_filename.c_str();
+    if (g_host_file_state != HOST_FILE_READING) return "";
+    return g_host_read_source.c_str();
 }
 
 void emu_host_file_provide_data(const uint8_t* data, size_t size) {
@@ -765,6 +926,20 @@ size_t emu_host_file_get_write_size() {
 // collects the buffer and writes it.
 const char* emu_host_file_get_write_name() {
     return g_host_write_destination.c_str();
+}
+
+// Called from Kotlin at the moment it resolves a read: the absolute path of
+// the file it is about to hand down. Set BEFORE the bytes, so the name and the
+// HOST_FILE_READING state that publishes it can never be observed apart.
+//
+// The shared emu_host_file_provide_data() carries bytes and no name on every
+// port, and that signature is fixed in emu_io.h - so this is an Android-local
+// setter beside it rather than a change to it, exactly as
+// emu_host_set_exports_dir() is on the write side. romwbw_emu's and ioscpm's
+// todo.txt both sketch a named variant of the shared entry point instead; if
+// that ever lands, this becomes the thing it replaces.
+void emu_host_set_read_source(const char* path) {
+    g_host_read_source = path ? path : "";
 }
 
 // Called once from Kotlin at startup: the absolute path of the Exports folder.
@@ -1272,11 +1447,16 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileState(JNIEnv* env, jobje
     return static_cast<jint>(emu_host_file_get_state());
 }
 
+// The REQUEST, not the source: this is the Kotlin layer's lookup key, the
+// string it resolves against Imports. It deliberately no longer goes through
+// emu_host_file_get_read_name(), which now answers the opposite question for
+// the guest and is empty at exactly the moment this is called - the state is
+// HOST_FILE_WAITING_READ while handleHostFileRead() runs, by definition,
+// because that state is what summoned it.
 JNIEXPORT jstring JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileReadName(JNIEnv* env, jobject thiz) {
     (void)thiz;
-    const char* name = emu_host_file_get_read_name();
-    return env->NewStringUTF(name ? name : "");
+    return env->NewStringUTF(g_host_read_filename.c_str());
 }
 
 JNIEXPORT jstring JNICALL
@@ -1299,14 +1479,30 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetHostExportsDir(JNIEnv* env, jobj
     env->ReleaseStringUTFChars(dir, chars);
 }
 
+// `source` is the absolute path of the file these bytes came out of, for
+// HBF_HOST_GETRNAME - see emu_host_file_get_read_name(). It is set before the
+// bytes because emu_host_file_provide_data() is what moves the state to
+// HOST_FILE_READING, and that state is what makes the name readable by the
+// guest; setting it afterwards would open a window, however short, in which
+// the guest could be told the previous transfer's name.
 JNIEXPORT void JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeProvideHostFileData(JNIEnv* env, jobject thiz,
-                                                                    jbyteArray data) {
+                                                                    jbyteArray data,
+                                                                    jstring source) {
     (void)thiz;
     if (data == nullptr) {
-        // User cancelled - cancel the read
+        // User cancelled - cancel the read. emu_host_file_cancel() clears the
+        // source itself, so there is nothing to undo here.
         emu_host_file_cancel();
         return;
+    }
+
+    if (source == nullptr) {
+        emu_host_set_read_source(nullptr);
+    } else {
+        const char* chars = env->GetStringUTFChars(source, nullptr);
+        emu_host_set_read_source(chars);
+        env->ReleaseStringUTFChars(source, chars);
     }
 
     jsize len = env->GetArrayLength(data);

@@ -890,7 +890,17 @@ class MainActivity : AppCompatActivity() {
             try {
                 val data = fileToRead.readBytes()
                 Log.i(TAG, "R8: Providing file ${fileToRead.name} (${data.size} bytes)")
-                emulator.provideHostFileData(data)
+                // The resolved file goes down with the bytes, so R8's
+                // "Reading:" line names what was opened rather than repeating
+                // what was typed. absolutePath rather than name, matching the
+                // CLI's realpath() and this port's own write side: Imports
+                // lives under getExternalFilesDir(), which the stock Files app
+                // has hidden since Android 11, so the leaf alone answers
+                // "which file" only for someone who already knows where to
+                // look. The core truncates it from the left with a leading
+                // "..." if it will not fit R8's 255-byte buffer, which keeps
+                // the informative end.
+                emulator.provideHostFileData(data, fileToRead.absolutePath)
                 mainHandler.post {
                     Toast.makeText(this@MainActivity,
                         "R8: Loaded ${fileToRead.name}", Toast.LENGTH_SHORT).show()

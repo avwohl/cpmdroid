@@ -6,11 +6,13 @@ A Z80/CP/M emulator for Android phones and tablets, built on the [RomWBW](https:
 
 - **Full Z80 emulation** with accurate instruction timing
 - **RomWBW HBIOS** compatibility for authentic CP/M experience
-- **ANSI/VT terminal** - cursor motion, erase, 16-colour SGR foreground and
-  background, scrollback. Deliberately partial: there is no VT52 mode, no
-  scrolling region, and no bold/underline/reverse. `todo.txt` lists what is
-  missing; this used to claim "runs Zork, WordStar, etc.", which outran what
-  anybody had measured.
+- **ANSI/VT100 terminal with VT52** - cursor motion, a scrolling region,
+  save/restore, the insert and delete commands, 16-colour SGR foreground and
+  background, per-cell bold, underline, blink and reverse, and scrollback.
+  `todo.txt` lists the few sequences that are still absent, most of which no
+  port in the family has. This still does not claim "runs Zork, WordStar, etc.",
+  because nobody has measured that - the parser is now wide enough that it is a
+  reasonable thing to go and try, which is a different statement.
 - **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
 - **Download disk images** from the [ioscpm](https://github.com/avwohl/ioscpm) releases - no bundled copyrighted content
 - **Hardware keyboard support** - Bluetooth and USB keyboards
@@ -112,11 +114,28 @@ This project uses code from sibling directories:
 
 ### VT100 Terminal Emulation
 
-The terminal supports ANSI/VT100 escape sequences:
-- Cursor positioning (`ESC[row;colH`)
-- Screen/line clearing (`ESC[2J`, `ESC[K`)
-- Text colors (CGA 16-color palette)
-- Cursor movement (`ESC[A/B/C/D`)
+The terminal supports ANSI/VT100 escape sequences, and VT52:
+- Cursor positioning (`ESC[row;colH`), movement (`ESC[A/B/C/D`) and absolute
+  column/row (`ESC[G`, `ESC[d`)
+- Screen/line clearing (`ESC[2J`, `ESC[K`) and character erase (`ESC[X`)
+- Insert/delete characters (`ESC[@`, `ESC[P`) and lines (`ESC[L`, `ESC[M`)
+- Scrolling region (`ESC[t;br`) and scroll up/down (`ESC[S`, `ESC[T`)
+- Save/restore cursor and rendition (`ESC 7` / `ESC 8`, `ESC[s` / `ESC[u`)
+- Text colours (CGA 16-colour palette, foreground and background) and per-cell
+  bold, underline, blink and reverse (`ESC[1m`, `4m`, `5m`, `7m`)
+- Private modes: VT52/ANSI (`ESC[?2h/l`), autowrap (`?7`), cursor visibility
+  (`?25`)
+- Device queries: cursor position (`ESC[6n`), device attributes (`ESC[c`)
+- VT52 mode, entered by `ESC[?2l` or auto-detected from any VT52-*exclusive*
+  escape (`ESC A B C F G I J K Y`); `ESC H` is VT52 home only once VT52 is
+  already in force, because in ANSI that byte is HTS
+
+The deliberate divergence most visible in ordinary output: `ESC[0m` resets the
+foreground to green rather than light grey, because a green phosphor screen is
+this app's identity. It is not the only one - `ESC[1m` picks a bold face without
+brightening the colour, `ESC[104m` stays bright where the Windows port folds it
+onto `ESC[44m`, and `ESC[39m`/`ESC[49m` work here and in neither sibling.
+`todo.txt` lists all four under `[DELIBERATE]`, with the reason for each.
 
 ### Disk Format
 

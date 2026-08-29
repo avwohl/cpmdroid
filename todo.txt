@@ -7,10 +7,31 @@ Cites name a symbol or a greppable string, not a file:line; a line number reads
 as evidence while carrying none.  Each item is tagged with what the machine
 picking it up has to have.
 
-The 2026-08-29 round had an SDK, an NDK and an API 36 emulator, so the three
-build items and the three manual checks that headed this file are gone: they
-were run, and their results are in CHANGELOG.md's Verified section.  What is
-below is what that round could not settle or did not touch.
+Two rounds ran on 2026-08-29.  The first had an SDK, an NDK and an API 36
+emulator, and its results are in CHANGELOG.md's Verified section.  The second
+had neither, and closed the four code items that headed this file - the C++
+shim's drift from the shared original, R8's dishonest "Reading:" line, and the
+terminal's two gaps.  They are gone from here and are in CHANGELOG.md.
+
+What that second round could not do is watch any of it run, which is why
+MANUAL_CHECKS.md gained a section and why the first item below is new.
+
+
+NOBODY HAS SEEN THE NEW TERMINAL RUN
+-------------------------------------
+
+- [ANDROID DEVICE or EMULATOR] the 2026-08-29 terminal round added VT52, a
+scrolling region, DECSC/DECRC, the query replies, seven editing commands and
+per-cell bold, underline, blink and reverse - and none of it has been drawn on a
+screen.  What it did get is not nothing and is worth knowing before repeating
+it: the whole of emu_io_android.cpp compiles under host clang++ at -Wall
+-Wextra against the siblings' real headers, TerminalView.kt and
+EmulatorEngine.kt compile under kotlinc against real Android framework classes
+(org.robolectric:android-all, API 36), and android_host_path_basename() was run
+against the shared original for 403,760 differential cases with no mismatch.
+None of that is an APK.  MANUAL_CHECKS.md section 5 lists what to point at it,
+and the four-face paint path and the blink tick are the two that most need a
+real GPU rather than an argument.
 
 
 NEEDS THE TABLET, NOT AN EMULATOR
@@ -21,11 +42,11 @@ on a stock API 36 AVD.  The tablet is a different question and MANUAL_CHECKS.md
 keeps it: Samsung SM-X200, Android 14, with Smart Keyboard Pro as the IME.  The
 AVD's keyboard is not evidence about a third-party one.  Insets were never the
 problem there - ime.bottom=636 was measured in July - so what is unsettled is
-the drawing, and the drawing changed again this round when a background colour
-was added under it.
+the drawing, and the drawing has now changed twice: a background colour was
+added under it, and then a second paint path beside it.
 
 - [ANDROID DEVICE] four questions only a hand can answer, listed in
-MANUAL_CHECKS.md and unchanged by this round: which way a drag should scroll,
+MANUAL_CHECKS.md and unchanged by either round: which way a drag should scroll,
 how many lines it should move, how much blank space should sit above the prompt
 on a fresh boot with empty history, and whether a drag should scroll at all
 while the keyboard is up.  A fresh boot does show a large blank band above the
@@ -49,9 +70,9 @@ new tag, and never onto v1.4.5, which every installed app already fetches.
 
   Read that document's second hazard before the repin.  disks.xml carries a
   version attribute and bumping it deletes the user's downloaded disks; this
-  port's own download path was hardened this round (a size and sha256 check
-  before anything is replaced, in DiskDownloadManager.downloadDisk) but that
-  guards a corrupt download, not a catalog bump.
+  port's own download path was hardened (a size and sha256 check before
+  anything is replaced, in DiskDownloadManager.downloadDisk) but that guards a
+  corrupt download, not a catalog bump.
 
 - [ANDROID] the refreshed images are the only way to reach two paths this port
 implements and has never executed: HBF_HOST_CAPS and HBF_HOST_GETNAME.  The
@@ -60,52 +81,59 @@ without waiting for the release - romwbw_emu/disks/hd1k_combo.img already
 carries the new r8.com and w8.com, and pushing it onto a device exercises both
 - and that is worth doing before the images ship rather than after.
 
+  Add HBF_HOST_GETRNAME (0xEA) to that list.  R8's "Reading:" line now has a
+  real answer to print and nothing has ever printed it, and the interesting
+  case is not the ordinary one: R8 asks between the open and the read loop, so
+  the state is usually still HOST_FILE_WAITING_READ and the honest answer is
+  "no answer" - meaning the line SHOULD show what was typed.  A run that shows
+  the absolute path instead is not a pass, it is the race landing the other
+  way, and it is worth knowing how often it does.
 
-THE C++ SHIM HAS DRIFTED FROM THE SHARED ORIGINAL
---------------------------------------------------
 
-- [ANDROID] android_host_path_basename() in app/src/main/cpp/emu_io_android.cpp
-is a hand copy of the shared emu_host_path_basename(), because CMakeLists.txt
-deliberately does not compile emu_io_common.cc - it would collide on ten
-symbols this port defines for Android.  The copy's own comment promises to stay
-in step with the original and no longer does: romwbw_emu capped that function
-at EMU_HOST_NAME_MAX (255 bytes, keeping the extension and the front of the
-stem, never cutting inside a UTF-8 sequence) and this copy has no cap.  Nothing
-shipped can reach it, because R8 and W8 both build the path in a 128-byte
-buffer, so this is drift rather than a live bug - but it is drift in the one
-function whose comment says it will not drift.
+UPSTREAM, NOT HERE
+-------------------
 
-- [ANDROID] emu_host_file_get_read_name() answers with the leaf the guest asked
-for, lowercased by android_host_leaf(), not with the file that was actually
-opened.  Since the v1.36 core added HBF_HOST_GETRNAME (0xEA), R8 prints that
-answer as fact on its "Reading:" line.  The two agree today only because the
-Kotlin lookup in handleHostFileRead tries the exact name first; they part
-company on the case-insensitive fallback, and on the bare-FCB R8 that sends no
-name at all and gets whichever file the filesystem lists first.  Either answer
-"" - which the browser backend does deliberately, and which makes R8 print what
-was typed - or have Kotlin hand the resolved name back down.  The second is
-more work and is the honest one.
+- [ROMWBW_EMU] emu_host_path_cap_name() in src/emu_io_common.cc can return the
+empty string, and emu_io.h promises in as many words that it cannot: "a result
+of "", ".", ".." or a bare drive letter is replaced by `fallback`".  The
+head-keeping branch calls back_off_utf8() with no floor, so a component longer
+than EMU_HOST_NAME_MAX whose first 255 bytes are continuation bytes backs all
+the way to 0.  Reproducer:
+
+    emu_host_path_basename(std::string(256, '\x80'), "download.bin") == ""
+
+  The tail-keeping branch in the same function guards exactly this case, which
+  is what makes it an omission rather than a design.  It matters most on a
+  write: an empty leaf joined to an export directory names the DIRECTORY.  It
+  reaches every port that calls the shared helper, and this one has a guard at
+  its own call site (android_host_leaf) so that its copy of the function can
+  stay byte-for-byte the original; delete that guard when the floor lands
+  upstream and the copy is re-synced.
 
 
 TERMINAL: WHAT IS STILL NOT THERE
 ----------------------------------
 
-The SGR parser gained backgrounds, 38/48 consumption, bounded parameters and
-the ECMA-48 empty-parameter default this round, and Ctrl+arrows and six editing
-keys now reach the guest.  What remains is a list of sequences that do not
-exist rather than sequences that are wrong.
+The parser gained VT52, DECSTBM, DECSC/DECRC, the query replies, ICH/DCH/ECH/
+IL/DL/SU/SD, CHA/HPA/VPA, the three private modes, deferred autowrap and
+per-cell attributes.  What is left is shorter than what went, and most of it is
+absent from the siblings too - which is worth saying, because a gap all three
+ports share is a different kind of item from one only this port has.
 
-- [ANDROID] processCSI's dispatch is H f A B C D J K m and nothing else, and
-ESC followed by anything but '[' is discarded.  So there is no VT52 mode, no
-DECSTBM scrolling region, no DECSC/DECRC, no answerback, and none of ICH, DCH,
-ECH, IL, DL or SD.  ioscpm's erase commit (0165dac) lists seventeen fill sites;
-ten of them cannot exist here because the sequence that would fill them does
-not.  This is z80cpmw/FEATURE_PARITY.md row 13 and it is not closed.
+- [ANDROID] this port prints every byte from 0x20 up, where both siblings stop
+at 0x7E.  So 0x7F (DEL) draws a glyph here and nothing there, and so does every
+byte from 0x80 to 0xFF - which a CP/M program using the high half of a code page
+will emit, and which arrives as whatever the JVM makes of the Char.  This
+predates the terminal round and was found during its review; it is the last
+divergence in the normal state.
 
-- [ANDROID] there are no per-cell attributes beyond a foreground and a
-background colour.  z80cpmw grew a flags byte and a multi-HFONT paint path
-(480edcb, 29d3438) for bold, underline and reverse; TerminalView.kt has one
-textPaint, so SGR 1, 4 and 7 are parsed into nothing.
+- [ALL PORTS] none of the three has ENQ (0x05) answerback, CNL (CSI E), CPL
+(CSI F), REP (CSI b), TBC/HTS, CBT (CSI Z), CHT (CSI I), origin mode (DECOM,
+?6), an alternate screen buffer, left/right margins, a tab-stop table, charset
+remapping, or OSC/DCS strings.  FF (0x0C) belongs on this list too: it is
+discarded here, and neither sibling has a case for it either.  Nothing has
+asked for any of them.  Listed so the next cross-port sweep can see they were
+considered rather than missed.
 
 - [DELIBERATE, do not report this as a gap again] SGR 0 resets the foreground
 to Color.GREEN here, where ioscpm's applySGR and z80cpmw's both reset to CGA 7
@@ -120,6 +148,16 @@ blink bit and so folds 100-107 onto 40-47; a cell here is a full ARGB Int with
 nothing to borrow, so the bright backgrounds stay bright.  Same asymmetry the
 bright foreground range already had.
 
+- [DELIBERATE] SGR 1 does not brighten the foreground here.  z80cpmw's bold
+sets CGA bit 3, because in a packed attribute byte bold and bright ARE the same
+bit and cannot be separated.  A cell here carries a full ARGB foreground and a
+CELL_BOLD flag beside it, so ESC[1m picks the heavy face and leaves the colour
+alone - which is what makes ESC[22m undo exactly what ESC[1m did.
+
+- [DELIBERATE] SGR 39 and 49 work here and in neither sibling.  This is the one
+divergence in the SGR handler that makes this port MORE conformant, not less,
+and it predates the attribute work.
+
 
 PARITY WITH THE OTHER PORTS
 ----------------------------
@@ -131,18 +169,18 @@ changing them, run the reporter from here:
 It reads only, and exits non-zero when a column is behind the tree it describes.
 Correcting a column is an edit in z80cpmw.
 
-- [PARITY] that column is behind, and this round moved it a long way.  Item
-4(a) is CLOSED in both directions and was verified on a device: an in-app
-Imports/Exports list, save-as through ACTION_CREATE_DOCUMENT, a share sheet
-through a FileProvider scoped to the two transfer folders, an
-ACTION_OPEN_DOCUMENT picker that mangles a host name to R8's own 8.3 rules, and
-ACTION_SEND / ACTION_VIEW on ImportReceiverActivity so another app can push a
-file in.  Row 6 (help) also moves: the seven topics now ship inside the APK
-under app/src/main/assets/help and a fetched topic is cached, so a reader with
-no network gets the text rather than an error.  Row 13 does not move; see the
-terminal section above for what is still missing.
+- [PARITY] rows 4, 6 and 13 were corrected in z80cpmw on 2026-08-29, and row 13
+went from the row where this port was furthest behind to one where it is level
+on everything the row measures.  What that edit could NOT do is advance the
+sibling-readings block, and the reason is the document's own rule: that line
+certifies a reading of the WHOLE column, and rows 4, 6 and 13 are three of
+thirteen.  Whoever next reads rows 1, 2, 3, 5, 7, 8, 9, 10, 11 and 12 against
+this tree can advance it; until then check-sibling-drift.sh will keep reporting
+this column as drifted, which is correct.
 
-- [PARITY] the reverse direction is worth one pass too.  The rows this
-repository can see are only the ones FEATURE_PARITY.md thought to ask about,
-and two things this port now has - a bounded import, and a receive
-intent-filter - have no row at all.
+- [PARITY] the two capabilities with no row - a bounded import and a receive
+intent-filter - were folded into row 4 rather than given a fourteenth row.  Row
+4's parity targets were already a lettered list and its heading already says
+"arbitrary host paths + a findable data folder"; a new row would have renumbered
+every "item 13" and "(#4)" cross-reference in a document that has dozens of
+them.  If a future capability needs a row of its own, that is the cost to price.

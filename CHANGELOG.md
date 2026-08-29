@@ -20,6 +20,226 @@ SGR **background** ranges had no implementation at all, which is why closing it
 appears under **Fixed** rather than only under **Verified**; and parity item
 4(a), the missing save-as, picker and share, is closed under **Added**.
 
+**A second 2026-08-29 round, on a different machine, added everything under
+*The terminal stops being the thinnest of the four* and *R8 says which file it
+read* below, and it was NOT built with the NDK.** That machine had no Android
+SDK and no emulator. Saying only that would understate it and saying nothing
+would overstate it, so here is exactly what was run:
+
+- The whole of `emu_io_android.cpp` was compiled by host `clang++ -std=c++17
+  -Wall -Wextra` against the real `romwbw_emu` and `cpmemu` headers, with the
+  JDK's own `jni.h` and a three-line stand-in for `android/log.h`. It is not the
+  NDK and it is not four ABIs, but it is a full translation unit type-checked
+  against the siblings' current source. No warnings.
+- `TerminalView.kt` and `EmulatorEngine.kt` were compiled by `kotlinc` 2.2
+  against **real Android framework classes** (`org.robolectric:android-all`, the
+  API 36 build, from Maven Central). Not stubs: the actual `android.graphics`,
+  `android.view` and `android.media` classes the file calls into. Clean, with
+  one pre-existing deprecation warning about `DisplayMetrics.scaledDensity`.
+  `MainActivity.kt` was not compiled - it needs AndroidX and a generated `R` -
+  and its share of this round is one changed call site.
+- `android_host_path_basename()` was checked against the shared original by
+  extracting BOTH functions from their real source files into one host program
+  and running 403,760 differential cases through them - every hand-written case
+  the contract's prose names, every stem length either side of the 255-byte
+  boundary, multi-byte sequences straddling that boundary from thirty offsets,
+  and 400,000 random strings over an alphabet of separators, colons, dots and
+  malformed UTF-8. **Zero mismatches, and nothing over the cap.**
+
+What that does NOT cover is an APK, a device, or anything drawn on a screen.
+Every terminal sequence added below is unwatched. `MANUAL_CHECKS.md` says what
+to point at it.
+
+### The terminal stops being the thinnest of the four
+
+`z80cpmw/FEATURE_PARITY.md` row 13 called this port's parser "the thinnest of
+the four", and the two `todo.txt` entries under it named what was missing
+without arguing about it. Both are now closed. The reference throughout is
+z80cpmw's `TerminalView.cpp`, because that is the port the parity document
+measures the family against; where this port deliberately differs, the code says
+so at the point of difference rather than here.
+
+- **ESC followed by anything but `[` is no longer discarded**, which is the
+  change every other one below depends on. `processEscape()` is a dispatch
+  table now: `7`/`8` (DECSC/DECRC), `D`/`E`/`M` (IND, NEL, RI), `c` (RIS),
+  `Z` (identify), `<` (exit VT52), `=`/`>` (keypad, accepted and ignored), the
+  charset and line-size designators `( ) * + #` and space (consumed with their
+  argument byte, through a new parser state), and the ten VT52 bytes.
+- **VT52 mode.** Entered by `ESC [ ? 2 l` or auto-detected from any
+  VT52-exclusive escape - receiving one is itself the signal that the guest is
+  driving a VT52 - and left by `ESC <`, `ESC [ ? 2 h` or RIS. `ESC Y` takes its
+  two coordinate bytes through two dedicated parser states. `ESC D`, `ESC E`
+  and `ESC H` mean different things in the two modes and are dispatched on the
+  mode already in force, never guessed.
+- **DECSTBM**, the scrolling region, and with it a line feed that knows about
+  one: at the region's bottom row the region scrolls and the cursor stays put,
+  so a program can keep a status line below it. `IL`, `DL`, `SU`, `SD` and the
+  reverse index all honour it; cursor addressing does not, because there is no
+  origin mode here or in either sibling. A region that is inverted or one line
+  tall is rejected whole.
+- **DECSC/DECRC and SCP/RCP.** `ESC 7` saves the position AND the rendition -
+  both colours, the attribute bits and reverse - so a program that saves, prints
+  a highlighted status line and restores gets its rendition back too. `CSI s`
+  saves the position alone and shares the same slot, as it does in both
+  siblings.
+- **The seven editing commands**: `ICH` (`@`), `DCH` (`P`), `ECH` (`X`), `IL`
+  (`L`), `DL` (`M`), and the two scrolls `SU` (`S`) and `SD` (`T`). Also
+  `CHA`/`HPA`
+  (`G`, `` ` ``) and `VPA` (`d`). Every one fills what it vacates through the
+  same blank helpers everything else uses, so an inserted blank takes the
+  current background like any other erase.
+- **The query replies.** `ESC Z` answers `ESC [ ? 1 ; 0 c` in ANSI mode and
+  `ESC / Z` in VT52; `CSI c` answers the same Device Attributes string; `CSI 6 n`
+  answers the cursor position and `CSI 5 n` answers "I am fine". The private
+  forms (`ESC [ ? 6 n`, `ESC [ > c`) are deliberately silent, as they are in
+  z80cpmw: they ask about something this terminal does not have.
+- **Private modes are now acted on rather than swallowed**: DECANM (`?2`),
+  DECAWM (`?7`) and DECTCEM (`?25`). The marker itself is remembered rather
+  than merely consumed, which five finals need - and one of them needs it to
+  avoid a bug. `ESC [ > 4 ; 2 m` is how an xterm-aware program asks about
+  `modifyOtherKeys`; read as SGR its `4` turns underline on. The bare
+  `ESC [ > m` is the worse half: with the marker consumed and no parameters
+  left it is indistinguishable from `ESC [ m`, and resets the whole rendition -
+  which is the bug z80cpmw's own changelog records fixing.
+- **Deferred autowrap.** A glyph landing in the last column leaves the cursor on
+  it with the wrap armed, and the wrap is taken by the NEXT glyph - so a line
+  that exactly fills the width no longer costs a blank line under it. The user's
+  "wrap long lines" setting and the guest's DECAWM are kept as separate
+  questions, which they are: with wrapping off this port still truncates, and
+  with wrapping on but DECAWM off the cursor now stays on the last column and
+  overwrites it rather than throwing the rest of the line away.
+
+- **Per-cell attributes: bold, underline, blink and reverse.** `SGR 1`, `4`, `5`
+  and `7` were parsed into nothing; a cell carried a foreground and a background
+  and no third thing. It now carries a flags byte with the same three bits and
+  the same values as z80cpmw's `TCELL_BOLD`, `TCELL_UNDERLINE` and
+  `TCELL_BLINK`, so the two ports' cell dumps can be compared directly, and
+  `22`, `24` and `25` undo them.
+  - Bold and underline select between **four `Paint` objects** built once and
+    indexed by the flags, the same shape as z80cpmw's four `HFONT`s and for the
+    same reason: changing a typeface invalidates the glyph cache behind it, and
+    doing that per cell on a 24x80 grid would do it 1920 times a frame. The grid
+    metrics still come from the plain face alone, so a bold face with a
+    different advance cannot move the grid - and it cannot smear either, because
+    every glyph is positioned individually.
+  - **Bold does not brighten the colour here**, unlike z80cpmw, and that is a
+    consequence of storage rather than a choice: that port packs a CGA attribute
+    byte whose bit 3 *is* the bright half of the palette, so bold and bright
+    cannot be separated there. A cell here holds a full ARGB foreground with the
+    bit beside it, so `ESC[1m` picks the heavy face and leaves the colour alone,
+    and `ESC[22m` undoes precisely what `ESC[1m` did.
+  - **Reverse video is resolved into the two colours when a cell is filled**,
+    not stored on the cell and not applied at paint time - which is what makes
+    `SGR 7` and `SGR 27` exact inverses. This port needed one thing z80cpmw did
+    not: its default background is a *sentinel* meaning "paint no rectangle",
+    and reversing that would produce a foreground of "no background", which
+    draws nothing at all. A reversed default cell takes the page colour as its
+    foreground instead, so `ESC[7m` on an untouched screen inverts rather than
+    going silent.
+  - **Blink runs off a 500 ms tick that only exists while something is
+    blinking.** It is armed when a blinking cell is written and each tick
+    re-checks the live screen; the moment the last one is erased or scrolls away
+    the loop ends. A session that never sees `SGR 5` - which is nearly every
+    session - never schedules anything.
+
+- **LF now carries an implicit carriage return.** Both siblings do this at the
+  same point and z80cpmw's comment claims "both mobile ports do this", which was
+  not true of this one: `newLine()` moved the row and left the column where it
+  was. Ordinary CP/M output sends CR before LF and never noticed, but anything
+  with bare LFs - a file that came from a Unix host, `TYPE`d - stair-stepped
+  down and to the right.
+
+- **Two sequences that arrive while a wrap is armed no longer lose the
+  character after them.** VT52 `ESC J` and the VT52 direct cursor address
+  `ESC Y` did not resolve a pending wrap, so the next glyph took the wrap first
+  and landed a row below where it was addressed - and on the bottom row of a
+  scrolling region, scrolled the region as well. `ESC Y` is a deliberate
+  divergence from z80cpmw, which does not clear it: that port's own conformance
+  suite asserts "a cursor move cancels an armed wrap" and `ESC Y` is the one
+  cursor move exempt from it, so this sides with its tests against its code.
+  ioscpm clears it.
+
+- **A wrap that was armed and then bypassed no longer eats the rest of the
+  line.** An intermediate draft of the deferred-wrap work replaced the old
+  "cursor is past the edge" test with a bare early return, which is right for
+  truncate mode and wrong for wrapping: a TAB, a `CUP`, a `CUF` or a restored
+  cursor can leave the column past the wrap point, and every one of those
+  clamps against the buffer width while the wrap point is the *visible* width -
+  which is the smaller of the two at any font size above the default. The old
+  code wrapped in that case; the draft discarded every remaining byte on the
+  line, without writing it anywhere. Found in review, before it was ever built.
+
+- **`ESC c` (RIS) reaches the machine-level reset, and that reset now covers the
+  whole terminal.** `clear()` used to say in a comment that the guest could not
+  reach it. It can now, which is what RIS means - so it puts back every mode the
+  parser can be left in: the scrolling region, VT52, DECAWM, cursor visibility,
+  the saved cursor and the parser state. The scrollback is still deliberately
+  kept; losing the user's history is a product decision, not part of putting the
+  terminal back to power-on.
+
+- **`CSI 6 n` reports a column the guest can address.** The cursor legitimately
+  sits one past the last column while a line is being truncated, and the first
+  draft of the new report published that unclamped - column 81 on an
+  80-column screen, which `CUP` cannot address and neither sibling can produce.
+  The same state made `ESC 7` / `ESC 8` stop being an identity at the right
+  margin, because the save kept it and the restore clamped it away.
+
+### R8 says which file it read
+
+- **`emu_host_file_get_read_name()` answered with the guest's own request**,
+  basenamed and lowercased - a claim about what was opened, assembled out of
+  what was asked for. Since the v1.36 core added `HBF_HOST_GETRNAME` (0xEA), R8
+  prints that answer as fact on its `Reading:` line. The two agree whenever the
+  exact name is sitting in `Imports` and part company everywhere else: on the
+  case-insensitive fallback, and on the bare-FCB R8 that sends no name at all
+  and is handed whichever file the filesystem lists first - where the line read
+  `Reading: ` with nothing after it, for a file that was very much being read.
+  - The shim now keeps **two** strings. The request is still what the Kotlin
+    layer reads as its lookup key; the *source* comes back down beside the bytes
+    through `nativeProvideHostFileData`, because the resolution happens in
+    Kotlin against a folder the C++ cannot see. `todo.txt` named the two
+    acceptable fixes and said which was the honest one; this is that one.
+  - It is an **absolute path**, as the CLI's `realpath()` and the Windows port's
+    `resolveRealPathExisting()` both are, and as this port's own write side
+    already is. `Imports` lives under `getExternalFilesDir()`, which the stock
+    Files app has hidden since Android 11, so a bare leaf answers "which file"
+    only for someone who already knows where to look. The core truncates from
+    the left with a leading `...` if it will not fit R8's 255-byte buffer.
+  - The getter is now gated on `HOST_FILE_READING`, as the CLI's and the Windows
+    port's are, and **both strings are cleared** on close and on cancel - neither
+    was, so each outlived the transfer that set it. The gate matters more here
+    than anywhere else because of *when* R8 asks: it calls 0xEA between the open
+    and the read loop, and on this port an open only parks the request for the
+    Kotlin layer's next poll. So the state at that moment is usually still
+    `HOST_FILE_WAITING_READ`, this answers `""`, and R8 falls back to printing
+    what was typed - which is the documented behaviour for a backend that cannot
+    yet say, and is the truth at that moment.
+
+### The C++ copy stops drifting from the shared original
+
+- **`android_host_path_basename()` grew the `EMU_HOST_NAME_MAX` cap** it had
+  been missing. The copy's own comment promised to stay in step with
+  `romwbw_emu`'s `emu_host_path_basename()` and had not: the shared original
+  caps a component at 255 bytes keeping the extension and never cutting inside a
+  UTF-8 sequence, and this had no cap at all. Nothing shipped could reach it,
+  because R8 and W8 both build the path in a 128-byte buffer - but that is a
+  property of the guest programs on today's disk images, not of the function's
+  contract, and the next caller does not inherit it. The three helpers are
+  ported whole, and the differential run described in the preamble is what says
+  so.
+- **The shared original can return an empty name, and this port now refuses to
+  pass one on.** `emu_host_path_cap_name()`'s head-keeping branch backs its cut
+  off a UTF-8 continuation byte with no floor, so a component longer than 255
+  bytes whose first 255 bytes are continuation bytes backs all the way to zero:
+  `emu_host_path_basename(std::string(256, '\x80'), "download.bin")` is `""`.
+  Its *other* branch guards exactly this. The declared contract in `emu_io.h`
+  says the opposite in as many words - "a result of `""`, `"."`, `".."` or a
+  bare drive letter is replaced by `fallback`" - and an empty leaf on the write
+  side makes the reported destination the `Exports` **folder**. The guard is at
+  this port's call site rather than inside the copy, so the copy stays
+  byte-for-byte the shared function and the next cross-port sweep finds no drift
+  to file. It is an upstream fix and it is in `todo.txt` as one.
+
 ### The core sync
 
 - **`emu_host_path_caps()` is defined, and that is what makes the port build

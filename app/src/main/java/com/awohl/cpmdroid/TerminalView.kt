@@ -55,6 +55,40 @@ class TerminalView @JvmOverloads constructor(
         private val DEFAULT_FG = Color.GREEN
         private val DEFAULT_BG = Color.TRANSPARENT
 
+        // What DEFAULT_BG actually looks like once it is on screen. drawRow
+        // paints no rect for a DEFAULT_BG cell, so the page fill shows through,
+        // and the page fill is bgPaint's Color.BLACK. Reverse video is the one
+        // place that has to know: swapping a sentinel produces a FOREGROUND of
+        // "no background", which is not a colour and would draw nothing at all.
+        // Kept next to bgPaint's colour rather than derived from it because a
+        // Paint is mutable and this must not be.
+        private val PAPER = Color.BLACK
+
+        // Per-cell attribute bits, the same three z80cpmw's TerminalCell::flags
+        // carries and with the same values (TCELL_BOLD, TCELL_UNDERLINE,
+        // TCELL_BLINK), so the two ports' cell dumps can be compared directly.
+        // There is no italic bit: SGR 3 is not among them there either.
+        //
+        // Reverse is deliberately NOT one of these. It is a property of the
+        // rendition being written, not of the cell written with it - resolved
+        // into the two colours at the moment a cell is filled, exactly as
+        // z80cpmw resolves it with swapAttrNibbles. A cell that recorded
+        // "reversed" would have to be un-reversed at paint time against
+        // whatever the defaults were by then, and SGR 7 followed by SGR 27
+        // would stop being an exact inverse.
+        private const val CELL_BOLD = 0x01
+        private const val CELL_UNDERLINE = 0x02
+        private const val CELL_BLINK = 0x04
+
+        // Bold and underline pick a face; blink does not. The mask is what
+        // turns a flags byte into an index into glyphPaints, and it is the
+        // same arithmetic as z80cpmw's fontIndexFor().
+        private const val CELL_FACE_MASK = CELL_BOLD or CELL_UNDERLINE
+
+        // How long each half of a blink lasts, matching z80cpmw's 500 ms
+        // WM_TIMER.
+        private const val BLINK_MS = 500L
+
         // CSI parameter bounds - the same numbers as ioscpm's maxCSIParams /
         // maxCSIParamDigits and z80cpmw's MAX_CSI_PARAMS / MAX_CSI_PARAM_DIGITS,
         // so the three parsers agree about what they will swallow.
@@ -71,6 +105,24 @@ class TerminalView @JvmOverloads constructor(
         // already fit an Int; this is what keeps a wild row or column count out
         // of the handlers.
         private const val MAX_CSI_PARAM_VALUE = 9999
+
+        // Parser states. These were bare 0/1/2 while there were three of them
+        // and the escape dispatch was "'[' or discard"; there are six now and
+        // two of them are mid-sequence byte collectors, which is more than a
+        // literal should be asked to carry.
+        private const val ESC_NORMAL = 0
+        private const val ESC_SEEN = 1
+        private const val ESC_CSI = 2
+        private const val ESC_VT52_ROW = 3
+        private const val ESC_VT52_COL = 4
+        private const val ESC_CONSUME_ONE = 5
+
+        // The two fixed replies, sent back to the guest as though typed.
+        // z80cpmw and ioscpm both answer these exact bytes: a VT100 with no
+        // options for a Device Attributes request, and the VT52 identity for
+        // ESC Z while in VT52 mode.
+        private const val DA_RESPONSE = "[?1;0c"
+        private const val VT52_ID_RESPONSE = "/Z"
     }
 
     // Dynamic terminal dimensions based on screen size
@@ -90,6 +142,12 @@ class TerminalView @JvmOverloads constructor(
     // 1000 scrollback lines this costs about a third of a megabyte, which is
     // the price of a background that can actually be painted.
     private var bgBuffer = Array(rows) { IntArray(cols) { DEFAULT_BG } }
+    // Per-cell CELL_* bits. A ByteArray rather than a fourth IntArray: three
+    // bits are in use and the scrollback holds a thousand lines of them, so the
+    // Int form would spend 320 KB to carry 3 bits per cell where 80 KB carries
+    // the same thing. It is the one of the four that is not a colour, and the
+    // type says so.
+    private var attrBuffer = Array(rows) { ByteArray(cols) }
 
     private var cursorRow = 0
     private var cursorCol = 0
@@ -107,6 +165,9 @@ class TerminalView @JvmOverloads constructor(
     // draws with another line's background - which is why every mutation of the
     // three deques below happens in one place each.
     private val historyBg = ArrayDeque<IntArray>()
+    // ...and their attributes, the fourth deque that has to move with the other
+    // three. Same rule: every mutation of the four happens in one place each.
+    private val historyFlags = ArrayDeque<ByteArray>()
     // Max history lines kept (0 disables scrollback). Matches the other ports'
     // default, and is now a Settings entry rather than a constant - so it can
     // shrink while lines are already being held, which the setter has to
@@ -124,6 +185,7 @@ class TerminalView @JvmOverloads constructor(
             historyChars.removeFirst()
             historyColors.removeFirst()
             historyBg.removeFirst()
+            historyFlags.removeFirst()
         }
         // The user may have been looking further back than what is left.
         if (userScrollUp > historyChars.size) {
@@ -147,6 +209,42 @@ class TerminalView @JvmOverloads constructor(
         isAntiAlias = true
         textSize = 32f
     }
+
+    // The four faces bold and underline select between, indexed by
+    // flags and CELL_FACE_MASK - so index 0 IS textPaint and an unattributed
+    // screen draws through exactly the object it always did.
+    //
+    // Four Paints rather than one Paint reconfigured per cell, for the reason
+    // z80cpmw keeps four HFONTs: a typeface change invalidates the glyph cache
+    // behind it, and doing that per cell on a 24x80 grid would do it up to 1920
+    // times a frame. Only the colour is written per cell, which is a field
+    // store.
+    //
+    // The grid metrics stay measured from textPaint alone, as z80cpmw measures
+    // from m_fonts[0] alone. A bold monospace face need not have the same
+    // advance as its regular twin, and letting it move charWidth would make a
+    // line of bold text sit on a different grid from the line above it. It
+    // cannot smear either way here: drawRow positions every glyph at
+    // col * charWidth individually, so a wider glyph overhangs its cell and
+    // nothing downstream of it shifts.
+    private val glyphPaints: Array<Paint> = Array(4) { i ->
+        if (i == 0) textPaint else Paint().apply {
+            typeface = if (i and CELL_BOLD != 0) {
+                Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            } else {
+                Typeface.MONOSPACE
+            }
+            isUnderlineText = i and CELL_UNDERLINE != 0
+            isAntiAlias = true
+            textSize = textPaint.textSize
+        }
+    }
+
+    // Which half of the blink cycle is showing. True means "draw the glyph",
+    // and it starts true so a view that never schedules a tick - the ordinary
+    // case, because nothing on screen blinks - shows its text rather than
+    // hiding it forever.
+    private var textBlinkOn = true
 
     // Font scale factor - 14 = 100% (default), 8 = smaller, 24 = larger
     // This scales the calculated optimal font size
@@ -192,8 +290,11 @@ class TerminalView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    // VT100 escape sequence parsing state
-    private var escapeState = 0
+    // VT100 escape sequence parsing state. The five states past NORMAL are the
+    // same set z80cpmw's EscapeState enum carries; ESC_VT52_ROW/COL are the two
+    // bytes of a VT52 direct cursor address and ESC_CONSUME_ONE swallows the
+    // single byte after a charset or line-size designator.
+    private var escapeState = ESC_NORMAL
     // Parameters are accumulated one field at a time, the way both siblings do
     // it, rather than collected as text and split on ';' at the end. The split
     // form used mapNotNull, which REMOVES a field it cannot parse instead of
@@ -203,8 +304,49 @@ class TerminalView @JvmOverloads constructor(
     // position the guest put it in.
     private val escapeParams = mutableListOf<Int>()
     private val escapeCurrentParam = StringBuilder()
+    // Whether a private marker ('?', '<', '=', '>') was seen anywhere in the
+    // current CSI. Five finals consult it and the rest ignore it, which is what
+    // keeps ESC[?5H a cursor move and ESC[>4;2m out of the rendition.
+    private var escapePrivate = false
     private var currentFgColor = DEFAULT_FG
     private var currentBgColor = DEFAULT_BG
+    // The CELL_* bits the next cell written will carry.
+    private var currentFlags = 0
+    // SGR 7. Not folded into the two colours - see the note on CELL_BOLD.
+    private var reverseVideo = false
+
+    // DECSC/DECRC (ESC 7 / ESC 8) and SCP/RCP (CSI s / CSI u). One slot, shared
+    // by both pairs exactly as it is in both sibling ports, so an ESC 7 then a
+    // CSI s then an ESC 8 restores the CSI s position with the ESC 7 rendition.
+    // A restore before any save homes the cursor, which is what a VT100 does.
+    private var savedCursorRow = 0
+    private var savedCursorCol = 0
+    private var savedFgColor = DEFAULT_FG
+    private var savedBgColor = DEFAULT_BG
+    private var savedFlags = 0
+    private var savedReverse = false
+
+    // DECSTBM, 0-based and INCLUSIVE of both ends. Only the line feed, the
+    // reverse index, IL/DL and SU/SD consult it; cursor addressing does not,
+    // because there is no origin mode here or in either sibling.
+    private var scrollTop = 0
+    private var scrollBottom = MIN_ROWS - 1
+
+    // The deferred wrap. A glyph landing in the last column leaves the cursor
+    // ON that column with this armed, and the wrap is taken by the NEXT glyph -
+    // which is what stops a line that exactly fills the width from scrolling
+    // before anything has been written on the line after it.
+    private var pendingWrap = false
+    // DECAWM (CSI ? 7 h / l). The GUEST's half of the wrap decision; wrapLines
+    // is the USER's, and a wrap needs both. With wrapLines off this port
+    // truncates at the buffer edge whatever the guest asks for, because the
+    // user chose that and a guest does not get to overrule it.
+    private var autoWrap = true
+
+    // DECANM. False is ANSI/VT100, the power-on state.
+    private var vt52Mode = false
+    // The row byte of an ESC Y, held while its column byte is awaited.
+    private var vt52CursorRow = 0
 
     // Bell sound generator
     private var toneGenerator: ToneGenerator? = null
@@ -442,9 +584,15 @@ class TerminalView @JvmOverloads constructor(
      * keyCode alone and returned before the `else` arm could ever consult
      * `ctrl`, so Ctrl+Up was byte-for-byte identical to Up - the same bug
      * ioscpm's pressesBegan had, where the nav-key branch tested only for
-     * .command and threw the Ctrl modifier away. cpmdroid has no VT52 mode, so
-     * unlike ioscpm there is no profile here that must fall back to the bare
-     * arrow for want of a parameterised CSI to put the 5 in.
+     * .command and threw the Ctrl modifier away.
+     *
+     * This port now HAS a VT52 mode, and the arrows deliberately ignore it:
+     * they send the ANSI forms whatever mode the SCREEN is in. ioscpm gates its
+     * key table on the dialect, because a VT52 has no parameterised CSI to put
+     * the Ctrl modifier 5 in and its arrows must fall back to the bare form.
+     * The two are separable - what the guest paints with and what the keyboard
+     * sends are different directions - and following ioscpm here would mean a
+     * guest that sent one ESC A silently changed what the arrow keys transmit.
      */
     private fun sendArrow(finalByte: Char, ctrl: Boolean) {
         sendEscapeSeq(if (ctrl) "[1;5$finalByte" else "[$finalByte")
@@ -781,6 +929,10 @@ class TerminalView @JvmOverloads constructor(
             charHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
         }
 
+        // The other three faces take the size the plain one settled on. Their
+        // metrics are deliberately not consulted - see the note on glyphPaints.
+        for (paint in glyphPaints) paint.textSize = finalFontSize
+
         // Calculate how many columns actually fit on screen at this font size
         visibleCols = maxOf(1, (availableWidth / charWidth).toInt())
 
@@ -803,6 +955,7 @@ class TerminalView @JvmOverloads constructor(
         val oldScreenBuffer = screenBuffer
         val oldColorBuffer = colorBuffer
         val oldBgBuffer = bgBuffer
+        val oldAttrBuffer = attrBuffer
 
         rows = newRows
         cols = newCols
@@ -814,6 +967,7 @@ class TerminalView @JvmOverloads constructor(
         screenBuffer = Array(rows) { CharArray(cols) { ' ' } }
         colorBuffer = Array(rows) { IntArray(cols) { DEFAULT_FG } }
         bgBuffer = Array(rows) { IntArray(cols) { DEFAULT_BG } }
+        attrBuffer = Array(rows) { ByteArray(cols) }
 
         // Copy old content (as much as fits)
         for (r in 0 until minOf(oldRows, rows)) {
@@ -821,12 +975,32 @@ class TerminalView @JvmOverloads constructor(
                 screenBuffer[r][c] = oldScreenBuffer[r][c]
                 colorBuffer[r][c] = oldColorBuffer[r][c]
                 bgBuffer[r][c] = oldBgBuffer[r][c]
+                attrBuffer[r][c] = oldAttrBuffer[r][c]
             }
         }
 
         // Adjust cursor position if needed
         cursorRow = cursorRow.coerceIn(0, rows - 1)
         cursorCol = cursorCol.coerceIn(0, cols - 1)
+
+        // The saved cursor moves with the live one, and for the same reason:
+        // a rotation between an ESC 7 and its ESC 8 would otherwise restore a
+        // position from the old grid.
+        savedCursorRow = savedCursorRow.coerceIn(0, rows - 1)
+        savedCursorCol = savedCursorCol.coerceIn(0, cols)
+
+        // The scrolling region is in rows, and the row count can move under it
+        // - a rotation or a font-size change comes through here. A region left
+        // pointing past the last row would make lineFeed() compare the cursor
+        // against a row that does not exist, so it is re-clamped rather than
+        // trusted. A region that no longer makes sense goes back to the whole
+        // screen, which is the state a guest that never set one expects.
+        scrollBottom = scrollBottom.coerceIn(0, rows - 1)
+        scrollTop = scrollTop.coerceIn(0, rows - 1)
+        if (scrollTop >= scrollBottom) {
+            scrollTop = 0
+            scrollBottom = rows - 1
+        }
 
         android.util.Log.i("TerminalView", "resizeBuffers: $oldRows x $oldCols -> $rows x $cols")
     }
@@ -852,7 +1026,7 @@ class TerminalView @JvmOverloads constructor(
                 val liveRow = scrollRows + r
                 if (liveRow >= rows) break
                 drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], bgBuffer[liveRow],
-                        r, offsetX, offsetY, baseline)
+                        attrBuffer[liveRow], r, offsetX, offsetY, baseline)
             }
             drawCursor(canvas, cursorRow - scrollRows, viewportRows, offsetX, offsetY)
         } else {
@@ -868,11 +1042,11 @@ class TerminalView @JvmOverloads constructor(
                 if (lineIdx < 0 || lineIdx >= contentRows) continue   // empty area above the history
                 if (lineIdx < historySize) {
                     drawRow(canvas, historyChars[lineIdx], historyColors[lineIdx], historyBg[lineIdx],
-                            r, offsetX, offsetY, baseline)
+                            historyFlags[lineIdx], r, offsetX, offsetY, baseline)
                 } else {
                     val liveRow = lineIdx - historySize
                     drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], bgBuffer[liveRow],
-                            r, offsetX, offsetY, baseline)
+                            attrBuffer[liveRow], r, offsetX, offsetY, baseline)
                     if (liveRow == cursorRow) drawCursor(canvas, r, viewportRows, offsetX, offsetY)
                 }
             }
@@ -880,7 +1054,8 @@ class TerminalView @JvmOverloads constructor(
     }
 
     private fun drawRow(canvas: Canvas, chars: CharArray, colors: IntArray, bgs: IntArray,
-                        vrow: Int, offsetX: Float, offsetY: Float, baseline: Float) {
+                        flags: ByteArray, vrow: Int, offsetX: Float, offsetY: Float,
+                        baseline: Float) {
         // `top` is the cell rect's top edge; `y` is the text baseline, which is
         // one ascent lower. They are not the same number and the background
         // rect wants the first of them.
@@ -902,10 +1077,81 @@ class TerminalView @JvmOverloads constructor(
             }
             val ch = chars[col]
             if (ch != ' ') {
-                textPaint.color = colors[col]
-                canvas.drawText(ch.toString(), x, y, textPaint)
+                val cellFlags = flags[col].toInt()
+                // The off phase of a blink collapses the glyph into its own
+                // background rather than skipping the drawText: the two look
+                // the same on a cell with a background rect and very different
+                // on one without, where skipping would leave the page fill and
+                // collapsing leaves the page fill too - but the collapse also
+                // takes the UNDERLINE with it, and skipping would not, because
+                // the underline is drawn by the face rather than by us.
+                val paint = glyphPaints[cellFlags and CELL_FACE_MASK]
+                paint.color = if (cellFlags and CELL_BLINK != 0 && !textBlinkOn) {
+                    if (bgs[col] == DEFAULT_BG) PAPER else bgs[col]
+                } else {
+                    colors[col]
+                }
+                canvas.drawText(ch.toString(), x, y, paint)
             }
         }
+    }
+
+    /**
+     * Keep the blink phase turning while anything on the live screen is asking
+     * for it, and stop as soon as nothing is.
+     *
+     * A repeating invalidate is a real cost on a device, and a terminal that
+     * has never seen SGR 5 - which is nearly every session, because almost
+     * nothing in CP/M blinks - must not pay it. So the tick is armed only when
+     * a blinking cell is actually written, and each tick re-checks: the moment
+     * the last one scrolls off or is erased, the loop ends and the phase is put
+     * back to "showing" so a later still frame cannot be caught mid-blink.
+     *
+     * Only the LIVE screen is scanned, and a blinking cell that has scrolled
+     * into history therefore stops blinking: it keeps its flag, so it will
+     * blink again if something on the live screen restarts the tick, but
+     * nothing re-arms on its own behalf. That is the right trade - the
+     * alternative is scanning a thousand history lines every 500 ms to keep a
+     * cell strobing that the user has scrolled away from - and it is written
+     * down because the behaviour is otherwise indistinguishable from a bug.
+     */
+    private fun scheduleBlink() {
+        if (blinkScheduled) return
+        blinkScheduled = true
+        postDelayed(blinkTick, BLINK_MS)
+    }
+
+    private var blinkScheduled = false
+
+    private val blinkTick: Runnable = Runnable {
+        blinkScheduled = false
+        if (hasBlinkingCells()) {
+            textBlinkOn = !textBlinkOn
+            invalidate()
+            scheduleBlink()
+        } else if (!textBlinkOn) {
+            textBlinkOn = true
+            invalidate()
+        }
+    }
+
+    private fun hasBlinkingCells(): Boolean {
+        for (row in 0 until rows) {
+            val line = attrBuffer[row]
+            for (col in 0 until cols) {
+                if (line[col].toInt() and CELL_BLINK != 0) return true
+            }
+        }
+        return false
+    }
+
+    override fun onDetachedFromWindow() {
+        // The blink re-posts itself, so nothing else would ever stop it.
+        removeCallbacks(blinkTick)
+        blinkScheduled = false
+        removeCallbacks(abandonBellFocus)
+        abandonBellAudioFocus()
+        super.onDetachedFromWindow()
     }
 
     private fun drawCursor(canvas: Canvas, vrow: Int, viewportRows: Int,
@@ -930,13 +1176,33 @@ class TerminalView @JvmOverloads constructor(
 
     private fun processChar(ch: Int) {
         when (escapeState) {
-            0 -> { // Normal state
+            ESC_NORMAL -> { // Normal state
                 when (ch) {
-                    0x1B -> escapeState = 1 // ESC
-                    0x0D -> cursorCol = 0   // CR
-                    0x0A -> newLine()       // LF
-                    0x08 -> if (cursorCol > 0) cursorCol-- // BS
+                    0x1B -> { // ESC
+                        escapeState = ESC_SEEN
+                        escapeParams.clear()
+                        escapeCurrentParam.clear()
+                        escapePrivate = false
+                    }
+                    0x0D -> { cursorCol = 0; pendingWrap = false }   // CR
+                    // LF, with an implicit carriage return. Both siblings do
+                    // this at the same point and both wrote down why: without
+                    // it a file with bare LFs - anything that came from a Unix
+                    // host - stair-steps down and to the right, each line
+                    // starting where the last one ended. It costs nothing for
+                    // ordinary CP/M output, which sends CR before LF and has
+                    // therefore already zeroed the column.
+                    //
+                    // lineFeed() itself deliberately does NOT do this: NEL and
+                    // the deferred wrap both call it after setting the column
+                    // themselves, and IND is defined as a row move alone.
+                    0x0A -> { cursorCol = 0; lineFeed() }   // LF
+                    0x08 -> { // BS
+                        pendingWrap = false
+                        if (cursorCol > 0) cursorCol--
+                    }
                     0x09 -> { // TAB - next 8-column stop
+                        pendingWrap = false
                         // Dropped entirely before this: the `else` branch only
                         // prints 0x20 and above, so every tab vanished and any
                         // program that lays out columns with them - PIP's
@@ -952,17 +1218,37 @@ class TerminalView @JvmOverloads constructor(
                     }
                 }
             }
-            1 -> { // After ESC
-                when (ch) {
-                    '['.code -> {
-                        escapeState = 2
-                        escapeParams.clear()
-                        escapeCurrentParam.clear()
-                    }
-                    else -> escapeState = 0
-                }
+            ESC_SEEN -> processEscape(ch)
+            ESC_VT52_ROW -> {
+                // ESC Y takes its two coordinates as bytes biased by 0x20.
+                vt52CursorRow = (ch - 0x20).coerceIn(0, rows - 1)
+                escapeState = ESC_VT52_COL
             }
-            2 -> { // CSI sequence
+            ESC_VT52_COL -> {
+                // Clearing the wrap here is a deliberate divergence from
+                // z80cpmw, which does not. Its own conformance suite asserts
+                // the rule this follows - "a cursor move cancels an armed wrap"
+                // in tests/test_vt52.cpp - and ESC Y is the one cursor move
+                // there exempt from it, so this sides with that port's tests
+                // against that port's code. ioscpm clears it. An address that
+                // did not resolve an armed wrap would be thrown
+                // away by the next glyph, which takes the wrap first: the
+                // character would land one row below the addressed row, at
+                // column 0, and on the bottom row of a scrolling region it
+                // would scroll the region as well.
+                pendingWrap = false
+                cursorRow = vt52CursorRow
+                cursorCol = (ch - 0x20).coerceIn(0, cols - 1)
+                escapeState = ESC_NORMAL
+            }
+            ESC_CONSUME_ONE -> {
+                // The designator's argument: a character set for ESC ( ) * +,
+                // a line size for ESC #. Swallowed whole, because nothing here
+                // remaps a glyph or draws a double-height row, and printing the
+                // argument is the one outcome that is certainly wrong.
+                escapeState = ESC_NORMAL
+            }
+            ESC_CSI -> { // CSI sequence
                 when {
                     ch in '0'.code..'9'.code -> {
                         // A leading zero is padding, not a digit, and is
@@ -988,12 +1274,28 @@ class TerminalView @JvmOverloads constructor(
                     }
                     ch in 0x30..0x3F -> {
                         // ':' and the private markers '<', '=', '>', '?'.
-                        // Consumed and ignored, and NOT treated as a final:
-                        // ESC[?25l has to reach processCSI with 'l' as its
-                        // final and be dropped there. Ending the sequence at
-                        // the '?' would print "25l" on screen, which is the bug
-                        // z80cpmw's item 13 records fixing in the other
-                        // direction.
+                        // Consumed and NOT treated as a final: ESC[?25l has to
+                        // reach processCSI with 'l' as its final and be acted on
+                        // there. Ending the sequence at the '?' would print
+                        // "25l" on screen, which is the bug z80cpmw's item 13
+                        // records fixing in the other direction.
+                        //
+                        // The four markers are now REMEMBERED rather than only
+                        // swallowed. Five finals need to know: 'h' and 'l' act
+                        // only when the marker is present, 'n' and 'c' only
+                        // when it is absent, and 'm' bails out entirely - so
+                        // that the xterm modifyOtherKeys queries are not read
+                        // as renditions. See the note on the 'm' handler for
+                        // what each of the two forms would otherwise do.
+                        if (ch == '?'.code || ch == '<'.code ||
+                            ch == '='.code || ch == '>'.code) {
+                            escapePrivate = true
+                        }
+                    }
+                    ch in 0x20..0x2F -> {
+                        // Intermediate bytes, including the space of CSI SP q.
+                        // Consumed without joining the parameter list, so the
+                        // real final still reaches processCSI.
                     }
                     ch in 0x40..0x7E -> {
                         // A trailing empty field is not a parameter: ESC[H and
@@ -1001,9 +1303,9 @@ class TerminalView @JvmOverloads constructor(
                         // getOrElse's defaults and the SGR reset keep working.
                         endCsiParam(keepEmpty = false)
                         processCSI(ch.toChar())
-                        escapeState = 0
+                        escapeState = ESC_NORMAL
                     }
-                    else -> escapeState = 0
+                    else -> escapeState = ESC_NORMAL
                 }
             }
         }
@@ -1032,6 +1334,151 @@ class TerminalView @JvmOverloads constructor(
     }
 
     /**
+     * The byte after an ESC that was not '[', which this parser used to discard
+     * outright - so VT52 did not exist, nothing could save a cursor, and a
+     * program driving the screen with ESC 7 / ESC 8 had both halves swallowed
+     * and its output left where the cursor happened to be.
+     *
+     * The table is z80cpmw's processEscapeChar, byte for byte, because that is
+     * the port FEATURE_PARITY.md measures the family against and two of these
+     * bytes mean DIFFERENT things depending on the mode already in force.
+     * Guessing either would be worse than not having them.
+     */
+    private fun processEscape(ch: Int) {
+        when (ch.toChar()) {
+            '[' -> {
+                escapeState = ESC_CSI
+                escapeParams.clear()
+                escapeCurrentParam.clear()
+                escapePrivate = false
+                return
+            }
+            // DECSC / DECRC. The whole rendition travels with the position -
+            // both colours, the CELL_* bits and reverse - which is the half a
+            // save that kept only a cursor gets wrong: a program that saves,
+            // prints a highlighted status line and restores expects the
+            // highlight to end there.
+            '7' -> {
+                savedCursorRow = cursorRow
+                savedCursorCol = cursorCol
+                savedFgColor = currentFgColor
+                savedBgColor = currentBgColor
+                savedFlags = currentFlags
+                savedReverse = reverseVideo
+            }
+            '8' -> {
+                pendingWrap = false
+                cursorRow = savedCursorRow.coerceIn(0, rows - 1)
+                // 0..cols, not 0..cols-1. The parked column is a real state -
+                // truncate mode leaves the cursor one past the edge - and
+                // coercing it away here would make the save/restore pair move
+                // the cursor: a glyph after the restore would overwrite the
+                // last cell where before the pair it was dropped. The bound is
+                // still a bound, because resizeBuffers re-clamps both saved
+                // values whenever the grid moves under them.
+                cursorCol = savedCursorCol.coerceIn(0, cols)
+                currentFgColor = savedFgColor
+                currentBgColor = savedBgColor
+                currentFlags = savedFlags
+                reverseVideo = savedReverse
+            }
+            // Overloaded between the two modes, and deliberately does NOT
+            // switch mode either way: which one is meant is decided by the mode
+            // already in force.
+            'D' -> if (vt52Mode) {
+                pendingWrap = false
+                if (cursorCol > 0) cursorCol--
+            } else {
+                lineFeed()  // IND
+            }
+            'E' -> if (vt52Mode) {
+                eraseScreen()  // Heath/Zenith clear and home
+            } else {
+                cursorCol = 0  // NEL
+                lineFeed()
+            }
+            // RI, in both modes. Only the exact top of the scrolling region
+            // scrolls; above it the cursor just moves up, and at row 0 with a
+            // region that starts lower, nothing happens at all.
+            'M' -> {
+                pendingWrap = false
+                if (cursorRow == scrollTop) scrollRegionDown(1)
+                else if (cursorRow > 0) cursorRow--
+            }
+            // The VT52-exclusive bytes. Receiving one IS the signal that the
+            // guest is driving a VT52, so each sets the mode as its first act -
+            // the same auto-detection z80cpmw does, and the reason a CP/M
+            // program that never sends ESC [ ? 2 l still gets a VT52.
+            'A' -> { vt52Mode = true; pendingWrap = false; if (cursorRow > 0) cursorRow-- }
+            'B' -> { vt52Mode = true; pendingWrap = false; cursorRow = (cursorRow + 1).coerceAtMost(rows - 1) }
+            'C' -> { vt52Mode = true; pendingWrap = false; cursorCol = (cursorCol + 1).coerceAtMost(cols - 1) }
+            // Clamps at the top rather than scrolling, which is what a real
+            // VT52 does and what z80cpmw documents doing.
+            'I' -> { vt52Mode = true; pendingWrap = false; if (cursorRow > 0) cursorRow-- }
+            // Erasing resolves an armed wrap, the same way ED does - z80cpmw
+            // routes this byte through the function that clears it. ESC K
+            // deliberately does not, which is also z80cpmw's behaviour and
+            // ioscpm's: EL leaves the wrap alone in every port.
+            'J' -> { vt52Mode = true; pendingWrap = false; clearToEnd() }
+            'K' -> { vt52Mode = true; clearLineToEnd() }
+            'Y' -> { vt52Mode = true; escapeState = ESC_VT52_ROW; return }
+            // Enter/exit the VT52 graphics set. Consumed and remembered as
+            // "this is a VT52"; no glyph is remapped, as in z80cpmw.
+            'F', 'G' -> vt52Mode = true
+            // Home, but ONLY if the VT52 is already established. In ANSI this
+            // byte is HTS, and there are no settable tab stops here, so acting
+            // on it would move the cursor for a sequence that asked for a tab
+            // stop.
+            'H' -> if (vt52Mode) {
+                pendingWrap = false
+                cursorRow = 0
+                cursorCol = 0
+            }
+            'Z' -> sendAnswerback(if (vt52Mode) VT52_ID_RESPONSE else DA_RESPONSE)
+            '<' -> vt52Mode = false
+            // RIS. The one guest sequence that reaches the machine-level reset;
+            // see the note on clear().
+            'c' -> clear()
+            // Keypad application/numeric. Accepted and ignored: this port sends
+            // no keypad sequences that would differ between the two.
+            '=', '>' -> { }
+            // A designator whose argument is the next byte.
+            '(', ')', '*', '+', '#', ' ' -> {
+                escapeState = ESC_CONSUME_ONE
+                return
+            }
+            // Anything else is swallowed, INCLUDING a second ESC - an ESC does
+            // not restart the escape state, which is what z80cpmw does and what
+            // keeps "ESC ESC [ 2 J" printing "[2J" on both ports rather than
+            // clearing the screen on one of them.
+            else -> { }
+        }
+        escapeState = ESC_NORMAL
+    }
+
+    /**
+     * Send a reply to the guest as though it had been typed.
+     *
+     * The leading ESC is added here for the same reason sendEscapeSeq() adds
+     * it. It goes straight to inputListener rather than through sendChar(),
+     * which is where the two differ on the sibling ports: z80cpmw's key path
+     * calls scrollToBottom() and drops the mouse selection, so its
+     * sendAnswerback deliberately bypasses it - "the terminal answering a
+     * question is not the user typing". Nothing here does that yet; sendChar()
+     * is a bare invoke and the scroll position is reset by processOutput, on
+     * output. Keeping the reply off the key path anyway is what stops that
+     * from silently becoming untrue the first time sendChar() grows a side
+     * effect, which on this port it eventually will - the on-screen Ctrl latch
+     * is already one caller's worth of state away.
+     */
+    private fun sendAnswerback(s: String) {
+        inputListener?.let { listener ->
+            listener.invoke(0x1B)
+            for (c in s) listener.invoke(c.code)
+        }
+    }
+
+    /**
      * A CSI parameter whose ECMA-48 default is 1 - the cursor motions and both
      * halves of CUP.
      *
@@ -1050,18 +1497,28 @@ class TerminalView @JvmOverloads constructor(
 
         when (command) {
             'H', 'f' -> { // Cursor position
+                pendingWrap = false
                 cursorRow = (csiParamOrOne(params, 0) - 1).coerceIn(0, rows - 1)
                 cursorCol = (csiParamOrOne(params, 1) - 1).coerceIn(0, cols - 1)
             }
-            'A' -> cursorRow = (cursorRow - csiParamOrOne(params, 0)).coerceAtLeast(0)
-            'B' -> cursorRow = (cursorRow + csiParamOrOne(params, 0)).coerceAtMost(rows - 1)
-            'C' -> cursorCol = (cursorCol + csiParamOrOne(params, 0)).coerceAtMost(cols - 1)
-            'D' -> cursorCol = (cursorCol - csiParamOrOne(params, 0)).coerceAtLeast(0)
+            // The four motions clamp to the SCREEN, not to the scrolling
+            // region. Both siblings do the same, and it is what a VT100 does:
+            // the region bounds scrolling, not addressing.
+            'A' -> { pendingWrap = false; cursorRow = (cursorRow - csiParamOrOne(params, 0)).coerceAtLeast(0) }
+            'B' -> { pendingWrap = false; cursorRow = (cursorRow + csiParamOrOne(params, 0)).coerceAtMost(rows - 1) }
+            'C' -> { pendingWrap = false; cursorCol = (cursorCol + csiParamOrOne(params, 0)).coerceAtMost(cols - 1) }
+            'D' -> { pendingWrap = false; cursorCol = (cursorCol - csiParamOrOne(params, 0)).coerceAtLeast(0) }
+            // CHA and HPA - absolute column. The two finals share a handler in
+            // both siblings; '`' is the older spelling.
+            'G', '`' -> { pendingWrap = false; cursorCol = (csiParamOrOne(params, 0) - 1).coerceIn(0, cols - 1) }
+            // VPA - absolute row, never region-relative (no origin mode).
+            'd' -> { pendingWrap = false; cursorRow = (csiParamOrOne(params, 0) - 1).coerceIn(0, rows - 1) }
             'J' -> { // Erase display
+                pendingWrap = false
                 when (params.getOrElse(0) { 0 }) {
                     0 -> clearToEnd()
                     1 -> clearToBeginning()
-                    2 -> clearScreen()
+                    2 -> eraseScreen()
                 }
             }
             'K' -> { // Erase line
@@ -1071,7 +1528,65 @@ class TerminalView @JvmOverloads constructor(
                     2 -> clearLine()
                 }
             }
+            // The seven editing commands - five that rewrite a line or a block
+            // of lines, and the two scrolls. Each fills what it vacates through
+            // the same blank helpers everything else uses, so an inserted blank
+            // takes the current background like any other erase.
+            '@' -> insertChars(csiParamOrOne(params, 0))
+            'P' -> deleteChars(csiParamOrOne(params, 0))
+            'X' -> eraseChars(csiParamOrOne(params, 0))
+            'L' -> insertLines(csiParamOrOne(params, 0))
+            'M' -> deleteLines(csiParamOrOne(params, 0))
+            'S' -> repeat(csiParamOrOne(params, 0).coerceAtMost(rows)) { scrollRegionUp(1) }
+            'T' -> repeat(csiParamOrOne(params, 0).coerceAtMost(rows)) { scrollRegionDown(1) }
+            'r' -> setScrollRegion(params)
+            // SCP/RCP, sharing the DECSC slot. CSI s saves the POSITION only -
+            // that is the DEC/ANSI.SYS reading of it and what both siblings do -
+            // while CSI u restores position and leaves the rendition alone.
+            's' -> {
+                savedCursorRow = cursorRow
+                savedCursorCol = cursorCol
+            }
+            'u' -> {
+                pendingWrap = false
+                cursorRow = savedCursorRow.coerceIn(0, rows - 1)
+                cursorCol = savedCursorCol.coerceIn(0, cols)
+            }
+            // SM/RM. Private modes only: the non-private ones (IRM 4, LNM 20)
+            // are not implemented here or in either sibling, and acting on the
+            // number without the marker would confuse the two sets.
+            'h' -> if (escapePrivate) setPrivateModes(params, true)
+            'l' -> if (escapePrivate) setPrivateModes(params, false)
+            // DSR. Non-private only, so ESC[?6n is silent - a program asking
+            // the private question is asking about something this terminal does
+            // not have, and answering the public answer would be a lie about
+            // which question was understood.
+            'n' -> if (!escapePrivate) {
+                when (params.getOrElse(0) { 0 }) {
+                    5 -> sendAnswerback("[0n")   // "I am fine"
+                    // CPR, 1-based. The column is clamped because cursorCol can
+                    // legitimately sit one PAST the last column: that is how
+                    // truncate mode parks after filling a line (see putChar).
+                    // Reporting it unclamped answers "81" on an 80-column
+                    // screen - a column CUP cannot address and neither sibling
+                    // can produce, since neither ever parks past the edge.
+                    6 -> sendAnswerback(
+                        "[${cursorRow + 1};${(cursorCol + 1).coerceAtMost(cols)}R")
+                }
+            }
+            // Primary Device Attributes. ESC[>c and ESC[=c are silent, as they
+            // are in z80cpmw: they ask for a secondary/tertiary identity this
+            // terminal does not have one of.
+            'c' -> if (!escapePrivate && params.getOrElse(0) { 0 } == 0) sendAnswerback(DA_RESPONSE)
             'm' -> { // SGR - Select Graphic Rendition
+                // A private marker means this is not a rendition at all.
+                // ESC[>4;2m is how an xterm-aware program asks about
+                // modifyOtherKeys; read as SGR its "4" would turn underline on.
+                // The bare ESC[>m is worse: with the marker consumed and no
+                // parameters left it is indistinguishable from ESC[m and resets
+                // the whole rendition. z80cpmw's changelog records exactly that
+                // bug, and its tests keep the two forms apart.
+                if (escapePrivate) return
                 if (params.isEmpty()) {
                     // ESC[m is ESC[0m.
                     resetRendition()
@@ -1090,9 +1605,10 @@ class TerminalView @JvmOverloads constructor(
                         // the divergence this dimension exists to remove.
                         //
                         // Consuming them is not optional. Read as parameters in
-                        // their own right they land as colours: the "33" of
-                        // ESC[38;5;33m set a brown foreground, and the "0" of
-                        // ESC[38;2;0;128;255m reset the whole rendition
+                        // their own right they land as renditions: the "33" of
+                        // ESC[38;5;33m set a brown foreground, the "5" of
+                        // ESC[38;5;1m would now start the cell blinking, and the
+                        // "0" of ESC[38;2;0;128;255m reset the whole rendition
                         // mid-sequence.
                         //
                         // The steps are 3 and 5, not z80cpmw's 2 and 4: its
@@ -1113,31 +1629,7 @@ class TerminalView @JvmOverloads constructor(
                             }
                             continue
                         }
-                        when {
-                            p == 0 -> resetRendition()
-                            // 39 and 49 are "back to the default", separately
-                            // for each half. Without them a program that said
-                            // ESC[31m ... ESC[39m stayed red for the rest of
-                            // the session, because nothing but a full reset
-                            // could undo a colour.
-                            p == 39 -> currentFgColor = DEFAULT_FG
-                            p == 49 -> currentBgColor = DEFAULT_BG
-                            p in 30..37 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 30)]
-                            p in 40..47 -> currentBgColor = cgaColors[ansiToCgaIndex(p - 40)]
-                            p in 90..97 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 90) + 8]
-                            // The bright backgrounds are NOT folded onto the
-                            // normal ones the way z80cpmw folds them. It has to:
-                            // its cell is a packed CGA attribute byte whose
-                            // background field is three bits wide, with bit 7
-                            // being blink, so a bright background could only be
-                            // stored by borrowing it. A cell here is a full ARGB
-                            // Int - no nibble, no blink bit, nothing to borrow -
-                            // and the bright foregrounds already render, so the
-                            // background half is symmetric with them. Folding
-                            // would make ESC[104m indistinguishable from
-                            // ESC[44m for a reason that does not apply here.
-                            p in 100..107 -> currentBgColor = cgaColors[ansiToCgaIndex(p - 100) + 8]
-                        }
+                        applySGR(p)
                         i++
                     }
                 }
@@ -1145,31 +1637,217 @@ class TerminalView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * One SGR parameter.
+     *
+     * Split out of the 'm' handler when the attribute half arrived: the loop
+     * above owns the 38/48 lookahead, which is about the SHAPE of the parameter
+     * list, and this owns what a single parameter means. Anything not listed is
+     * a silent no-op, which is what both siblings do - a rendition nobody
+     * implements is better ignored than approximated.
+     */
+    private fun applySGR(p: Int) {
+        when {
+            p == 0 -> resetRendition()
+            // Bold. Unlike z80cpmw this does NOT also set an intensity bit in
+            // the colour: that port packs a CGA byte whose bit 3 IS the bright
+            // half of the palette, so bold and bright are the same storage
+            // there and cannot be separated. A cell here holds a full ARGB
+            // foreground and a CELL_BOLD bit beside it, so ESC[1m picks the
+            // heavy face and leaves the colour exactly as the guest set it -
+            // and ESC[22m undoes precisely what ESC[1m did.
+            p == 1 -> currentFlags = currentFlags or CELL_BOLD
+            p == 22 -> currentFlags = currentFlags and CELL_BOLD.inv()
+            p == 4 -> currentFlags = currentFlags or CELL_UNDERLINE
+            p == 24 -> currentFlags = currentFlags and CELL_UNDERLINE.inv()
+            // 5 is slow blink and 6 is fast blink; one bit serves both, as it
+            // does in z80cpmw. Two rates would need two timers to tell apart.
+            p == 5 || p == 6 -> {
+                currentFlags = currentFlags or CELL_BLINK
+                scheduleBlink()
+            }
+            p == 25 -> currentFlags = currentFlags and CELL_BLINK.inv()
+            p == 7 -> reverseVideo = true
+            p == 27 -> reverseVideo = false
+            // 39 and 49 are "back to the default", separately for each half.
+            // Without them a program that said ESC[31m ... ESC[39m stayed red
+            // for the rest of the session, because nothing but a full reset
+            // could undo a colour. Neither sibling implements these; this port
+            // does, and it is the one divergence in this handler that makes it
+            // MORE conformant rather than less.
+            p == 39 -> currentFgColor = DEFAULT_FG
+            p == 49 -> currentBgColor = DEFAULT_BG
+            p in 30..37 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 30)]
+            p in 40..47 -> currentBgColor = cgaColors[ansiToCgaIndex(p - 40)]
+            p in 90..97 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 90) + 8]
+            // The bright backgrounds are NOT folded onto the normal ones the
+            // way z80cpmw folds them. It has to: its cell is a packed CGA
+            // attribute byte whose background field is three bits wide, with
+            // bit 7 being blink, so a bright background could only be stored by
+            // borrowing it. A cell here is a full ARGB Int - no nibble, no
+            // blink bit, nothing to borrow - and the bright foregrounds already
+            // render, so the background half is symmetric with them. Folding
+            // would make ESC[104m indistinguishable from ESC[44m for a reason
+            // that does not apply here.
+            p in 100..107 -> currentBgColor = cgaColors[ansiToCgaIndex(p - 100) + 8]
+        }
+    }
+
+    /**
+     * DECSTBM, CSI <top> ; <bottom> r.
+     *
+     * Both parameters default when missing OR zero, so a bare ESC[r resets the
+     * region to the whole screen. A region that is inverted or only one line
+     * tall is rejected WHOLE - the old region survives and the cursor is not
+     * homed - which is what both siblings do; a one-line scrolling region has
+     * no scroll in it, and honouring it would park the guest's output on a
+     * single row.
+     *
+     * The bottom is clamped rather than rejected so a 24-line program's ESC[1;24r
+     * works on a screen that is 24 rows here, and the cursor homes to absolute
+     * (0,0) rather than to the region's top, because there is no origin mode.
+     */
+    private fun setScrollRegion(params: List<Int>) {
+        pendingWrap = false
+        val top = if (params.getOrElse(0) { 0 } > 0) params[0] - 1 else 0
+        var bottom = if (params.getOrElse(1) { 0 } > 0) params[1] - 1 else rows - 1
+        if (bottom > rows - 1) bottom = rows - 1
+        if (top < bottom) {
+            scrollTop = top
+            scrollBottom = bottom
+            cursorRow = 0
+            cursorCol = 0
+        }
+    }
+
+    /**
+     * The private modes this terminal has something to do about. Everything
+     * else is consumed silently, which is the whole point of a private marker.
+     */
+    private fun setPrivateModes(params: List<Int>, set: Boolean) {
+        for (p in params) {
+            when (p) {
+                // DECANM. Set means ANSI, reset means VT52 - the sense is
+                // inverted relative to the name, and it is the standard's.
+                2 -> vt52Mode = !set
+                // DECAWM.
+                7 -> {
+                    autoWrap = set
+                    // Turning it off drops a wrap already armed, rather than
+                    // leaving it to fire on the next glyph after the guest has
+                    // said it does not want one.
+                    if (!set) pendingWrap = false
+                }
+                // DECTCEM.
+                25 -> {
+                    cursorVisible = set
+                    invalidate()
+                }
+            }
+        }
+    }
+
+
     private fun putChar(ch: Char) {
         // When wrap is enabled, wrap at visible screen edge
         // When wrap is disabled, truncate at buffer edge (cols)
         val wrapAt = if (wrapLines) visibleCols else cols
 
+        // Take a wrap armed by the PREVIOUS glyph, before writing this one.
+        // The line the wrap moves onto is chosen by lineFeed(), so a wrap on
+        // the last row of a scrolling region scrolls the region rather than the
+        // screen.
+        if (pendingWrap) {
+            cursorCol = 0
+            lineFeed()
+            pendingWrap = false
+        }
+
+        // The cursor is past the edge, having arrived from somewhere OTHER
+        // than the previous glyph - putChar itself never leaves it there while
+        // wrapping. A TAB, a CUP, a CUF or a restored cursor can, because every
+        // one of those clamps to `cols - 1` while `wrapAt` is `visibleCols`,
+        // and visibleCols is the smaller of the two at any font size above the
+        // default. Turning the wrap setting on mid-session does it too: the
+        // truncate arm below parks the cursor at `cols`, and `wrapAt` then
+        // becomes visibleCols under it.
+        //
+        // All three cases have to be answered, and the middle one is the one
+        // this block lost when the pending flag arrived: for a while it was a
+        // bare `return`, which threw away the rest of the line where the code
+        // before it had wrapped. That is a character destroyed rather than
+        // pushed off-screen, because nothing reaches the buffer at all.
         if (cursorCol >= wrapAt) {
-            if (wrapLines) {
-                cursorCol = 0
-                newLine()
-            } else {
-                // Truncate - don't advance, just stay at end of line
-                return
+            when {
+                // Truncate: the setting promises the head of the line, so the
+                // rest goes. This arm is the one the old code had.
+                !wrapLines -> return
+                // Wrapping: take the wrap now. This is what was lost.
+                autoWrap -> { cursorCol = 0; lineFeed() }
+                // Wrapping enabled but DECAWM off: the guest asked not to
+                // wrap, which is not a request to discard. Overwrite the last
+                // column, as both siblings do.
+                else -> cursorCol = wrapAt - 1
             }
         }
+
         screenBuffer[cursorRow][cursorCol] = ch
-        colorBuffer[cursorRow][cursorCol] = currentFgColor
-        bgBuffer[cursorRow][cursorCol] = currentBgColor
-        cursorCol++
+        colorBuffer[cursorRow][cursorCol] = renditionFg()
+        bgBuffer[cursorRow][cursorCol] = renditionBg()
+        attrBuffer[cursorRow][cursorCol] = currentFlags.toByte()
+        if (currentFlags and CELL_BLINK != 0) scheduleBlink()
+
+        if (cursorCol >= wrapAt - 1) {
+            // At the last column, and the three cases are genuinely different.
+            //
+            // The user's "wrap long lines" setting off means TRUNCATE, and
+            // truncating means the head of the line: the cursor parks one past
+            // the edge and the early return above drops the rest. That is what
+            // this port did before there was a pending flag and it is what the
+            // setting promises - a reader wants the first 80 columns of a wide
+            // report, not the first 79 and the last one.
+            //
+            // Wrapping on, DECAWM on: arm the wrap rather than taking it. A
+            // line that exactly fills the width must not scroll until something
+            // is written on the line AFTER it, which is what a real VT100 does
+            // and what stops a full-width line costing a blank one below it.
+            //
+            // Wrapping on, DECAWM off: the guest said "do not wrap", which is
+            // not the same as "throw the rest away". The cursor stays ON the
+            // last column and each further glyph overwrites it, which is what
+            // both siblings do (z80cpmw's processNormalChar has no else arm at
+            // all; ioscpm says it in words). Reading this case as the truncate
+            // case was wrong: it let a guest that turned autowrap off lose
+            // every character after the eightieth.
+            if (!wrapLines) cursorCol = wrapAt
+            else if (autoWrap) pendingWrap = true
+        } else {
+            cursorCol++
+        }
     }
 
-    private fun newLine() {
-        cursorRow++
-        if (cursorRow >= rows) {
-            scrollUp()
-            cursorRow = rows - 1
+    /**
+     * One line down, honouring the scrolling region - IND, NEL, a bare LF and
+     * the deferred wrap all land here.
+     *
+     * Three cases, and the middle one is the whole point of a region: exactly
+     * AT the region's bottom row the region scrolls and the cursor stays put;
+     * above the region the cursor walks down normally and may walk into it;
+     * below it the cursor moves down and stops at the last row. A cursor parked
+     * under the region can never scroll it, which is what lets a program keep a
+     * status line at the bottom of the screen.
+     *
+     * This replaced newLine(), which knew only about the whole screen.
+     */
+    private fun lineFeed() {
+        pendingWrap = false
+        if (cursorRow < scrollTop) {
+            if (cursorRow < rows - 1) cursorRow++
+        } else if (cursorRow >= scrollBottom) {
+            if (cursorRow == scrollBottom) scrollRegionUp(1)
+            else if (cursorRow < rows - 1) cursorRow++
+        } else {
+            cursorRow++
         }
     }
 
@@ -1179,22 +1857,26 @@ class TerminalView @JvmOverloads constructor(
             historyChars.addLast(screenBuffer[0].copyOf())
             historyColors.addLast(colorBuffer[0].copyOf())
             historyBg.addLast(bgBuffer[0].copyOf())
+            historyFlags.addLast(attrBuffer[0].copyOf())
             while (historyChars.size > scrollbackLines) {
                 historyChars.removeFirst()
                 historyColors.removeFirst()
                 historyBg.removeFirst()
+                historyFlags.removeFirst()
             }
         } else if (historyChars.isNotEmpty()) {
             // Scrollback was turned off after lines were already kept.
             historyChars.clear()
             historyColors.clear()
             historyBg.clear()
+            historyFlags.clear()
             userScrollUp = 0
         }
         for (row in 0 until rows - 1) {
             screenBuffer[row] = screenBuffer[row + 1].copyOf()
             colorBuffer[row] = colorBuffer[row + 1].copyOf()
             bgBuffer[row] = bgBuffer[row + 1].copyOf()
+            attrBuffer[row] = attrBuffer[row + 1].copyOf()
         }
         // Fresh arrays because cols may have moved since these were allocated,
         // then blanked through the one definition of a blank cell - the new
@@ -1203,7 +1885,129 @@ class TerminalView @JvmOverloads constructor(
         screenBuffer[rows - 1] = CharArray(cols)
         colorBuffer[rows - 1] = IntArray(cols)
         bgBuffer[rows - 1] = IntArray(cols)
+        attrBuffer[rows - 1] = ByteArray(cols)
         blankRow(rows - 1)
+    }
+
+    /**
+     * Scroll the scrolling region up by `lines`, discarding what falls out of
+     * the top of it.
+     *
+     * When the region is the whole screen this delegates to scrollUp(), which
+     * is the ONLY path that feeds the scrollback. A partial region deliberately
+     * does not: what falls out of the top of a region was never on screen above
+     * it, so it is not history, and pushing it would interleave a status
+     * window's discarded rows into the user's transcript.
+     */
+    private fun scrollRegionUp(lines: Int) {
+        if (lines <= 0) return
+        if (scrollTop == 0 && scrollBottom == rows - 1) {
+            repeat(lines.coerceAtMost(rows)) { scrollUp() }
+            return
+        }
+        val height = scrollBottom - scrollTop + 1
+        val n = lines.coerceAtMost(height)
+        for (row in scrollTop..scrollBottom - n) {
+            screenBuffer[row] = screenBuffer[row + n].copyOf()
+            colorBuffer[row] = colorBuffer[row + n].copyOf()
+            bgBuffer[row] = bgBuffer[row + n].copyOf()
+            attrBuffer[row] = attrBuffer[row + n].copyOf()
+        }
+        for (row in scrollBottom - n + 1..scrollBottom) blankRow(row)
+    }
+
+    /**
+     * Scroll the region down by `lines`. There is no whole-screen special case
+     * and nothing reaches the scrollback: history only ever grows off the top.
+     */
+    private fun scrollRegionDown(lines: Int) {
+        if (lines <= 0) return
+        val height = scrollBottom - scrollTop + 1
+        val n = lines.coerceAtMost(height)
+        for (row in scrollBottom downTo scrollTop + n) {
+            screenBuffer[row] = screenBuffer[row - n].copyOf()
+            colorBuffer[row] = colorBuffer[row - n].copyOf()
+            bgBuffer[row] = bgBuffer[row - n].copyOf()
+            attrBuffer[row] = attrBuffer[row - n].copyOf()
+        }
+        for (row in scrollTop until scrollTop + n) blankRow(row)
+    }
+
+    /**
+     * ICH - open `n` cells at the cursor, pushing the rest of the line right.
+     * What falls off the right-hand end is lost, not wrapped: this is a
+     * line-local operation and there are no left/right margins here.
+     */
+    private fun insertChars(n: Int) {
+        pendingWrap = false
+        if (cursorRow >= rows || cursorCol >= cols) return
+        val count = n.coerceAtMost(cols - cursorCol)
+        for (col in cols - 1 downTo cursorCol + count) {
+            screenBuffer[cursorRow][col] = screenBuffer[cursorRow][col - count]
+            colorBuffer[cursorRow][col] = colorBuffer[cursorRow][col - count]
+            bgBuffer[cursorRow][col] = bgBuffer[cursorRow][col - count]
+            attrBuffer[cursorRow][col] = attrBuffer[cursorRow][col - count]
+        }
+        blankCells(cursorRow, cursorCol, cursorCol + count)
+    }
+
+    /** DCH - close `n` cells at the cursor, pulling the rest of the line left. */
+    private fun deleteChars(n: Int) {
+        pendingWrap = false
+        if (cursorRow >= rows || cursorCol >= cols) return
+        val count = n.coerceAtMost(cols - cursorCol)
+        for (col in cursorCol until cols - count) {
+            screenBuffer[cursorRow][col] = screenBuffer[cursorRow][col + count]
+            colorBuffer[cursorRow][col] = colorBuffer[cursorRow][col + count]
+            bgBuffer[cursorRow][col] = bgBuffer[cursorRow][col + count]
+            attrBuffer[cursorRow][col] = attrBuffer[cursorRow][col + count]
+        }
+        blankCells(cursorRow, cols - count, cols)
+    }
+
+    /** ECH - blank `n` cells at the cursor, moving nothing. */
+    private fun eraseChars(n: Int) {
+        pendingWrap = false
+        if (cursorRow >= rows || cursorCol >= cols) return
+        blankCells(cursorRow, cursorCol, (cursorCol + n).coerceAtMost(cols))
+    }
+
+    /**
+     * IL - open `n` lines at the cursor, within the scrolling region.
+     *
+     * A cursor outside the region makes this a complete no-op, which is the
+     * VT100 rule and z80cpmw's: the region is what the command operates inside,
+     * so a cursor that is not in one has nothing to insert into. Both commands
+     * also move the cursor to column 1, which is the part of the spec a
+     * from-scratch implementation usually misses.
+     */
+    private fun insertLines(n: Int) {
+        if (cursorRow < scrollTop || cursorRow > scrollBottom) return
+        pendingWrap = false
+        val count = n.coerceAtMost(scrollBottom - cursorRow + 1)
+        for (row in scrollBottom downTo cursorRow + count) {
+            screenBuffer[row] = screenBuffer[row - count].copyOf()
+            colorBuffer[row] = colorBuffer[row - count].copyOf()
+            bgBuffer[row] = bgBuffer[row - count].copyOf()
+            attrBuffer[row] = attrBuffer[row - count].copyOf()
+        }
+        for (row in cursorRow until cursorRow + count) blankRow(row)
+        cursorCol = 0
+    }
+
+    /** DL - close `n` lines at the cursor, within the scrolling region. */
+    private fun deleteLines(n: Int) {
+        if (cursorRow < scrollTop || cursorRow > scrollBottom) return
+        pendingWrap = false
+        val count = n.coerceAtMost(scrollBottom - cursorRow + 1)
+        for (row in cursorRow..scrollBottom - count) {
+            screenBuffer[row] = screenBuffer[row + count].copyOf()
+            colorBuffer[row] = colorBuffer[row + count].copyOf()
+            bgBuffer[row] = bgBuffer[row + count].copyOf()
+            attrBuffer[row] = attrBuffer[row + count].copyOf()
+        }
+        for (row in scrollBottom - count + 1..scrollBottom) blankRow(row)
+        cursorCol = 0
     }
 
     /**
@@ -1222,25 +2026,67 @@ class TerminalView @JvmOverloads constructor(
      * erased cell and a character written into it afterwards always agree.
      */
     private fun blankCells(row: Int, fromCol: Int, toCol: Int) {
+        val fg = renditionFg()
+        val bg = renditionBg()
         for (col in fromCol until toCol) {
             screenBuffer[row][col] = ' '
-            colorBuffer[row][col] = currentFgColor
-            bgBuffer[row][col] = currentBgColor
+            colorBuffer[row][col] = fg
+            bgBuffer[row][col] = bg
+            attrBuffer[row][col] = 0
         }
     }
 
     private fun blankRow(row: Int) {
         screenBuffer[row].fill(' ')
-        colorBuffer[row].fill(currentFgColor)
-        bgBuffer[row].fill(currentBgColor)
+        colorBuffer[row].fill(renditionFg())
+        bgBuffer[row].fill(renditionBg())
+        attrBuffer[row].fill(0)
     }
 
-    private fun clearScreen() {
+    /**
+     * The foreground and background a cell filled RIGHT NOW takes, with reverse
+     * video resolved into them.
+     *
+     * Reverse is resolved here and nowhere else - not stored on the cell and
+     * not applied at paint time - which is what makes SGR 7 and SGR 27 exact
+     * inverses: currentFgColor and currentBgColor are never touched by either,
+     * so removing reverse gives back precisely the pair that was there before.
+     *
+     * The PAPER substitution is this port's own, and it is forced by
+     * DEFAULT_BG being a sentinel rather than a colour. Reversing "no
+     * background" would produce a FOREGROUND of "no background", and drawRow
+     * draws nothing for that - a program that reversed a default screen would
+     * have gone silent instead of inverting. The colour a DEFAULT_BG cell
+     * actually shows is the page fill, so that is what the swap has to hand
+     * back. The reversed BACKGROUND needs no such care: it is currentFgColor,
+     * which is always a real colour, so a reversed cell always paints a rect.
+     */
+    private fun renditionFg(): Int = when {
+        !reverseVideo -> currentFgColor
+        currentBgColor == DEFAULT_BG -> PAPER
+        else -> currentBgColor
+    }
+
+    private fun renditionBg(): Int = if (reverseVideo) currentFgColor else currentBgColor
+
+    /**
+     * ED 2, and the VT52 ESC E: blank every cell and home the cursor.
+     *
+     * Homing is a deliberate deviation from a strict VT100 ED, and it is the
+     * one both siblings make - ANSI.SYS-era software clears the screen with
+     * ESC[2J and then prints, expecting to print at the top left.
+     *
+     * It touches the SCREEN and nothing else: not the rendition, not the
+     * scrolling region, not VT52 mode, not DECAWM. Resetting the region here
+     * was the bug ioscpm's 0165dac fixed.
+     */
+    private fun eraseScreen() {
         for (row in 0 until rows) {
             blankRow(row)
         }
         cursorRow = 0
         cursorCol = 0
+        pendingWrap = false
     }
 
     private fun clearToEnd() {
@@ -1269,16 +2115,24 @@ class TerminalView @JvmOverloads constructor(
         blankCells(cursorRow, 0, (cursorCol + 1).coerceAtMost(cols))
     }
 
-    /** Back to the power-on rendition, both halves of it. */
+    /** Back to the power-on rendition, every part of it. */
     private fun resetRendition() {
         currentFgColor = DEFAULT_FG
         currentBgColor = DEFAULT_BG
+        currentFlags = 0
+        reverseVideo = false
     }
 
     /**
-     * The machine-level clear: host-only, and the guest cannot reach it.
-     * MainActivity.bootEmulation is the sole caller; ESC[2J goes to
-     * clearScreen(), and no escape sequence this parser handles ends up here.
+     * The machine-level clear - the power-on state of the whole terminal, not
+     * just of the screen.
+     *
+     * It is no longer host-only. MainActivity.bootEmulation is still one
+     * caller, but ESC c (RIS) is now the other, and a guest CAN reach it: that
+     * is what RIS means, and z80cpmw wires it to the same function. ESC[2J
+     * still does not - it goes to eraseScreen(), which touches the screen and
+     * leaves every mode alone. The difference between the two is the whole
+     * reason both exist.
      *
      * The power-on state goes back FIRST, before anything is painted. An erase
      * now fills with the current background, so clearing first and resetting
@@ -1306,12 +2160,31 @@ class TerminalView @JvmOverloads constructor(
      */
     fun clear() {
         resetRendition()
-        escapeState = 0
+        escapeState = ESC_NORMAL
         escapeParams.clear()
         escapeCurrentParam.clear()
+        escapePrivate = false
         userScrollUp = 0
 
-        clearScreen()
+        // Every mode the parser can be left in, back to power-on. A guest that
+        // reset the machine and then found itself still in VT52 with a
+        // three-line scrolling region would have no way to ask for the state it
+        // just asked for.
+        savedCursorRow = 0
+        savedCursorCol = 0
+        savedFgColor = DEFAULT_FG
+        savedBgColor = DEFAULT_BG
+        savedFlags = 0
+        savedReverse = false
+        scrollTop = 0
+        scrollBottom = rows - 1
+        vt52Mode = false
+        autoWrap = true
+        pendingWrap = false
+        cursorVisible = true
+        textBlinkOn = true
+
+        eraseScreen()
         processOutputCount = 0
         invalidate()
     }

@@ -11,8 +11,14 @@ this file into the same accumulating record `todo.txt` was.
 Three checks left this file on 2026-08-29 under that rule - the zero-byte
 export, the ANSI colour parser, and most of the keyboard and scrollback work.
 They were run on an API 36 emulator against a build made the same day, and what
-they found is in **Verified**. What is below is what an emulator could not
-answer.
+they found is in **Verified**.
+
+**Section 5 arrived the same day, from the other direction.** A second round
+added the rest of the terminal parser and the per-cell attributes on a machine
+with no Android SDK at all. That code is compiled - by host `clang++` and by
+`kotlinc` against real Android framework classes, which `CHANGELOG.md`'s
+Unreleased preamble describes exactly - and it is unrun. Everything in section 5
+is a first sighting, not a regression check.
 
 One note for whoever runs these, because it cost this round twice: `adb shell
 input text` fires each character as a separate command and the guest drops some
@@ -101,3 +107,67 @@ a share sheet in somebody else's app.
 3. Boot CP/M and `R8` it under that name.
 4. Share the same file twice and confirm the "replaced" wording appears the
    second time - 8.3 makes collisions ordinary, and silence would be the bug.
+
+---
+
+## 5. The terminal parser and the attributes, first sighting
+
+Nothing in this section has ever been drawn. An emulator answers all of it -
+none of it needs the tablet - so this is the cheapest section in the file to
+clear and the one most worth clearing first.
+
+`R8`/`W8` are not involved; a stock boot plus `echo`-style output is enough.
+The quickest way to feed the parser arbitrary bytes is a small `.COM` or a
+`SUBMIT` file staged through `Imports/`, because `adb shell input text` drops
+characters at the guest's rate - see the note at the top of this file.
+
+1. **The four faces.** `ESC[1m` bold, `ESC[4m` underline, `ESC[1;4m` both,
+   `ESC[0m` back. Check the grid does not shift under the bold text: the column
+   positions come from the plain face alone, and a bold face with a wider
+   advance should overhang its cell rather than move its neighbours. On a real
+   GPU, not an argument.
+
+2. **Reverse video on an untouched screen.** `ESC[7m` then some text, on a
+   screen that has seen no other SGR. It must invert - black glyphs on green -
+   rather than going invisible. This is the one place this port needed code the
+   siblings did not: its default background is a sentinel meaning "paint no
+   rectangle", and reversing it naively produces a foreground of "nothing".
+   Then `ESC[27m` and confirm the text goes back to exactly what it was.
+
+3. **Blink, and the cost of not blinking.** `ESC[5m` text, and watch it strobe
+   at about two hertz. Then erase it - `ESC[2J` - and confirm it stops: the
+   500 ms tick is supposed to end when the last blinking cell leaves the live
+   screen. Watch the app's CPU or frame rate on a normal screen too and confirm
+   nothing is repainting when nothing blinks.
+
+4. **The scrolling region.** `ESC[1;20r` then fill past line 20 and confirm
+   lines 21-24 hold still while the top scrolls. Then park the cursor below the
+   region and confirm output there does not scroll anything. `ESC[r` puts it
+   back.
+
+5. **VT52.** `ESC[?2l` to enter, then `ESC Y` with two coordinate bytes to
+   address the cursor, `ESC J` and `ESC K` to erase, `ESC <` to leave. Also
+   confirm the auto-detection: from a cold ANSI screen, a bare `ESC A` should
+   move the cursor up AND put the terminal into VT52, because receiving a
+   VT52-exclusive escape is the signal.
+
+6. **The editing commands**, which are the ones a real program will use:
+   `ESC[3@` (insert 3 blanks), `ESC[3P` (delete 3), `ESC[3X` (erase 3),
+   `ESC[2L` / `ESC[2M` (insert/delete lines). Check the vacated cells take the
+   *current* background, not black - set one with `ESC[44m` first.
+
+7. **The query replies go back to the guest.** `ESC[6n` must send the cursor
+   position and `ESC[c` the device attributes. A CP/M program that reads them is
+   the honest test; failing that, the answer arriving as typed input at the
+   prompt is visible proof the path works. Confirm the reported column is never
+   larger than the screen width - fill a line to the right margin first, which
+   is the case that was wrong in the first draft.
+
+8. **LF without CR.** Stage a text file with bare LF line endings into
+   `Imports/`, `R8` it and `TYPE` it. It must NOT stair-step down and to the
+   right. This is a behaviour change: before this round the column stayed put.
+
+9. **`ESC c` (RIS).** Send it mid-session with a scrolling region set, VT52 on
+   and a colour selected. Everything must go back to power-on - and the
+   scrollback must SURVIVE, deliberately, because the user's history is not the
+   guest's to discard.
