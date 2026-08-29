@@ -33,6 +33,44 @@ class TerminalView @JvmOverloads constructor(
         // Length of the terminal bell, and of the audio focus it takes.
         private const val BELL_MS = 100
         private const val MIN_COLS = 80
+
+        // The power-on rendition, and the two values every reset goes back to.
+        //
+        // The foreground stays Color.GREEN rather than becoming cgaColors[7].
+        // Both sibling ports reset SGR 0 to CGA 7 light grey; this one is a
+        // green-phosphor terminal from the boot banner down, and moving it
+        // would repaint the entire app for a parity argument nobody asked for.
+        // The divergence is deliberate, and it is written down here so the next
+        // cross-port sweep stops filing it. Note the shade: Color.GREEN is
+        // 0xFF00FF00, which is neither cgaColors[2] nor cgaColors[10], so
+        // ESC[32m then ESC[0m changes the shade of green as well as the colour.
+        //
+        // The background is TRANSPARENT, and that is a sentinel for "no
+        // background", not a colour. drawRow paints nothing for a cell holding
+        // it, so a screen that has never seen an SGR sequence looks exactly as
+        // it did before backgrounds existed: the one full-view bgPaint rect and
+        // nothing else. It cannot be confused with a background a guest asked
+        // for either - every cgaColors entry is fully opaque, and SGR 40 is CGA
+        // black, 0xFF000000, a different value from this.
+        private val DEFAULT_FG = Color.GREEN
+        private val DEFAULT_BG = Color.TRANSPARENT
+
+        // CSI parameter bounds - the same numbers as ioscpm's maxCSIParams /
+        // maxCSIParamDigits and z80cpmw's MAX_CSI_PARAMS / MAX_CSI_PARAM_DIGITS,
+        // so the three parsers agree about what they will swallow.
+        //
+        // The parameter buffer used to be an unbounded StringBuilder, so an
+        // unterminated escape - TYPEing a binary file is enough - grew it
+        // without limit. Over either bound the excess is dropped SILENTLY and
+        // the final byte is still executed, which is what both siblings do: a
+        // sequence aborted mid-flight prints its own tail as glyphs, and that
+        // is the worse failure of the two.
+        private const val MAX_CSI_PARAMS = 16
+        private const val MAX_CSI_PARAM_DIGITS = 6
+        // Value clamp, matching min(value, 9999) in both siblings. Six digits
+        // already fit an Int; this is what keeps a wild row or column count out
+        // of the handlers.
+        private const val MAX_CSI_PARAM_VALUE = 9999
     }
 
     // Dynamic terminal dimensions based on screen size
@@ -43,7 +81,15 @@ class TerminalView @JvmOverloads constructor(
     private var visibleCols = MIN_COLS
 
     private var screenBuffer = Array(rows) { CharArray(cols) { ' ' } }
-    private var colorBuffer = Array(rows) { IntArray(cols) { Color.GREEN } }
+    private var colorBuffer = Array(rows) { IntArray(cols) { DEFAULT_FG } }
+    // Per-cell background, a third parallel array rather than a foreground and
+    // a background packed into one Long. Every site that touches colour here -
+    // the six erase helpers, scrollUp, resizeBuffers, putChar, drawRow and the
+    // scrollback deques - already works in parallel arrays, and a packed cell
+    // would have to unpack at each of them for nothing gained. At the default
+    // 1000 scrollback lines this costs about a third of a megabyte, which is
+    // the price of a background that can actually be painted.
+    private var bgBuffer = Array(rows) { IntArray(cols) { DEFAULT_BG } }
 
     private var cursorRow = 0
     private var cursorCol = 0
@@ -56,6 +102,11 @@ class TerminalView @JvmOverloads constructor(
     // Lines that have scrolled off the top of the live screen (oldest first).
     private val historyChars = ArrayDeque<CharArray>()
     private val historyColors = ArrayDeque<IntArray>()
+    // Backgrounds for those same lines. It has to be pushed, trimmed and
+    // cleared in lockstep with the other two everywhere, or a scrolled-off line
+    // draws with another line's background - which is why every mutation of the
+    // three deques below happens in one place each.
+    private val historyBg = ArrayDeque<IntArray>()
     // Max history lines kept (0 disables scrollback). Matches the other ports'
     // default, and is now a Settings entry rather than a constant - so it can
     // shrink while lines are already being held, which the setter has to
@@ -72,6 +123,7 @@ class TerminalView @JvmOverloads constructor(
         while (historyChars.size > scrollbackLines) {
             historyChars.removeFirst()
             historyColors.removeFirst()
+            historyBg.removeFirst()
         }
         // The user may have been looking further back than what is left.
         if (userScrollUp > historyChars.size) {
@@ -125,6 +177,16 @@ class TerminalView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
+    // The per-cell background brush, kept apart from bgPaint because bgPaint is
+    // the page fill and must stay Color.BLACK: drawRow reassigns this one's
+    // colour for every painted cell, and borrowing bgPaint for that would leave
+    // the next full-view rect drawn in whatever the last cell happened to be.
+    // Held as a field for the same reason as the other three - onDraw runs per
+    // frame and must not allocate.
+    private val cellBgPaint = Paint().apply {
+        style = Paint.Style.FILL
+    }
+
     private val cursorPaint = Paint().apply {
         color = Color.GREEN
         style = Paint.Style.FILL
@@ -132,8 +194,17 @@ class TerminalView @JvmOverloads constructor(
 
     // VT100 escape sequence parsing state
     private var escapeState = 0
-    private val escapeParams = StringBuilder()
-    private var currentFgColor = Color.GREEN
+    // Parameters are accumulated one field at a time, the way both siblings do
+    // it, rather than collected as text and split on ';' at the end. The split
+    // form used mapNotNull, which REMOVES a field it cannot parse instead of
+    // defaulting it: "ESC[;5H" became [5] and moved the cursor to row 5 instead
+    // of column 5, and any over-long field did the same to everything after it.
+    // Closing each field where it ends is what keeps a parameter in the
+    // position the guest put it in.
+    private val escapeParams = mutableListOf<Int>()
+    private val escapeCurrentParam = StringBuilder()
+    private var currentFgColor = DEFAULT_FG
+    private var currentBgColor = DEFAULT_BG
 
     // Bell sound generator
     private var toneGenerator: ToneGenerator? = null
@@ -330,6 +401,22 @@ class TerminalView @JvmOverloads constructor(
     }
 
     /**
+     * Send one key sequence: the ESC, then the rest of it byte for byte.
+     *
+     * The argument is the sequence WITHOUT its leading ESC, which this adds -
+     * so a call reads the way the sibling key tables read. z80cpmw's Keymap.h
+     * spells PageUp as backslash-E then "[5~", and ioscpm's KeyMap.swift the
+     * same; only the escape marker differs, and the rest is the argument here.
+     * Emitting the ESC in one place is what stops a caller forgetting it, and a
+     * caller that forgets it sends the printable tail to CP/M as literal text -
+     * strictly worse than not sending the key at all.
+     */
+    private fun sendEscapeSeq(s: String) {
+        sendChar(0x1B)
+        for (c in s) sendChar(c.code)
+    }
+
+    /**
      * Send one function key, F1..F12, as the VT220/xterm sequence every
      * sibling port sends: F1-F4 are SS3 (ESC O P..S) and F5 up are CSI ~ with
      * a parameter. The parameter numbers are not contiguous - 16 and 22 are
@@ -338,13 +425,42 @@ class TerminalView @JvmOverloads constructor(
     private fun sendFunctionKey(n: Int) {
         if (n < 1 || n > 12) return
         if (n <= 4) {
-            sendChar(0x1B); sendChar('O'.code); sendChar('P'.code + (n - 1))
+            sendEscapeSeq("O" + ('P' + (n - 1)))
             return
         }
         val param = intArrayOf(15, 17, 18, 19, 20, 21, 23, 24)[n - 5]
-        sendChar(0x1B); sendChar('['.code)
-        for (c in param.toString()) sendChar(c.code)
-        sendChar('~'.code)
+        sendEscapeSeq("[$param~")
+    }
+
+    /**
+     * Send one arrow key. `finalByte` is the CSI final byte - A/B/C/D for
+     * up/down/right/left - so this stays one-to-one with the four entries in
+     * z80cpmw's Keymap.h and ioscpm's KeyMap.swift.
+     *
+     * With Ctrl held it is the xterm modified form, CSI 1 ; 5 <final>, where
+     * the 5 is the Ctrl modifier. Before this the four DPAD arms matched on
+     * keyCode alone and returned before the `else` arm could ever consult
+     * `ctrl`, so Ctrl+Up was byte-for-byte identical to Up - the same bug
+     * ioscpm's pressesBegan had, where the nav-key branch tested only for
+     * .command and threw the Ctrl modifier away. cpmdroid has no VT52 mode, so
+     * unlike ioscpm there is no profile here that must fall back to the bare
+     * arrow for want of a parameterised CSI to put the 5 in.
+     */
+    private fun sendArrow(finalByte: Char, ctrl: Boolean) {
+        sendEscapeSeq(if (ctrl) "[1;5$finalByte" else "[$finalByte")
+    }
+
+    /**
+     * Move the scrollback view, for the four key combinations the app answers
+     * itself instead of sending to CP/M.
+     *
+     * Positive is back into history, negative is forward toward the live
+     * prompt, which is the sense userScrollUp already carries for the drag
+     * gesture - the bound is the same one onTouchEvent uses.
+     */
+    private fun scrollHistoryBy(lines: Int) {
+        userScrollUp = (userScrollUp + lines).coerceIn(0, historyChars.size)
+        invalidate()
     }
 
     /**
@@ -477,20 +593,56 @@ class TerminalView @JvmOverloads constructor(
                 sendChar(0x1B) // ESC
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_UP -> {
-                sendChar(0x1B); sendChar('['.code); sendChar('A'.code)
+            KeyEvent.KEYCODE_DPAD_UP    -> { sendArrow('A', ctrl); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN  -> { sendArrow('B', ctrl); return true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { sendArrow('C', ctrl); return true }
+            KeyEvent.KEYCODE_DPAD_LEFT  -> { sendArrow('D', ctrl); return true }
+            // Home/End/PageUp/PageDown/Insert/Forward-Delete. Like F1-F12
+            // before them these produce unicodeChar 0 and match nothing in the
+            // printable fallback below, so a hardware keyboard's whole
+            // navigation cluster reached CP/M as nothing at all.
+            //
+            // The bytes are z80cpmw's defaultBindings() table, which ioscpm's
+            // VT100/ANSI profile matches except for Delete: z80cpmw sends ^?
+            // (0x7F) where ioscpm sends CSI 3 ~. ^? wins here because
+            // FEATURE_PARITY item 1 already asserts that cpmdroid sends it, and
+            // because it is the byte a CP/M program is most likely to be
+            // waiting for. KEYCODE_MOVE_HOME, not KEYCODE_HOME: the latter is
+            // the device Home button and is not this key.
+            //
+            // Four combinations are the app's, not the guest's. They are the
+            // four z80cpmw reserves in reservedKeys(), doing the same things in
+            // the same words, because cpmdroid has the scrollback they act on
+            // (historyChars, capped at scrollbackLines) and until now only a
+            // drag gesture could reach it - a hardware keyboard could not scroll
+            // back at all. The modifier test is a mask, not an equality, which
+            // is reservedFor()'s rule: someone still holding Ctrl from Ctrl+Home
+            // gets the scroll they asked for from Shift+PageUp too. A page is
+            // rows - 1, the same overlap-by-one-line z80cpmw scrolls.
+            KeyEvent.KEYCODE_MOVE_HOME -> {
+                if (ctrl) scrollHistoryBy(historyChars.size) else sendEscapeSeq("[H")
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                sendChar(0x1B); sendChar('['.code); sendChar('B'.code)
+            KeyEvent.KEYCODE_MOVE_END -> {
+                if (ctrl) scrollHistoryBy(-historyChars.size) else sendEscapeSeq("[F")
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                sendChar(0x1B); sendChar('['.code); sendChar('C'.code)
+            KeyEvent.KEYCODE_PAGE_UP -> {
+                if (event.isShiftPressed) scrollHistoryBy(rows - 1) else sendEscapeSeq("[5~")
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_LEFT -> {
-                sendChar(0x1B); sendChar('['.code); sendChar('D'.code)
+            KeyEvent.KEYCODE_PAGE_DOWN -> {
+                if (event.isShiftPressed) scrollHistoryBy(-(rows - 1)) else sendEscapeSeq("[6~")
+                return true
+            }
+            KeyEvent.KEYCODE_INSERT -> {
+                sendEscapeSeq("[2~")
+                return true
+            }
+            KeyEvent.KEYCODE_FORWARD_DEL -> {
+                // One byte, so not through sendEscapeSeq - DEL is not an escape
+                // sequence. KEYCODE_DEL above is Backspace and stays 0x08.
+                sendChar(0x7F)
                 return true
             }
             // F1-F12. unicodeChar is 0 for these and there is no keycode
@@ -650,19 +802,25 @@ class TerminalView @JvmOverloads constructor(
         val oldCols = cols
         val oldScreenBuffer = screenBuffer
         val oldColorBuffer = colorBuffer
+        val oldBgBuffer = bgBuffer
 
         rows = newRows
         cols = newCols
 
-        // Create new buffers
+        // Create new buffers. The cells outside the copied region get the
+        // power-on rendition rather than the current one: this is a font-size
+        // or rotation change, not an erase, and a guest that set a background
+        // never asked for the new space to be painted in it.
         screenBuffer = Array(rows) { CharArray(cols) { ' ' } }
-        colorBuffer = Array(rows) { IntArray(cols) { Color.GREEN } }
+        colorBuffer = Array(rows) { IntArray(cols) { DEFAULT_FG } }
+        bgBuffer = Array(rows) { IntArray(cols) { DEFAULT_BG } }
 
         // Copy old content (as much as fits)
         for (r in 0 until minOf(oldRows, rows)) {
             for (c in 0 until minOf(oldCols, cols)) {
                 screenBuffer[r][c] = oldScreenBuffer[r][c]
                 colorBuffer[r][c] = oldColorBuffer[r][c]
+                bgBuffer[r][c] = oldBgBuffer[r][c]
             }
         }
 
@@ -693,7 +851,8 @@ class TerminalView @JvmOverloads constructor(
             for (r in 0 until viewportRows) {
                 val liveRow = scrollRows + r
                 if (liveRow >= rows) break
-                drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], r, offsetX, offsetY, baseline)
+                drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], bgBuffer[liveRow],
+                        r, offsetX, offsetY, baseline)
             }
             drawCursor(canvas, cursorRow - scrollRows, viewportRows, offsetX, offsetY)
         } else {
@@ -708,25 +867,43 @@ class TerminalView @JvmOverloads constructor(
                 val lineIdx = topLine + r
                 if (lineIdx < 0 || lineIdx >= contentRows) continue   // empty area above the history
                 if (lineIdx < historySize) {
-                    drawRow(canvas, historyChars[lineIdx], historyColors[lineIdx], r, offsetX, offsetY, baseline)
+                    drawRow(canvas, historyChars[lineIdx], historyColors[lineIdx], historyBg[lineIdx],
+                            r, offsetX, offsetY, baseline)
                 } else {
                     val liveRow = lineIdx - historySize
-                    drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], r, offsetX, offsetY, baseline)
+                    drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], bgBuffer[liveRow],
+                            r, offsetX, offsetY, baseline)
                     if (liveRow == cursorRow) drawCursor(canvas, r, viewportRows, offsetX, offsetY)
                 }
             }
         }
     }
 
-    private fun drawRow(canvas: Canvas, chars: CharArray, colors: IntArray, vrow: Int,
-                        offsetX: Float, offsetY: Float, baseline: Float) {
-        val y = offsetY + vrow * charHeight + baseline
+    private fun drawRow(canvas: Canvas, chars: CharArray, colors: IntArray, bgs: IntArray,
+                        vrow: Int, offsetX: Float, offsetY: Float, baseline: Float) {
+        // `top` is the cell rect's top edge; `y` is the text baseline, which is
+        // one ascent lower. They are not the same number and the background
+        // rect wants the first of them.
+        val top = offsetY + vrow * charHeight
+        val y = top + baseline
         val n = minOf(chars.size, cols)
         for (col in 0 until n) {
+            val x = offsetX + col * charWidth
+            // The background comes first, and it is drawn for a blank cell too.
+            // The old fast path skipped a cell outright when its character was a
+            // space, which is exactly why a background could never appear: an
+            // erase leaves nothing BUT spaces, so ESC[44m then ESC[2J - the
+            // sequence this whole cross-port thread was about - painted nothing
+            // at all. A DEFAULT_BG cell is still skipped, so a screen that has
+            // never seen an SGR background costs exactly what it used to.
+            if (bgs[col] != DEFAULT_BG) {
+                cellBgPaint.color = bgs[col]
+                canvas.drawRect(x, top, x + charWidth, top + charHeight, cellBgPaint)
+            }
             val ch = chars[col]
             if (ch != ' ') {
                 textPaint.color = colors[col]
-                canvas.drawText(ch.toString(), offsetX + col * charWidth, y, textPaint)
+                canvas.drawText(ch.toString(), x, y, textPaint)
             }
         }
     }
@@ -780,16 +957,49 @@ class TerminalView @JvmOverloads constructor(
                     '['.code -> {
                         escapeState = 2
                         escapeParams.clear()
+                        escapeCurrentParam.clear()
                     }
                     else -> escapeState = 0
                 }
             }
             2 -> { // CSI sequence
                 when {
+                    ch in '0'.code..'9'.code -> {
+                        // A leading zero is padding, not a digit, and is
+                        // dropped rather than spending the field's budget:
+                        // without this, ESC[000000000005H fills all six digits
+                        // with zeros and truncates to 0. ioscpm does the same;
+                        // z80cpmw does not, and this is the better of the two.
+                        // It also makes "0" and "" the same field, which is
+                        // what ECMA-48 says they mean - both are "default".
+                        if (escapeCurrentParam.isEmpty() && ch == '0'.code) {
+                            // padding: nothing to record
+                        } else if (escapeCurrentParam.length < MAX_CSI_PARAM_DIGITS) {
+                            escapeCurrentParam.append(ch.toChar())
+                        }
+                    }
+                    ch == ';'.code -> {
+                        // A separator ends a field even when the field is
+                        // empty. That is the whole fix for ESC[;5H: an omitted
+                        // parameter means "take the default", it does not mean
+                        // "there is no parameter here", and dropping it shifted
+                        // every later one left a place.
+                        endCsiParam(keepEmpty = true)
+                    }
                     ch in 0x30..0x3F -> {
-                        escapeParams.append(ch.toChar())
+                        // ':' and the private markers '<', '=', '>', '?'.
+                        // Consumed and ignored, and NOT treated as a final:
+                        // ESC[?25l has to reach processCSI with 'l' as its
+                        // final and be dropped there. Ending the sequence at
+                        // the '?' would print "25l" on screen, which is the bug
+                        // z80cpmw's item 13 records fixing in the other
+                        // direction.
                     }
                     ch in 0x40..0x7E -> {
+                        // A trailing empty field is not a parameter: ESC[H and
+                        // ESC[m must still arrive with an empty list, so that
+                        // getOrElse's defaults and the SGR reset keep working.
+                        endCsiParam(keepEmpty = false)
                         processCSI(ch.toChar())
                         escapeState = 0
                     }
@@ -799,18 +1009,54 @@ class TerminalView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Close the CSI parameter field being accumulated.
+     *
+     * `keepEmpty` says what an empty field means at this point. After a ';' it
+     * is a parameter that was written down as "use the default", and it has to
+     * take its place in the list or everything after it moves. At the final
+     * byte it is not a parameter at all - it is the end of the sequence - so
+     * ESC[H still arrives with an empty list and the handlers' own defaults
+     * apply, exactly as they did before this parser kept a list.
+     *
+     * Past MAX_CSI_PARAMS the field is parsed and thrown away rather than
+     * aborting the sequence: see the note on the constant.
+     */
+    private fun endCsiParam(keepEmpty: Boolean) {
+        if (escapeCurrentParam.isEmpty() && !keepEmpty) return
+        if (escapeParams.size < MAX_CSI_PARAMS) {
+            val value = escapeCurrentParam.toString().toIntOrNull() ?: 0
+            escapeParams.add(value.coerceAtMost(MAX_CSI_PARAM_VALUE))
+        }
+        escapeCurrentParam.clear()
+    }
+
+    /**
+     * A CSI parameter whose ECMA-48 default is 1 - the cursor motions and both
+     * halves of CUP.
+     *
+     * The default is on the VALUE, not on the index, which is the rule both
+     * siblings use (std::max(p1, 1) in z80cpmw, max(p1, 1) in ioscpm) and the
+     * one this port did not have. Defaulting on a missing index alone meant
+     * ESC[0A and ESC[0;0H moved by zero, and it could not survive the parser
+     * learning to record an omitted parameter: ESC[;5H now really does have a
+     * parameter at index 0, and its value is the "default" marker 0.
+     */
+    private fun csiParamOrOne(params: List<Int>, index: Int): Int =
+        params.getOrElse(index) { 1 }.coerceAtLeast(1)
+
     private fun processCSI(command: Char) {
-        val params = escapeParams.toString().split(";").mapNotNull { it.toIntOrNull() }
+        val params = escapeParams
 
         when (command) {
             'H', 'f' -> { // Cursor position
-                cursorRow = (params.getOrElse(0) { 1 } - 1).coerceIn(0, rows - 1)
-                cursorCol = (params.getOrElse(1) { 1 } - 1).coerceIn(0, cols - 1)
+                cursorRow = (csiParamOrOne(params, 0) - 1).coerceIn(0, rows - 1)
+                cursorCol = (csiParamOrOne(params, 1) - 1).coerceIn(0, cols - 1)
             }
-            'A' -> cursorRow = (cursorRow - params.getOrElse(0) { 1 }).coerceAtLeast(0)
-            'B' -> cursorRow = (cursorRow + params.getOrElse(0) { 1 }).coerceAtMost(rows - 1)
-            'C' -> cursorCol = (cursorCol + params.getOrElse(0) { 1 }).coerceAtMost(cols - 1)
-            'D' -> cursorCol = (cursorCol - params.getOrElse(0) { 1 }).coerceAtLeast(0)
+            'A' -> cursorRow = (cursorRow - csiParamOrOne(params, 0)).coerceAtLeast(0)
+            'B' -> cursorRow = (cursorRow + csiParamOrOne(params, 0)).coerceAtMost(rows - 1)
+            'C' -> cursorCol = (cursorCol + csiParamOrOne(params, 0)).coerceAtMost(cols - 1)
+            'D' -> cursorCol = (cursorCol - csiParamOrOne(params, 0)).coerceAtLeast(0)
             'J' -> { // Erase display
                 when (params.getOrElse(0) { 0 }) {
                     0 -> clearToEnd()
@@ -827,14 +1073,72 @@ class TerminalView @JvmOverloads constructor(
             }
             'm' -> { // SGR - Select Graphic Rendition
                 if (params.isEmpty()) {
-                    currentFgColor = Color.GREEN
+                    // ESC[m is ESC[0m.
+                    resetRendition()
                 } else {
-                    for (p in params) {
-                        when {
-                            p == 0 -> currentFgColor = Color.GREEN
-                            p in 30..37 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 30)]
-                            p in 90..97 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 90) + 8]
+                    var i = 0
+                    while (i < params.size) {
+                        val p = params[i]
+                        // Extended colour: ESC[38;5;<n>m and ESC[38;2;<r>;<g>;<b>m,
+                        // and 48 for the background. This is a sixteen-colour
+                        // terminal and the sub-parameters carry a 256-colour
+                        // index or a truecolour triple, so they are consumed and
+                        // discarded rather than approximated onto the palette:
+                        // z80cpmw discards them too, and a port that guessed a
+                        // nearest CGA entry would put a colour on screen that
+                        // neither sibling shows for the same bytes - which is
+                        // the divergence this dimension exists to remove.
+                        //
+                        // Consuming them is not optional. Read as parameters in
+                        // their own right they land as colours: the "33" of
+                        // ESC[38;5;33m set a brown foreground, and the "0" of
+                        // ESC[38;2;0;128;255m reset the whole rendition
+                        // mid-sequence.
+                        //
+                        // The steps are 3 and 5, not z80cpmw's 2 and 4: its
+                        // skip lives in a for-loop whose own i++ follows, and
+                        // this one continues straight back to the top. The
+                        // missing-tail step of 1 is not optional either - a bare
+                        // trailing ESC[38m with no bottom increment would spin
+                        // here forever, on the UI thread.
+                        if (p == 38 || p == 48) {
+                            i += if (i + 1 < params.size) {
+                                when (params[i + 1]) {
+                                    5 -> 3     // 38 ; 5 ; <index>
+                                    2 -> 5     // 38 ; 2 ; <r> ; <g> ; <b>
+                                    else -> 2  // unknown form: skip it and the 38
+                                }
+                            } else {
+                                1              // trailing bare 38
+                            }
+                            continue
                         }
+                        when {
+                            p == 0 -> resetRendition()
+                            // 39 and 49 are "back to the default", separately
+                            // for each half. Without them a program that said
+                            // ESC[31m ... ESC[39m stayed red for the rest of
+                            // the session, because nothing but a full reset
+                            // could undo a colour.
+                            p == 39 -> currentFgColor = DEFAULT_FG
+                            p == 49 -> currentBgColor = DEFAULT_BG
+                            p in 30..37 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 30)]
+                            p in 40..47 -> currentBgColor = cgaColors[ansiToCgaIndex(p - 40)]
+                            p in 90..97 -> currentFgColor = cgaColors[ansiToCgaIndex(p - 90) + 8]
+                            // The bright backgrounds are NOT folded onto the
+                            // normal ones the way z80cpmw folds them. It has to:
+                            // its cell is a packed CGA attribute byte whose
+                            // background field is three bits wide, with bit 7
+                            // being blink, so a bright background could only be
+                            // stored by borrowing it. A cell here is a full ARGB
+                            // Int - no nibble, no blink bit, nothing to borrow -
+                            // and the bright foregrounds already render, so the
+                            // background half is symmetric with them. Folding
+                            // would make ESC[104m indistinguishable from
+                            // ESC[44m for a reason that does not apply here.
+                            p in 100..107 -> currentBgColor = cgaColors[ansiToCgaIndex(p - 100) + 8]
+                        }
+                        i++
                     }
                 }
             }
@@ -857,6 +1161,7 @@ class TerminalView @JvmOverloads constructor(
         }
         screenBuffer[cursorRow][cursorCol] = ch
         colorBuffer[cursorRow][cursorCol] = currentFgColor
+        bgBuffer[cursorRow][cursorCol] = currentBgColor
         cursorCol++
     }
 
@@ -873,28 +1178,66 @@ class TerminalView @JvmOverloads constructor(
         if (scrollbackLines > 0) {
             historyChars.addLast(screenBuffer[0].copyOf())
             historyColors.addLast(colorBuffer[0].copyOf())
+            historyBg.addLast(bgBuffer[0].copyOf())
             while (historyChars.size > scrollbackLines) {
                 historyChars.removeFirst()
                 historyColors.removeFirst()
+                historyBg.removeFirst()
             }
         } else if (historyChars.isNotEmpty()) {
             // Scrollback was turned off after lines were already kept.
             historyChars.clear()
             historyColors.clear()
+            historyBg.clear()
             userScrollUp = 0
         }
         for (row in 0 until rows - 1) {
             screenBuffer[row] = screenBuffer[row + 1].copyOf()
             colorBuffer[row] = colorBuffer[row + 1].copyOf()
+            bgBuffer[row] = bgBuffer[row + 1].copyOf()
         }
-        screenBuffer[rows - 1] = CharArray(cols) { ' ' }
-        colorBuffer[rows - 1] = IntArray(cols) { currentFgColor }
+        // Fresh arrays because cols may have moved since these were allocated,
+        // then blanked through the one definition of a blank cell - the new
+        // bottom line is an erase like any other, and takes the current
+        // background with it.
+        screenBuffer[rows - 1] = CharArray(cols)
+        colorBuffer[rows - 1] = IntArray(cols)
+        bgBuffer[rows - 1] = IntArray(cols)
+        blankRow(rows - 1)
+    }
+
+    /**
+     * The cell every erase leaves behind: a space in the CURRENT rendition, not
+     * a default one.
+     *
+     * This is background-colour-erase - what a real VT does, what xterm does,
+     * and what a program that sets a colour and then clears is asking for. It
+     * is the rule FEATURE_PARITY.md records as settled on 2026-08-27 in
+     * z80cpmw's favour, and ioscpm's blankCell is the same function. Before the
+     * background existed the erases here already filled currentFgColor, which
+     * read as parity but was not: nothing drew a blank cell, so the colour they
+     * wrote was never on screen.
+     *
+     * Every erase goes through this pair and nothing else fills a cell, so an
+     * erased cell and a character written into it afterwards always agree.
+     */
+    private fun blankCells(row: Int, fromCol: Int, toCol: Int) {
+        for (col in fromCol until toCol) {
+            screenBuffer[row][col] = ' '
+            colorBuffer[row][col] = currentFgColor
+            bgBuffer[row][col] = currentBgColor
+        }
+    }
+
+    private fun blankRow(row: Int) {
+        screenBuffer[row].fill(' ')
+        colorBuffer[row].fill(currentFgColor)
+        bgBuffer[row].fill(currentBgColor)
     }
 
     private fun clearScreen() {
         for (row in 0 until rows) {
-            screenBuffer[row].fill(' ')
-            colorBuffer[row].fill(currentFgColor)
+            blankRow(row)
         }
         cursorRow = 0
         cursorCol = 0
@@ -903,39 +1246,71 @@ class TerminalView @JvmOverloads constructor(
     private fun clearToEnd() {
         clearLineToEnd()
         for (row in cursorRow + 1 until rows) {
-            screenBuffer[row].fill(' ')
-            colorBuffer[row].fill(currentFgColor)
+            blankRow(row)
         }
     }
 
     private fun clearToBeginning() {
         clearLineToBeginning()
         for (row in 0 until cursorRow) {
-            screenBuffer[row].fill(' ')
-            colorBuffer[row].fill(currentFgColor)
+            blankRow(row)
         }
     }
 
     private fun clearLine() {
-        screenBuffer[cursorRow].fill(' ')
-        colorBuffer[cursorRow].fill(currentFgColor)
+        blankRow(cursorRow)
     }
 
     private fun clearLineToEnd() {
-        for (col in cursorCol until cols) {
-            screenBuffer[cursorRow][col] = ' '
-            colorBuffer[cursorRow][col] = currentFgColor
-        }
+        blankCells(cursorRow, cursorCol, cols)
     }
 
     private fun clearLineToBeginning() {
-        for (col in 0..cursorCol) {
-            screenBuffer[cursorRow][col] = ' '
-            colorBuffer[cursorRow][col] = currentFgColor
-        }
+        blankCells(cursorRow, 0, (cursorCol + 1).coerceAtMost(cols))
     }
 
+    /** Back to the power-on rendition, both halves of it. */
+    private fun resetRendition() {
+        currentFgColor = DEFAULT_FG
+        currentBgColor = DEFAULT_BG
+    }
+
+    /**
+     * The machine-level clear: host-only, and the guest cannot reach it.
+     * MainActivity.bootEmulation is the sole caller; ESC[2J goes to
+     * clearScreen(), and no escape sequence this parser handles ends up here.
+     *
+     * The power-on state goes back FIRST, before anything is painted. An erase
+     * now fills with the current background, so clearing first and resetting
+     * second would paint the new session's screen in the colour the dying one
+     * happened to end on - the ordering bug ioscpm's reset() had and fixed. The
+     * parser state goes with it: a guest that died mid-CSI left escapeState at
+     * 2, and bootEmulation prints its banner straight after this, so the
+     * banner's first bytes were swallowed until some byte in 0x40..0x7E arrived
+     * and was executed as a final against the dead session's parameters.
+     *
+     * userScrollUp goes back to the live screen for the same reason - the
+     * banner is posted back from the executor, so between here and that post
+     * the view can otherwise sit at a scroll offset into history.
+     *
+     * The scrollback itself is deliberately kept. Both siblings drop it on a
+     * cold boot, but each does so at the CALL SITE (z80cpmw's startEmulator and
+     * onEmulatorReset call resetScrollback next to clear(); ioscpm's reset()
+     * empties scrollbackLines), which here is MainActivity - and losing the
+     * user's history is a product decision, not part of putting the terminal
+     * back to power-on.
+     *
+     * soundEnabled, wrapLines and scrollbackLines are user settings, not
+     * terminal state, and stay untouched: bootEmulation re-applies all three
+     * from settingsRepo after this returns.
+     */
     fun clear() {
+        resetRendition()
+        escapeState = 0
+        escapeParams.clear()
+        escapeCurrentParam.clear()
+        userScrollUp = 0
+
         clearScreen()
         processOutputCount = 0
         invalidate()
