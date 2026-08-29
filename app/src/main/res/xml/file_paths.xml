@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What the share sheet is allowed to mint a content Uri for.
+
+    Exactly the two transfer folders, and deliberately NOT the external-files
+    root that contains them. The root also holds Disks/ and ModifiedDisks/ -
+    the user's downloaded disk library and its saved modifications - and there
+    is no share action anywhere in this app for a disk image. With
+    android:exported="false" a root entry would not hand another app anything
+    on its own, so this is hygiene rather than a live hole: it means a future
+    getUriForFile() call with a wrong File argument fails loudly with
+    IllegalArgumentException instead of quietly granting read access to a
+    500 KB disk image somebody spent a download on.
+
+    external-files-path, not external-path or files-path: this element is the
+    one that resolves against getExternalFilesDir(null), which is where
+    transferDir() in HostTransfer.kt puts both folders. files-path points at
+    getFilesDir() and would throw for every single share.
+
+    The imports entry is earned, not symmetry: the File Transfer screen offers
+    Share on a staged import as well as on an export, so both folders really do
+    produce Uris. Nothing here is a path INTO the sandbox - a file arriving
+    from another app comes as a Uri minted by the sender's provider and is read
+    through contentResolver, and this provider plays no part in that.
+-->
+<paths>
+    <external-files-path name="exports" path="Exports/" />
+    <external-files-path name="imports" path="Imports/" />
+</paths>

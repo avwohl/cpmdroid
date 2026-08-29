@@ -38,19 +38,45 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Boot/Reboot" />
 
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
-
+        <!--
+            statusText is the weighted child, and the spacer View that used to
+            hold this slot is gone. It has to be: a horizontal LinearLayout
+            gives an over-wide row no negative share, so the overflow is not
+            absorbed - it pushes the RIGHTMOST children past the edge, where
+            they are clipped and untappable with no error and no log line. With
+            six 40dp buttons plus padding and a wrap_content statusText whose
+            longest value is "First launch setup...", that was already close on
+            a 360dp screen before the transfer button was added. Weighted, the
+            text takes the slack and shrinks under pressure instead, and no
+            button can be pushed off. maxLines/ellipsize are what make shrinking
+            look deliberate rather than broken.
+        -->
         <TextView
             android:id="@+id/statusText"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="end"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:text="Stopped"
             android:textColor="#888888"
             android:textSize="12sp"
             android:layout_marginEnd="8dp" />
+
+        <!--
+            File transfer (Imports/Exports). An ImageButton in this hand-built
+            strip, not a menu item - see the standing instruction on
+            setupToolbar() about alphabeticShortcut stealing Ctrl-letters from
+            CP/M. It sits before Help so About stays the rightmost landmark.
+        -->
+        <ImageButton
+            android:id="@+id/filesButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_file_transfer"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/transfer_button_description" />
 
         <ImageButton
             android:id="@+id/helpButton"

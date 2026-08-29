@@ -1,4 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">CPMDroid</string>
+
+    <!--
+        File transfer. These are the first strings in this app to live in a
+        resource rather than inline in Kotlin: the R8/W8 Toast family in
+        MainActivity is deliberately left as it is, so that family still reads
+        as one block, but two activities and one shared helper share the
+        wording below and a second copy of any of it would drift.
+    -->
+    <string name="transfer_title">File Transfer</string>
+    <string name="transfer_button_description">File transfer</string>
+    <string name="transfer_paths">Imports and Exports live in\n%1$s\nAndroid 11 and later hide that folder from the Files app, which is why this screen exists.</string>
+
+    <string name="transfer_section_imports">IMPORTS — type one of these names at the CP/M prompt: R8 NAME.EXT</string>
+    <string name="transfer_section_exports">EXPORTS — W8 NAME.EXT in CP/M writes here</string>
+    <string name="transfer_imports_empty">Empty. Use Import file to add one.</string>
+    <string name="transfer_exports_empty">Empty. Nothing has been exported with W8 yet.</string>
+    <string name="transfer_file_meta">%1$s, %2$s</string>
+
+    <string name="transfer_import">Import file…</string>
+    <string name="transfer_close">Close</string>
+    <string name="transfer_cancel">Cancel</string>
+
+    <string name="transfer_action_save_as">Save as…</string>
+    <string name="transfer_action_share">Share</string>
+    <string name="transfer_action_delete">Delete</string>
+
+    <string name="transfer_delete_title">Delete %1$s?</string>
+    <string name="transfer_delete_message">Removes it from the %1$s folder of this app. Nothing outside that folder is touched.</string>
+    <string name="transfer_deleted">Deleted %1$s</string>
+    <string name="transfer_delete_failed">Could not delete %1$s</string>
+
+    <string name="transfer_saved">Saved %1$s</string>
+    <string name="transfer_save_failed">Could not save %1$s</string>
+    <string name="transfer_share_chooser">Share file</string>
+    <string name="transfer_share_failed">Nothing on this device can share that file</string>
+    <string name="transfer_no_picker">No file picker on this device</string>
+    <string name="transfer_file_gone">That file is no longer in the folder</string>
+
+    <string name="transfer_import_done">Imported %1$s — type R8 %1$s in CP/M</string>
+    <string name="transfer_import_replaced">Replaced %1$s in Imports — type R8 %1$s in CP/M</string>
+    <string name="transfer_import_done_many">Imported %1$d of %2$d into Imports: %3$s</string>
+    <string name="transfer_import_failed">Could not copy the file into Imports</string>
+    <string name="transfer_import_unreadable">Nothing readable arrived</string>
+    <string name="transfer_import_too_large">Refused: that file is too large to import</string>
+
+    <string name="transfer_storage_unavailable">Storage unavailable — no Imports or Exports folder</string>
+    <string name="transfer_refused_outside">Refused: that name does not stay inside the folder</string>
+    <string name="transfer_refused_scheme">Refused: that app did not share a real document</string>
 </resources>

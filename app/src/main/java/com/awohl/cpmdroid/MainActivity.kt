@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pasteButton: Button
 
     // Toolbar buttons
+    private lateinit var filesButton: ImageButton
     private lateinit var helpButton: ImageButton
     private lateinit var aboutButton: ImageButton
 
@@ -140,13 +141,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Imports/Exports folders for R8/W8 file transfer
-    private val importsDir: File by lazy {
-        File(getExternalFilesDir(null), "Imports").apply { mkdirs() }
-    }
-    private val exportsDir: File by lazy {
-        File(getExternalFilesDir(null), "Exports").apply { mkdirs() }
-    }
+    // Imports/Exports folders for R8/W8 file transfer.
+    //
+    // Nullable, and resolved on each use rather than held in a lazy: the lazy
+    // hid the fact that getExternalFilesDir(null) can return null, and
+    // File(null, "Imports") is a RELATIVE path in the process working
+    // directory - a folder no file manager, no adb pull and no user will ever
+    // find. transferDir() answers null instead and says why in the log; the two
+    // handlers below report it where they already report every other outcome.
+    // A caching lazy would also pin the first answer for the life of the
+    // process, which is wrong for a state the platform can change under us.
+    private val importsDir: File?
+        get() = transferDir(this, IMPORTS_DIR_NAME)
+    private val exportsDir: File?
+        get() = transferDir(this, EXPORTS_DIR_NAME)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -257,6 +265,7 @@ class MainActivity : AppCompatActivity() {
         pasteButton = findViewById(R.id.pasteButton)
 
         // Toolbar buttons
+        filesButton = findViewById(R.id.filesButton)
         helpButton = findViewById(R.id.helpButton)
         aboutButton = findViewById(R.id.aboutButton)
 
@@ -291,7 +300,20 @@ class MainActivity : AppCompatActivity() {
         // The native side reduces a guest path to a leaf and then has to say
         // where that leaf will land, because W8 prints it. Only Kotlin knows
         // the answer, so hand it down once, before any transfer can start.
-        emulator.setHostExportsDir(exportsDir.absolutePath)
+        //
+        // When there is no external storage there is no answer to hand down, so
+        // the call is simply not made: emu_host_file_open_write() then leaves
+        // g_host_exports_dir empty and W8 prints a bare filename instead of a
+        // path that does not exist. That is the core's own "no exports dir"
+        // state, and it beats inventing one here - the alternative would be
+        // telling the CP/M user a path nothing can open. (setHostExportsDir
+        // takes a non-null String, and EmulatorEngine.kt is not ours to widen.)
+        val exports = exportsDir
+        if (exports != null) {
+            emulator.setHostExportsDir(exports.absolutePath)
+        } else {
+            Log.w(TAG, "No Exports folder: external storage unavailable")
+        }
         emulator.setOutputListener { data ->
             mainHandler.post {
                 terminalView.processOutput(data)
@@ -397,6 +419,20 @@ class MainActivity : AppCompatActivity() {
                 cameFromSettings = true
                 startActivity(Intent(this, SettingsActivity::class.java))
             }
+        }
+
+        // Deliberately NOT guarded by "Stop emulator first" the way the
+        // settings button is. Settings has to refuse while running because it
+        // reloads disks and resets the machine under a live guest; moving a
+        // file in or out of Imports/Exports conflicts with nothing, and the
+        // workflow this exists for is "W8 MYFILE.TXT at the CP/M prompt, then
+        // share it", which a refusal would break. The interlock that matters
+        // comes from the lifecycle instead: starting an activity runs onPause
+        // here, which waits for the in-flight batch and stops the run loop, so
+        // no R8/W8 handshake can be halfway through a file while that screen is
+        // in front. onResume starts the emulator again, exactly as for Help.
+        filesButton.setOnClickListener {
+            startActivity(Intent(this, FileTransferActivity::class.java))
         }
 
         helpButton.setOnClickListener {
@@ -796,6 +832,19 @@ class MainActivity : AppCompatActivity() {
         val suggestedName = emulator.getHostFileReadName()
         Log.i(TAG, "R8: Looking for file: $suggestedName")
 
+        val imports = importsDir
+        if (imports == null) {
+            // Reported, not silently treated as "no file": the user is about to
+            // be told to put something in a folder that does not exist.
+            Log.w(TAG, "R8: no Imports folder, external storage unavailable")
+            emulator.hostFileCancel()
+            mainHandler.post {
+                Toast.makeText(this@MainActivity,
+                    getString(R.string.transfer_storage_unavailable), Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
         // R8 reads only from the Imports folder.
         if (suggestedName.contains('/') || suggestedName.contains('\\') ||
             suggestedName.contains("..")) {
@@ -824,13 +873,17 @@ class MainActivity : AppCompatActivity() {
         // bare-FCB R8 sends when the guest gave it nothing to work with, so
         // that one case keeps the first-file behaviour.
         val fileToRead = if (suggestedName.isNotEmpty()) {
-            val exact = File(importsDir, suggestedName)
-            if (exact.exists() && exact.isFile) exact
-            else importsDir.listFiles()?.firstOrNull {
+            // resolveInsideDir rather than a bare File(imports, name): the same
+            // helper the write side uses, so the containment is proved where
+            // the access happens even though the test above has already
+            // rejected anything path-shaped.
+            val exact = resolveInsideDir(imports, suggestedName)
+            if (exact != null && exact.exists() && exact.isFile) exact
+            else imports.listFiles()?.firstOrNull {
                 it.isFile && it.name.equals(suggestedName, ignoreCase = true)
             }
         } else {
-            importsDir.listFiles()?.firstOrNull { it.isFile }
+            imports.listFiles()?.firstOrNull { it.isFile }
         }
 
         if (fileToRead != null && fileToRead.exists()) {
@@ -842,7 +895,17 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity,
                         "R8: Loaded ${fileToRead.name}", Toast.LENGTH_SHORT).show()
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable, not Exception, and the difference is the machine
+                // hanging. readBytes() reads the whole file into one array and
+                // answers a huge one with OutOfMemoryError, which is an Error:
+                // a catch on Exception misses it, this handler never reaches
+                // hostFileCancel(), and the guest stays parked in
+                // HOST_FILE_WAITING_READ with nothing but Reboot to get it out.
+                // The import paths cap what they stage (MAX_IMPORT_BYTES in
+                // HostTransfer.kt), but a file staged with adb or by a file
+                // manager has no cap on it, and a file that cannot be read for
+                // ANY reason has to end in a cancel rather than in silence.
                 Log.e(TAG, "R8: Error reading file", e)
                 emulator.hostFileCancel()
                 mainHandler.post {
@@ -882,27 +945,36 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val exports = exportsDir
+        if (exports == null) {
+            // Nowhere to put it. Saying so beats writing a relative path into
+            // the process working directory, which is what File(null, name)
+            // used to do here.
+            Log.w(TAG, "W8: no Exports folder, external storage unavailable")
+            mainHandler.post {
+                Toast.makeText(this@MainActivity,
+                    getString(R.string.transfer_storage_unavailable), Toast.LENGTH_SHORT).show()
+            }
+            emulator.hostFileWriteDone()
+            return
+        }
+
         // Defence in depth behind the native reduction: resolve the path and
         // insist it is still inside Exports. Kotlin's File(dir, name) has the
         // same traversal property as the iOS appendingPathComponent that cost
         // that port a user's whole Documents folder - it does not escape "..".
         // Nothing here deletes, so the worst case was never that bad, but the
         // rule is that the containment is checked where the write happens.
-        val outputFile = if (destination.contains('/') || destination.contains('\\')) {
-            File(destination)
-        } else {
-            File(exportsDir, destination.ifEmpty { "export.bin" })
-        }
-        val exportsRoot = exportsDir.canonicalPath
-        val resolved = try {
-            outputFile.canonicalPath
-        } catch (e: Exception) {
-            Log.e(TAG, "W8: Cannot resolve destination", e)
-            emulator.hostFileWriteDone()
-            return
-        }
-        if (resolved != exportsRoot && !resolved.startsWith(exportsRoot + File.separator)) {
-            Log.w(TAG, "W8: Refusing a destination outside Exports: $resolved")
+        //
+        // The test itself now lives in resolveInsideDir (HostTransfer.kt), of
+        // which this is no longer the only caller: the save-as, share and
+        // delete actions on the File Transfer screen run the same one. Two
+        // divergent copies of this check is precisely the failure ioscpm build
+        // 52 recorded, where the reducing layer and the checking layer each
+        // assumed the other had done it.
+        val outputFile = resolveInsideDir(exports, destination.ifEmpty { "export.bin" })
+        if (outputFile == null) {
+            Log.w(TAG, "W8: Refusing a destination outside Exports: $destination")
             mainHandler.post {
                 Toast.makeText(this@MainActivity,
                     "W8: Export refused (outside Exports folder)", Toast.LENGTH_SHORT).show()

@@ -43,6 +43,109 @@
             android:parentActivityName=".HelpActivity"
             android:label="Help Topic" />
 
+        <!--
+            The Imports/Exports screen. exported="false": it is reached from the
+            toolbar button and from nowhere else. ImportReceiverActivity below
+            is the only door another app is allowed to knock on.
+
+            configChanges matches MainActivity's, and for a reason of this
+            screen's own: a delete, an import or a save-as copy runs on the
+            activity's own executor and posts a Toast and a loadRows() back when
+            it finishes. Letting a rotation destroy the instance mid-copy would
+            post that refresh into a dead RecyclerView while the recreated one
+            showed the listing it built in onResume - a file the user just
+            deleted still on screen, an imported one missing, until the next
+            resume. The layout is one RecyclerView with no landscape variant, so
+            there is nothing for a recreate to buy back.
+        -->
+        <activity
+            android:name=".FileTransferActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:parentActivityName=".MainActivity"
+            android:label="@string/transfer_title" />
+
+        <!--
+            The share target. It stages an incoming file into Imports and
+            finishes; see the class comment for why it is a separate activity
+            rather than an intent-filter on MainActivity (the native engine is a
+            process-global singleton and a second MainActivity would re-init it
+            underneath the running one), why the theme is a framework
+            translucent one, and why taskAffinity is empty (so finishing returns
+            the user to the app they shared from rather than to the emulator).
+
+            The MIME types are deliberately NOT */*. A wildcard would make
+            CPMDroid a candidate handler for every file on the device, and a
+            CP/M box has no use for a photo or a video. text/plain and
+            application/octet-stream between them cover what a file manager,
+            Gmail or Drive attaches to a .txt, a .com and anything else it
+            cannot name - and anything that does arrive is copied, never
+            executed and never opened by the emulator.
+
+            SEND_MULTIPLE is accepted because a multi-file share is one map()
+            over the same staging call, not a second code path.
+
+            ACTION_VIEW is limited to scheme="content", but READ THAT AS
+            ADVERTISING, NOT AS A DEFENCE. An intent-filter matches only IMPLICIT
+            intents, and only on the intent's own data Uri: it never looks at
+            EXTRA_STREAM, and an EXPLICIT intent naming this component skips
+            filter matching altogether, which any app may send because this
+            activity is exported. The checks that actually refuse a file:// Uri
+            are in the code: incomingUris() drops every Uri whose scheme is not
+            content: before it counts them, and stageImportStream in
+            HostTransfer.kt tests the scheme again at the single line where a Uri
+            from another app is dereferenced. Nor is FileUriExposedException a
+            defence - it is a StrictMode check on the SENDER, which a sender can
+            disable with a lax VmPolicy, target away from, or sidestep by
+            pre-setting ClipData so migrateExtraStreamToClipData() never promotes
+            the extra into the slot that gets checked.
+        -->
+        <activity
+            android:name=".ImportReceiverActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:label="@string/app_name"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="text/plain" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" />
+            </intent-filter>
+
+        </activity>
+
+        <!--
+            Lets the share sheet read one exported (or staged) file, and nothing
+            else. exported="false" so no other app can query the provider
+            itself; grantUriPermissions="true" so a per-Uri read grant can be
+            attached to a single ACTION_SEND. The paths it will mint Uris for
+            are exactly Imports/ and Exports/ - see the argument in
+            res/xml/file_paths.xml for why the external-files root, which also
+            holds the disk library, is not one of them.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>

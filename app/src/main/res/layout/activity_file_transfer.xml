@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The File Transfer screen: what is in Imports, what is in Exports, and the
+    buttons that move files across the app boundary.
+
+    A screen rather than a dialog because ACTION_VIEW on the folder cannot work
+    on Android 11 and later - the stock Files app does not show Android/data at
+    all - so this list is the only way a user can see what W8 wrote. The dark
+    palette matches dialog_disk_catalog.xml, which is the other file list in
+    this app.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#111111">
+
+    <TextView
+        android:id="@+id/transferTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/transfer_title"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="16dp" />
+
+    <!--
+        The real paths stay on screen: adb pull and MTP are still the fastest
+        route for anyone who has a cable, and this app is the only place left
+        that will tell them where to point it.
+    -->
+    <TextView
+        android:id="@+id/transferPaths"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="8dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/transferRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp">
+
+        <Button
+            android:id="@+id/importButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="@string/transfer_import"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/closeButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/transfer_close"
+            android:textAllCaps="false" />
+
+    </LinearLayout>
+
+</LinearLayout>
