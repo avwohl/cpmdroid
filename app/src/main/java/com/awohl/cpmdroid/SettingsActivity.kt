@@ -2,6 +2,8 @@ package com.awohl.cpmdroid
 
 import android.app.ProgressDialog
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.MenuItem
 import android.view.View
 import android.widget.ImageButton
@@ -31,6 +33,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private var currentSettings: EmulatorSettings = EmulatorSettings()
     private var cachedCatalog: List<DiskInfo>? = null
+
+    private var downloadGate: DownloadProgressGate? = null
 
     private val diskNameViews = mutableListOf<TextView>()
 
@@ -156,6 +160,7 @@ class SettingsActivity : AppCompatActivity() {
         val newSlots = currentSettings.diskSlots.toMutableList()
         newSlots[slot] = null
         currentSettings = currentSettings.copy(diskSlots = newSlots)
+        settingsRepo.setDiskSlot(slot, null)
         updateDiskSlotDisplays()
     }
 
@@ -222,6 +227,22 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * The download and its dialog now die together, which is the deliberate
+     * divergence from the Windows sibling.
+     *
+     * z80cpmw let the transfer finish after its Settings dialog closed - its
+     * DiskCatalog is owned by MainWindow and outlives every dialog, so there was
+     * something for the completion to land in. Here there is not: this Activity
+     * has no android:configChanges, so a rotation destroys it; the manager is a
+     * per-Activity field; and the only scopes in this app are lifecycleScope and
+     * withContext. An application-scoped CoroutineScope inside DiskDownloadManager
+     * was rejected because the manager holds an Activity as its Context and would
+     * pin it for the whole transfer, and WorkManager was rejected as a new
+     * dependency for one screen. So the loop is made cancellable instead, and
+     * rotating mid-download stops it visibly rather than spending 49MB of metered
+     * data on a file whose slot assignment is thrown away on arrival.
+     */
     private fun downloadDisk(diskInfo: DiskInfo, slotToAssign: Int?, parentDialog: AlertDialog) {
         @Suppress("DEPRECATION")
         val progressDialog = ProgressDialog(this).apply {
@@ -234,16 +255,32 @@ class SettingsActivity : AppCompatActivity() {
             show()
         }
 
+        // A previous transfer's dialog cannot still be up - this one is modal
+        // and not cancelable - but its gate may still be holding a reference to
+        // it, so it is closed rather than dropped.
+        downloadGate?.close()
+        val gate = DownloadProgressGate()
+        gate.attach(progressDialog)
+        downloadGate = gate
+
         lifecycleScope.launch {
+            var lastPercent = -1
             val result = downloadManager.downloadDisk(diskInfo) { bytesRead, totalBytes ->
                 val percent = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
-                runOnUiThread {
-                    progressDialog.progress = percent
-                    progressDialog.setMessage("$percent% (${formatDiskSize(bytesRead)})")
+                // One post per whole percent, not one per 8KB block. The
+                // callback fires about 6200 times for the 49MB combo image, and
+                // each one used to become a main-thread message that redrew the
+                // dialog with the number it was already showing. The throttle
+                // lives here rather than in DiskDownloadManager so the manager's
+                // contract stays "once per block" for a caller that wants bytes.
+                if (percent != lastPercent) {
+                    lastPercent = percent
+                    gate.postProgress(percent, bytesRead)
                 }
             }
 
-            progressDialog.dismiss()
+            gate.close()
+            if (downloadGate === gate) downloadGate = null
 
             result.fold(
                 onSuccess = {
@@ -264,16 +301,42 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * A slot change is written through the moment it is made, not left for
+     * onPause.
+     *
+     * saveSettings rewrites all four disk_slot_N keys out of the snapshot this
+     * Activity loaded in onCreate, and the slots are the one part of the
+     * settings that something else changes while this screen exists -
+     * MainActivity's first-launch download calls setDiskSlot(0, ...) straight
+     * on the repository. Deferring the write meant the later pause quietly put
+     * the stale set back. It also lets MainActivity.onResume, which compares
+     * diskSlots against what it saw when it paused, notice the change at all.
+     */
     private fun assignDiskToSlot(slot: Int, filename: String) {
         val newSlots = currentSettings.diskSlots.toMutableList()
         newSlots[slot] = filename
         currentSettings = currentSettings.copy(diskSlots = newSlots)
+        settingsRepo.setDiskSlot(slot, filename)
         updateDiskSlotDisplays()
     }
 
     override fun onPause() {
         super.onPause()
         saveSettings()
+    }
+
+    override fun onDestroy() {
+        // The transfer itself goes with the Activity: it runs in lifecycleScope
+        // and DiskDownloadManager's read loop now checks for that. The dialog
+        // does not. It is setCancelable(false), so the user cannot take it away
+        // either, and without this the framework tears the window down
+        // underneath and logs a WindowLeaked. Closing the gate is the half that
+        // matters - after it, a progress post already on its way finds nothing
+        // to write to.
+        downloadGate?.close()
+        downloadGate = null
+        super.onDestroy()
     }
 
     private fun scrollbackLabel(index: Int): String {
@@ -283,6 +346,12 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun saveSettings() {
         currentSettings = currentSettings.copy(
+            // Re-read rather than trusting the snapshot taken in onCreate.
+            // SettingsRepository.saveSettings rewrites all four disk_slot_N
+            // keys, so without this the pause puts this screen's idea of the
+            // slots back over anything that changed them since - see
+            // assignDiskToSlot for who does that.
+            diskSlots = settingsRepo.getSettings().diskSlots,
             fontSize = binding.fontSizeSeekBar.progress,
             wrapLines = binding.wrapLinesCheckbox.isChecked,
             scrollbackLines = SettingsRepository.SCROLLBACK_CHOICES
@@ -301,5 +370,55 @@ class SettingsActivity : AppCompatActivity() {
             return true
         }
         return super.onOptionsItemSelected(item)
+    }
+}
+
+/**
+ * Everything a download's progress callback is allowed to reach.
+ *
+ * The callback runs on an OkHttp read thread for the whole of a transfer, so
+ * whatever it captures is held - and reached from that thread - for as long as
+ * the transfer lasts. It captures one of these and nothing else. The old
+ * callback named runOnUiThread, which is an Activity method, so a destroyed
+ * SettingsActivity stayed reachable from the network thread for the length of a
+ * 49MB image; a volatile flag checked inside the body would have stopped the
+ * writes without releasing the Activity, which is why this holds its own
+ * Handler instead. formatDiskSize is a top-level function in
+ * com.awohl.cpmdroid.data, so naming it captures nothing either.
+ *
+ * The dialog reference is what close() clears, and clearing it is the same act
+ * as closing the gate: after that, a post already queued finds nothing to write
+ * to.
+ */
+@Suppress("DEPRECATION")
+private class DownloadProgressGate {
+
+    private val handler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var dialog: ProgressDialog? = null
+
+    fun attach(target: ProgressDialog) {
+        dialog = target
+    }
+
+    fun postProgress(percent: Int, bytesRead: Long) {
+        handler.post {
+            val target = dialog ?: return@post
+            target.progress = percent
+            target.setMessage("$percent% (${formatDiskSize(bytesRead)})")
+        }
+    }
+
+    /**
+     * Take the dialog down and stop anything further reaching it. Called from
+     * the completion and from onDestroy, both on the main thread, which is
+     * where dismiss() has to happen.
+     */
+    fun close() {
+        val target = dialog
+        dialog = null
+        handler.removeCallbacksAndMessages(null)
+        if (target != null && target.isShowing) target.dismiss()
     }
 }

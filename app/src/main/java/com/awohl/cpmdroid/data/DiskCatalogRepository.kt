@@ -40,19 +40,32 @@ class DiskCatalogRepository {
                 .url(CATALOG_URL)
                 .build()
 
-            val response = client.newCall(request).execute()
+            // use{}, not a bare execute(): the not-successful arm below returns
+            // without ever reading the body, and okhttp hands a connection back
+            // to the pool only when the body is closed. Every call site in this
+            // app shares sharedHttpClient, so those leaks all land in one pool -
+            // and the arm is a live one, since a release shipped with
+            // RELEASE_TAG pointing at a tag GitHub answered 404 for.
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        Exception("HTTP ${response.code}: ${response.message}")
+                    )
+                }
 
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(
-                    Exception("HTTP ${response.code}: ${response.message}")
-                )
+                // isBlank, not a null check. Response.body is non-null for a
+                // response that came back from execute(), and string() answers
+                // "" for an empty body, so the null branch this replaces could
+                // never fire and an empty 200 reached parseDisksXml as an
+                // exception instead of as the plain refusal it deserves.
+                val xml = response.body?.string() ?: ""
+                if (xml.isBlank()) {
+                    return@withContext Result.failure(Exception("Empty response"))
+                }
+
+                val disks = parseDisksXml(xml)
+                Result.success(disks)
             }
-
-            val xml = response.body?.string()
-                ?: return@withContext Result.failure(Exception("Empty response"))
-
-            val disks = parseDisksXml(xml)
-            Result.success(disks)
         } catch (e: Exception) {
             Result.failure(e)
         }
