@@ -7,64 +7,118 @@ Cites name a symbol or a greppable string, not a file:line; a line number reads
 as evidence while carrying none.  Each item is tagged with what the machine
 picking it up has to have.
 
-
-NOTHING IN THIS TREE HAS BEEN THROUGH THE NDK SINCE 9b68ab1
-------------------------------------------------------------
-
-- [ANDROID] build c06fa58 before anything else.  It is the newest source commit
-on master - emu_host_file_close_write() no longer requires a non-empty buffer to
-reach HOST_FILE_WRITE_READY, nativeGetHostFileWriteData() gates on that state
-rather than on the byte count, and handleHostFileWrite() treats an empty array
-as a file to create - and it has never been compiled by the NDK, so a failure in
-it is a failure at HEAD.  Both wrapper scripts are tracked now and pin Gradle
-8.13; romwbw_emu and cpmemu must be checked out beside this repository, because
-CMakeLists.txt compiles the core in place from ../romwbw_emu/src and
-../cpmemu/src and stops with a FATAL_ERROR if they are missing; ndkVersion is
-28.0.13004108 and assembleDebug needs no keystore.  Then run check 1 in
-MANUAL_CHECKS.md.  Until both have happened, CHANGELOG.md's Verified section
-must keep saying this fix was not built.
-
-- [ANDROID] that same build is the first compile of the ANSI-to-CGA colour fix
-in TerminalView.kt, which is uncommitted in the working tree.  ansiToCgaIndex()
-is new and its two call sites are the SGR 30-37 and 90-97 branches; nothing has
-type-checked it, so it is a candidate for a build failure that has nothing to do
-with c06fa58 and should not be read as one.  Then run check 3 in
-MANUAL_CHECKS.md, which is the only way to see a coloured character.  Until both
-have happened, CHANGELOG.md's Verified section must keep saying this fix was not
-built and not run.
-
-- [WINDOWS] gradle.properties pinned org.gradle.java.home to a Windows JDK path,
-which Gradle rejects on every other host before it reads a build script, so the
-line is commented out.  A Windows shell build now needs JAVA_HOME set instead;
-Android Studio picks its own JDK and never read that property.  Confirm on the
-next Windows build.
+The 2026-08-29 round had an SDK, an NDK and an API 36 emulator, so the three
+build items and the three manual checks that headed this file are gone: they
+were run, and their results are in CHANGELOG.md's Verified section.  What is
+below is what that round could not settle or did not touch.
 
 
-NEEDS A DEVICE OR AN EMULATOR
-------------------------------
+NEEDS THE TABLET, NOT AN EMULATOR
+----------------------------------
 
-- [ANDROID DEVICE] the keyboard-aware scrolling and scrollback work (690da30, on
-master, never in a published build) has still never been watched by a person.
-Oldest open item here.  Six checks, in order, in MANUAL_CHECKS.md.
+- [ANDROID DEVICE] the keyboard-aware work (690da30) has now been watched, but
+on a stock API 36 AVD.  The tablet is a different question and MANUAL_CHECKS.md
+keeps it: Samsung SM-X200, Android 14, with Smart Keyboard Pro as the IME.  The
+AVD's keyboard is not evidence about a third-party one.  Insets were never the
+problem there - ime.bottom=636 was measured in July - so what is unsettled is
+the drawing, and the drawing changed again this round when a background colour
+was added under it.
 
-- [DECISION] CHANGELOG.md's 1.18 entry says "No app code changes since 1.17".
-That is true of the published APK and false of the source tree, which briefly
-carried 690da30 under the same version number.  Decide which the entry is meant
-to describe; it is left alone until then.
+- [ANDROID DEVICE] four questions only a hand can answer, listed in
+MANUAL_CHECKS.md and unchanged by this round: which way a drag should scroll,
+how many lines it should move, how much blank space should sit above the prompt
+on a fresh boot with empty history, and whether a drag should scroll at all
+while the keyboard is up.  A fresh boot does show a large blank band above the
+prompt on an AVD, which is the live screen anchored at the bottom with nothing
+in history yet - by design, and still worth a person's opinion.
 
 
 THE DISK IMAGES ARE BEHIND THE CORE
 ------------------------------------
 
-- [RELEASE] the disk images this port serves still carry the pre-98eb6a1 w8.com,
-so nothing this port gained from the v1.36 core is visible to a user.  This app
-bundles no disk image - app/src/main/assets holds only emu_avw.rom - so the
-refresh is a release action in ioscpm, not an edit here.
-romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md owns the order and the reasons; read
-it before publishing anything.  cpmdroid is step 2 of that plan and its code
-half is done.  The residue that is genuinely this repository's: repin
+- [RELEASE] unchanged, and still the only thing between this port and a
+release.  The disk images this port serves carry the pre-98eb6a1 w8.com, so
+nothing this port gained from the v1.36 core is visible to a user.  This app
+bundles no disk image - app/src/main/assets holds emu_avw.rom and the help
+topics - so the refresh is a release action in ioscpm, not an edit here.
+romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md owns the order and the reasons;
+read it before publishing anything.  cpmdroid is step 2 of that plan and its
+code half is done.  The residue that is genuinely this repository's: repin
 RELEASE_TAG in data/DiskCatalogRepository.kt once the refreshed images have a
 new tag, and never onto v1.4.5, which every installed app already fetches.
+
+  Read that document's second hazard before the repin.  disks.xml carries a
+  version attribute and bumping it deletes the user's downloaded disks; this
+  port's own download path was hardened this round (a size and sha256 check
+  before anything is replaced, in DiskDownloadManager.downloadDisk) but that
+  guards a corrupt download, not a catalog bump.
+
+- [ANDROID] the refreshed images are the only way to reach two paths this port
+implements and has never executed: HBF_HOST_CAPS and HBF_HOST_GETNAME.  The
+w8.com on the images today neither probes nor asks.  A local check is possible
+without waiting for the release - romwbw_emu/disks/hd1k_combo.img already
+carries the new r8.com and w8.com, and pushing it onto a device exercises both
+- and that is worth doing before the images ship rather than after.
+
+
+THE C++ SHIM HAS DRIFTED FROM THE SHARED ORIGINAL
+--------------------------------------------------
+
+- [ANDROID] android_host_path_basename() in app/src/main/cpp/emu_io_android.cpp
+is a hand copy of the shared emu_host_path_basename(), because CMakeLists.txt
+deliberately does not compile emu_io_common.cc - it would collide on ten
+symbols this port defines for Android.  The copy's own comment promises to stay
+in step with the original and no longer does: romwbw_emu capped that function
+at EMU_HOST_NAME_MAX (255 bytes, keeping the extension and the front of the
+stem, never cutting inside a UTF-8 sequence) and this copy has no cap.  Nothing
+shipped can reach it, because R8 and W8 both build the path in a 128-byte
+buffer, so this is drift rather than a live bug - but it is drift in the one
+function whose comment says it will not drift.
+
+- [ANDROID] emu_host_file_get_read_name() answers with the leaf the guest asked
+for, lowercased by android_host_leaf(), not with the file that was actually
+opened.  Since the v1.36 core added HBF_HOST_GETRNAME (0xEA), R8 prints that
+answer as fact on its "Reading:" line.  The two agree today only because the
+Kotlin lookup in handleHostFileRead tries the exact name first; they part
+company on the case-insensitive fallback, and on the bare-FCB R8 that sends no
+name at all and gets whichever file the filesystem lists first.  Either answer
+"" - which the browser backend does deliberately, and which makes R8 print what
+was typed - or have Kotlin hand the resolved name back down.  The second is
+more work and is the honest one.
+
+
+TERMINAL: WHAT IS STILL NOT THERE
+----------------------------------
+
+The SGR parser gained backgrounds, 38/48 consumption, bounded parameters and
+the ECMA-48 empty-parameter default this round, and Ctrl+arrows and six editing
+keys now reach the guest.  What remains is a list of sequences that do not
+exist rather than sequences that are wrong.
+
+- [ANDROID] processCSI's dispatch is H f A B C D J K m and nothing else, and
+ESC followed by anything but '[' is discarded.  So there is no VT52 mode, no
+DECSTBM scrolling region, no DECSC/DECRC, no answerback, and none of ICH, DCH,
+ECH, IL, DL or SD.  ioscpm's erase commit (0165dac) lists seventeen fill sites;
+ten of them cannot exist here because the sequence that would fill them does
+not.  This is z80cpmw/FEATURE_PARITY.md row 13 and it is not closed.
+
+- [ANDROID] there are no per-cell attributes beyond a foreground and a
+background colour.  z80cpmw grew a flags byte and a multi-HFONT paint path
+(480edcb, 29d3438) for bold, underline and reverse; TerminalView.kt has one
+textPaint, so SGR 1, 4 and 7 are parsed into nothing.
+
+- [DELIBERATE, do not report this as a gap again] SGR 0 resets the foreground
+to Color.GREEN here, where ioscpm's applySGR and z80cpmw's both reset to CGA 7
+light grey.  The green is this app's identity and the owner confirmed keeping
+it on 2026-08-29.  DEFAULT_FG and DEFAULT_BG in TerminalView.kt carry the same
+note.  A cross-port sweep will keep finding this; it is a divergence that was
+chosen.
+
+- [DELIBERATE] ESC[104m is light blue here and normal blue in z80cpmw.  That
+port packs a cell into a CGA attribute byte whose background field borders the
+blink bit and so folds 100-107 onto 40-47; a cell here is a full ARGB Int with
+nothing to borrow, so the bright backgrounds stay bright.  Same asymmetry the
+bright foreground range already had.
 
 
 PARITY WITH THE OTHER PORTS
@@ -77,12 +131,18 @@ changing them, run the reporter from here:
 It reads only, and exits non-zero when a column is behind the tree it describes.
 Correcting a column is an edit in z80cpmw.
 
-- [ANDROID] parity item 4(a) is open in both directions.  W8 exports cannot
-leave the sandbox by a path and R8 imports cannot arrive by one; both are
-reduced to a leaf inside Exports/ and Imports/.  There is no save-as
-(ACTION_CREATE_DOCUMENT), no picker (ACTION_OPEN_DOCUMENT or GetContent), and no
-share or view intent-filter in AndroidManifest.xml, so nothing can arrive from
-another app either.  Files get in only by the user staging them into Imports/
-with a file manager, which README.md tells them to do and which Android 11+
-makes a fight - the stock Files app does not show Android/data at all.  The
-leaf-only shape is deliberate for Android; the missing UI is not.
+- [PARITY] that column is behind, and this round moved it a long way.  Item
+4(a) is CLOSED in both directions and was verified on a device: an in-app
+Imports/Exports list, save-as through ACTION_CREATE_DOCUMENT, a share sheet
+through a FileProvider scoped to the two transfer folders, an
+ACTION_OPEN_DOCUMENT picker that mangles a host name to R8's own 8.3 rules, and
+ACTION_SEND / ACTION_VIEW on ImportReceiverActivity so another app can push a
+file in.  Row 6 (help) also moves: the seven topics now ship inside the APK
+under app/src/main/assets/help and a fetched topic is cached, so a reader with
+no network gets the text rather than an error.  Row 13 does not move; see the
+terminal section above for what is still missing.
+
+- [PARITY] the reverse direction is worth one pass too.  The rows this
+repository can see are only the ones FEATURE_PARITY.md thought to ask about,
+and two things this port now has - a bounded import, and a receive
+intent-filter - have no row at all.

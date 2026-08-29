@@ -8,117 +8,96 @@ it lives in `todo.txt` - that file keeps a one-line pointer at each of these.
 under **Verified**, not here. A check that has been run and left in place turns
 this file into the same accumulating record `todo.txt` was.
 
----
+Three checks left this file on 2026-08-29 under that rule - the zero-byte
+export, the ANSI colour parser, and most of the keyboard and scrollback work.
+They were run on an API 36 emulator against a build made the same day, and what
+they found is in **Verified**. What is below is what an emulator could not
+answer.
 
-## 1. The zero-byte export (`c06fa58`)
-
-Do this immediately after the first successful `assembleDebug` - `c06fa58` is
-the newest source commit on `master` and has never been compiled by the NDK, so
-the build is half of this check.
-
-1. Build and install a fresh debug build. `./gradlew assembleDebug` (or
-   `gradlew.bat assembleDebug`) needs no keystore, but `romwbw_emu` and
-   `cpmemu` must be checked out beside this repository.
-2. Boot to CP/M and make an empty file - `SAVE 0 EMPTY.TXT` at the prompt.
-3. `W8 EMPTY.TXT`.
-   - Right: a zero-byte `empty.txt` exists in the app's `Exports` folder, and
-     `W8` prints the full `Exports` path it wrote to.
-   - Wrong, and the bug this is checking for: `W8` reports success and nothing
-     appears. The old code only reached `HOST_FILE_WRITE_READY` when the buffer
-     had bytes in it, so the guest was told about a file that was never created.
-4. `W8` a file with contents in it - `R8.COM` will do - and confirm the exported
-   copy is byte-for-byte the size CP/M reports. This is the regression half: the
-   state test replaced a byte-count test, and a wrong fix breaks normal exports
-   rather than empty ones.
-
-Until steps 1 to 4 have all happened, `CHANGELOG.md`'s **Verified** section must
-keep saying this fix was not built. Do not quietly promote it.
+One note for whoever runs these, because it cost this round twice: `adb shell
+input text` fires each character as a separate command and the guest drops some
+of them at that rate. It is the harness, not the app - the native queue behind
+`emu_console_queue_char` is unbounded and mutex-guarded. Put a delay between
+characters, and read back what actually landed on screen before believing a
+command ran.
 
 ---
 
-## 2. Keyboard-aware scrolling and scrollback (`690da30`)
+## 1. The tablet, and the third-party IME
 
-The oldest open item in the repository. The work is committed and on
-`origin/master`, and it has never gone into a published build or been watched by
-a person, so a clean install from the store still shows the black band above the
-keyboard and still drops lines.
+The emulator answered the drawing question with its own stock keyboard. It
+cannot answer it for the tablet: **Samsung SM-X200, Galaxy Tab A8, Android 14**,
+whose IME is **Smart Keyboard Pro**. Insets were never the problem there -
+`ime.bottom=636` was measured in July - so this is about what gets drawn, and
+the drawing changed again on 2026-08-29 when `bgBuffer` and a per-cell
+background rect landed under it.
 
-**Install a fresh build first.** There is a release-keystore APK on the test
-tablet from 2026-07-25 labelled versionCode 19 / 1.18 but built from the fix -
-it is not the published 1.18, and it predates `a523d40`, `9b68ab1` and
-`c06fa58`, all three of which touched `TerminalView.kt` or `MainActivity.kt`. It
-is the wrong build to check against.
+**Install a fresh build first.** There is a release-keystore APK on that tablet
+from 2026-07-25 labelled versionCode 19 / 1.18. It is not the published 1.18, it
+was built from the fix, and it now predates seven commits that touched
+`TerminalView.kt` or `MainActivity.kt`. It is the wrong build to check against.
 
-An API 36 AVD boots the app and CP/M in about forty seconds and reaches all six
-steps. Step 4 is worth repeating on the tablet - Samsung SM-X200, Galaxy Tab A8,
-Android 14 - because that is where the third-party IME (Smart Keyboard Pro) is,
-and a stock AVD keyboard is not evidence about it. Insets were never the
-problem there (`ime.bottom=636` was measured in July); the drawing is.
+1. **Raise the keyboard at the CP/M prompt.** The prompt must stay visible. When
+   the viewport is shorter than 24 rows, `onDraw` scrolls within the live screen
+   to the cursor rather than shrinking the font - on the emulator that showed as
+   `rows=24` with the font unchanged at 29.5 and `fullHeight` kept at its
+   keyboard-hidden value. Watch for the same in `logcat`:
 
-1. **Fresh boot, portrait.** The live screen is fixed at 24 rows (`MIN_ROWS` in
-   `TerminalView.kt`), prompt at the bottom, history above.
-   - Right: content fills the view.
-   - Wrong: a giant black void below the content. That is the bug this design
-     replaced and it was worst in portrait.
-   Then rotate to landscape and look again - rotation resets `fullHeight`, so
-   the font is re-sized from the full keyboard-hidden height.
-2. **Make output that scrolls off.** Boot to CP/M and run `DIR`, or press D or L
-   at the boot menu.
-3. **Drag down** in the terminal to page back into history. Drag up, or let new
-   output arrive, and it must snap back to the live prompt. A tap with no drag
-   must still raise the keyboard. (`TerminalView.onTouchEvent` is the gesture;
-   `processOutput` resetting `userScrollUp` is the snap-back.)
-4. **Tablet: raise the keyboard** and confirm the prompt stays visible. When the
-   viewport is shorter than 24 rows, `onDraw` scrolls within the live screen to
-   the cursor rather than shrinking the font. The user confirmed this half in
-   July, before scrollback existed; scrollback changed the drawing path
-   underneath it.
-5. **Settings, scrollback slider.** `SCROLLBACK_CHOICES` is 0 (Off), 100, 250,
-   500, 1000, 2000, 5000, 10000, and the value reaches `TerminalView` live. With
-   history on screen, lower it: the view must not be left scrolled past the end,
-   and choosing Off must clear the history rather than leave a screen the user
-   can still drag back through. The setter clamps against `historyChars.size`,
-   so this is about how it feels, not whether it crashes.
-6. **Copy with scrollback non-empty.** `copyScreenToClipboard` prepends the
-   history, so the clipboard must include lines that have already left the
-   screen.
+       adb logcat -d | grep -E 'TerminalView|MainActivity: (Insets|Keyboard)'
 
-Logs while doing it:
+2. **Rotate with the keyboard up, then down.** Rotation resets `fullHeight`, so
+   the font is re-sized from the full keyboard-hidden height. A third-party IME
+   that reports its insets late is the case a stock keyboard does not produce.
 
-    adb logcat -d | grep -E 'TerminalView|MainActivity: (Insets|Keyboard)'
-
-`TerminalView` logs `onSizeChanged` and `calculateFontSize` - watch for `rows=24`
-and a sane font size. `MainActivity` logs the inset and keyboard transitions.
-
-Left open deliberately, and only a device can settle them: scroll direction feel,
-how many lines a drag should move, how much blank space sits above the prompt on
-a fresh boot with empty history, and whether a drag should scroll at all while
-the keyboard is up.
+3. **Colour with the keyboard up.** Anything that sets a background now paints a
+   rect per cell. Confirm a coloured screen still scrolls to the cursor rather
+   than leaving a band, and that nothing tears on a slower GPU than an emulator's.
 
 ---
 
-## 3. ANSI colour through the SGR parser (uncommitted `TerminalView.kt`)
+## 2. The four questions only a hand can answer
 
-Also half a build check: the `ansiToCgaIndex()` change in `TerminalView.kt` has
-never been compiled by anything, so getting it to run at all settles as much as
-looking at it. Do it in the same session as check 1.
+Unchanged by the 2026-08-29 round, and deliberately still open. None of them is
+a bug; each is a judgement about feel that a screenshot cannot make.
 
-1. Boot to CP/M and get one coloured word out per colour. Getting an ESC byte
-   past the CCP is the awkward part and nobody has picked a way yet - a short
-   MBASIC program is the obvious one if MBASIC is on the disk
-   (`PRINT CHR$(27);"[31mRED";CHR$(27);"[0m"`), otherwise any program on the
-   disk that is known to colour its own output. Whoever runs this should write
-   down what they used.
-2. Watch the four that were wrong: `ESC[31m` must be **red**, `ESC[34m` must be
-   **blue**, `ESC[33m` must be **brown/yellow**, `ESC[36m` must be **cyan**. If
-   red and blue are still swapped, the conversion is either not being applied
-   or being applied twice; the two are indistinguishable on screen, because the
-   mapping is its own inverse.
-3. Watch the four that were already right and must not have moved: `ESC[30m`
-   black, `ESC[32m` green, `ESC[35m` magenta, `ESC[37m` light grey. A change
-   here means the palette was reordered rather than the index converted.
-4. Bright range if anything on the disk uses it: `ESC[91m` light red, `ESC[94m`
-   light blue, `ESC[93m` yellow, `ESC[96m` light cyan.
+1. Which way should a drag scroll? Today: drag DOWN goes back into history.
+2. How many lines should one drag move?
+3. How much blank space should sit above the prompt on a fresh boot with empty
+   history? On an AVD a fresh boot shows a large black band above the first
+   line, because the live screen is anchored at the bottom and history is empty.
+   It is by design and it does look odd.
+4. Should a drag scroll at all while the keyboard is up?
 
-Until steps 1 to 3 have happened, `CHANGELOG.md`'s **Verified** section must keep
-saying this fix was not built and not run.
+---
+
+## 3. Sharing to a real app
+
+The share sheet was opened on an emulator and offered Quick Share, Chrome,
+Drive, Messages and CPMDroid itself, with a valid
+`content://com.awohl.cpmdroid.fileprovider/...` Uri and no `SecurityException`.
+**No share was completed to a real recipient**, because an emulator has no
+account signed in to any of them.
+
+1. `W8` a file, open **File transfer** from the toolbar, tap the row, **Share**.
+2. Send it to something that will actually receive: Gmail to yourself, Drive,
+   or a messaging app.
+3. Confirm the file arrives with the right name and the right bytes. `r8.com`
+   is a good subject - it is 1792 bytes and any truncation is obvious.
+4. Repeat from the **Imports** section, which shares through the same provider
+   entry.
+
+---
+
+## 4. Receiving from a real app
+
+`ImportReceiverActivity` was exercised on an emulator only by an explicit
+`am start`, which is the attacker's shape, not the user's. The user's shape is
+a share sheet in somebody else's app.
+
+1. In Gmail, Drive or a file manager, pick a small `.txt` and share it to
+   **CPMDroid**.
+2. It must land in `Imports/` under a CP/M-legal 8.3 name, and a toast must say
+   which name it got. `My Long Archive.tar.gz` becomes `my-long-.gz`.
+3. Boot CP/M and `R8` it under that name.
+4. Share the same file twice and confirm the "replaced" wording appears the
+   second time - 8.3 makes collisions ordinary, and silence would be the bug.

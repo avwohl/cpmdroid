@@ -3,15 +3,22 @@
 ## Unreleased
 
 Synced to emulator core **v1.36**, and took the four keyboard and terminal
-gaps the cross-port sweep found here. Built and run this time - on a Windows
-machine with the SDK, the NDK and an API 36 emulator - which is what 1.19
-below could not be. Two bullets are outside that: the zero-byte export fix and
-the ANSI colour fix under it, the last two under **Fixed**, were each written
-afterwards on a machine with no SDK, and neither has been through the NDK or
-onto a device. They say so where they are, and so does **Verified**. **The
-build** section is outside it in the other direction: it was written on that
-same machine, and the wrapper it adds was run there as far as `--version` and
-no further.
+gaps the cross-port sweep found here.
+
+**Everything in this section has now been built with the NDK and run**, on
+Windows with the SDK, NDK `28.0.13004108` and an API 36 emulator, on
+2026-08-29. Earlier drafts of this preamble carved out the zero-byte export fix
+and the ANSI colour fix as unbuilt, because the machines that wrote them had no
+Android SDK; that carve-out is gone, and **Verified** says what was actually
+watched rather than what was argued from the source. The exceptions are named
+there too, and they are exceptions of a different kind: a tablet with a
+third-party IME, a share completed to a real recipient, and the two HBIOS calls
+that need a refreshed disk image to reach.
+
+That round also did more than confirm. Running the colour check found that the
+SGR **background** ranges had no implementation at all, which is why closing it
+appears under **Fixed** rather than only under **Verified**; and parity item
+4(a), the missing save-as, picker and share, is closed under **Added**.
 
 ### The core sync
 
@@ -179,9 +186,120 @@ no further.
   The same bug, from the same assumption, was fixed in `ioscpm` and `z80cpmw`
   in the same session. `romwbw_emu`'s web frontend renders through xterm.js and
   has always read SGR as ANSI, so this is the three native ports catching up to
-  it rather than a new convention. **Not built** - see **Verified**.
+  it rather than a new convention. Built and watched on 2026-08-29; see
+  **Verified** for what the screen showed.
+- **The SGR background ranges did nothing at all.** Found by running the check
+  above rather than by reading: `ESC[40m`-`ESC[47m` and `ESC[100m`-`ESC[107m`
+  reached a `when` with no branch for them, there was no per-cell background to
+  put them in, and `drawRow` skipped any cell whose character was a space - so
+  even a stored background could not have been drawn. `ioscpm` hit the same
+  thing from the other side in `0dbab43`, where `ESC[44m` then `ESC[2J` filled
+  the screen red; here it filled it with nothing, and the bright block was
+  literally invisible, black on black. `bgBuffer` and `historyBg` now sit beside
+  `colorBuffer` and `historyColors`, the background index goes through
+  `ansiToCgaIndex()` exactly as the foreground does, `39` and `49` reset each
+  half, and `drawRow` fills a cell rect before it tests for a glyph. A cell
+  holding `DEFAULT_BG` is still skipped, so a session that sets no colour costs
+  what it always did.
+- **Erases paint the current background**, which is what a strict VT does and
+  what both siblings already did. `blankCells`/`blankRow` are this port's shape
+  of `ioscpm`'s `blankCell`, and all eight fill sites go through them. That is
+  the fix `ESC[44m` then `ESC[2J` was asking for. One latent crash went with it:
+  `clearLineToBeginning` looped `0..cursorCol`, and `putChar`'s no-wrap truncate
+  path can leave `cursorCol == cols`, so `ESC[1K` there indexed one past the row.
+- **Ctrl+arrow sent the plain arrow.** `handleKeyDown` computed the modifier and
+  then never consulted it: the four `KEYCODE_DPAD_*` arms matched on the key code
+  alone and returned first, so Ctrl+Left was byte-for-byte a bare Left. They now
+  send the xterm forms `z80cpmw`'s `Keymap.h` and `ioscpm`'s `KeyMap.swift` both
+  send. Verified byte for byte on a device - see **Verified**.
+- **`ESC[38;5;33m` set the foreground from the `33`.** The SGR loop acted on
+  every parsed parameter in turn, so the sub-parameters of `38` and `48` were
+  read as colour codes. Both forms are now consumed - `;5;<n>` and
+  `;2;<r>;<g>;<b>` - and the value is discarded rather than approximated onto
+  the CGA palette, because `z80cpmw` discards it too and a port that guessed
+  would put a colour on screen that no sibling shows for the same bytes.
+- **An empty CSI parameter shifted every parameter after it.** `ESC[;5H` was
+  split on `;` and `mapNotNull`-ed, which dropped the empty field and read it as
+  `ESC[5H`. An empty parameter means "use the default", not "not there". The
+  parse now keeps position, and the ECMA-48 default of 1 is applied to the value
+  - so `ESC[0A` moves by one and `ESC[0;0H` homes, where both were no-ops.
+- **The CSI parameter buffer had no bound**, so an unterminated escape grew a
+  `StringBuilder` without limit. Bounded at 16 parameters, 6 digits and 9999 per
+  value, as the siblings are; the excess is dropped and the final byte still
+  executes, because a CSI abandoned mid-flight prints its own tail as glyphs.
+- **A reset carried the dead session's colour and parser state into the new
+  one** - this port's shape of the ordering bug `ioscpm` fixed in `0165dac`, and
+  newly able to bite now that a clear paints a background.
+- **Home, End, PageUp, PageDown, Insert and Forward-Delete reached CP/M as
+  nothing.** They now send the sibling byte sequences.
+- **A disk download outlived the dialog that asked for it.** The read loop only
+  notices cancellation at a block boundary and `Dispatchers.IO` does not
+  interrupt, so leaving the Settings screen pulled the whole 49 MB anyway and
+  fired the progress callback thousands of times for a transfer nobody would be
+  shown. It also **refused nothing**: a connection dropped at 90% was renamed
+  straight over the good copy and handed to the emulator as a bootable image.
+  The size and the catalog's `sha256` are both checked before anything is
+  replaced, the hash is computed from the bytes as they arrive rather than by
+  re-reading 49 MB, and the scratch file carries a nonce - the old fixed
+  `<filename>.tmp` was one name shared by every attempt, so two downloads of one
+  disk truncated each other. The rename is also checked now; the old code
+  deleted the destination first and then discarded `renameTo`'s result, so a
+  failed rename left the user with no image at all and a `Result.success`.
+- **Four HTTP call sites leaked their response** on a non-2xx status. A 404 is
+  not hypothetical here - a whole release shipped with the catalog pinned to a
+  tag that did not exist - so that is the arm that ran, and leaked, in the field.
 
 ### Added
+
+- **Files can leave the sandbox, and arrive from another app.** This is parity
+  item 4(a), the largest open Android item this repository had, and it is closed
+  in both directions and verified on a device. Nothing about the sandbox itself
+  moved: the guest still cannot name a path, `emu_host_path_caps()` reports what
+  it always did, and `app/src/main/cpp` is untouched. What was missing was never
+  the boundary, it was the UI on top of it.
+  - **A File transfer screen** on the toolbar, listing both folders with sizes
+    and dates, and per row **Save as...**, **Share** and **Delete**. It exists
+    because `ACTION_VIEW` on a folder cannot work on Android 11+: the stock Files
+    app does not show `Android/data` at all, so before this the only way to reach
+    an export was a third-party file manager, which `README.md` told people to
+    go and find.
+  - **Save as** through `ACTION_CREATE_DOCUMENT`, behind a small custom
+    `ActivityResultContract` because `ActivityResultContracts.CreateDocument`
+    fixes the MIME type at registration and each row has a different one.
+  - **Share** through a `FileProvider` scoped to `Imports/` and `Exports/` and
+    deliberately not to the external-files root, which also holds the user's
+    downloaded disk library.
+  - **Import** through `ACTION_OPEN_DOCUMENT`, mangling the host name to R8's
+    own rules from `path_to_fcb` in `r8.asm` - basename, drop leading dots, stem
+    to the first dot and type from the last, 8 and 3, `fcb_char` per character.
+    The point is that it is a fixed point: run R8's parser over the name this
+    produces and the same name comes back, so what the toast says is what the
+    user can type. It also makes both R8 vintages agree, which matters while the
+    shipped images still carry the older one.
+  - **`ACTION_SEND` / `ACTION_VIEW` on `ImportReceiverActivity`**, a separate
+    no-UI activity rather than an intent-filter on `MainActivity`, because the
+    native engine is a process-global singleton and a second `MainActivity`
+    would re-init it underneath the running one.
+  - **A non-`content:` Uri is refused** at the single line where a Uri from
+    outside this app is dereferenced. `ImportReceiverActivity` is exported, and
+    an intent-filter constrains only implicit intents and only the intent's data
+    Uri - never `EXTRA_STREAM`, and not at all for an explicit intent - so
+    without this any app could have made CPMDroid open its *own* private data
+    with its own uid and copy it where `R8` can read it. Imports are bounded at
+    16 MB, against a CP/M 2.2 slice that holds 8.
+- **Help works offline, and stops being written for iOS.** The seven topics now
+  ship inside the APK under `app/src/main/assets/help`, a fetched topic is
+  cached, and the order is network, then cache, then the bundled copy - so a
+  reader with no network gets the text where they used to get an error. The
+  shared `release_assets/` topics were rewritten upstream in `ioscpm` `7569745`
+  to stop assuming iOS, and this port's fork of the file-transfer topic
+  (`78e6ec6`) goes away with them. Taking that text verbatim would have
+  regressed things, so it is a merge: upstream's cross-platform structure, this
+  port's Android facts, and four things fixed that were wrong in both - the boot
+  unit is **2** and not 0, Settings cannot be opened while the emulator runs, the
+  toolbar has no gear icon, and Ctrl+? does not give DEL here. The dead
+  top-level `help/` directory, which `78e6ec6` called "bundled" and which nothing
+  read, is deleted.
 
 - **Terminal scrollback is a setting**, as it is on `z80cpmw`. It was
   hardcoded at 1000 lines with no way to change or disable it. The slider
@@ -358,77 +476,195 @@ no further.
   be run and with what right looks like at each step; that file says at the top
   that a check is deleted once someone runs it, and the result goes under
   **Verified** here.
+- **The 2026-08-29 round applied that rule to itself.** Three checks were run,
+  so all three are gone from `MANUAL_CHECKS.md` and their results are under
+  **Verified**; what is left there is four checks an emulator could not make -
+  the tablet with its third-party IME, the four feel questions, a share
+  completed to a real recipient, and a share received from a real app.
+  `todo.txt` loses the three build items and the two `[DECISION]` items that
+  round settled, and gains what it found: the drift in
+  `android_host_path_basename()` away from the shared original it promises to
+  track, `emu_host_file_get_read_name()` answering the asked-for name rather
+  than the opened one, and the list of terminal sequences that are absent rather
+  than wrong. Two divergences are now marked **deliberate** in that file, with
+  the reason, so a future cross-port sweep stops reporting them: SGR 0 resetting
+  to green, and `ESC[104m` staying bright.
+- **`README.md` told the user to do the one thing Android 11 prevents** - "copy
+  file to Imports folder using a file manager" - which the app's own help topic
+  already contradicted. Rewritten around the File transfer screen, with the
+  hand-staging route kept as the fallback it now is. Three other claims went
+  with it: the terminal is no longer advertised as running "Zork, WordStar,
+  etc." (nobody measured that, and `todo.txt` lists what the parser does not
+  have), the help system is no longer described as download-only, and the build
+  requirements said NDK 27 and Android Studio Hedgehog where the tree pins NDK
+  `28.0.13004108`, `compileSdk` 36 and JDK 21.
 
 ### Verified
 
-- Built with the NDK for all four ABIs and run on an API 36 emulator: the app
-  boots, RomWBW reaches the boot loader, CP/M 2.2 comes up, and the new
-  `Host exports dir:` line shows the JNI hand-down landing before any transfer
-  can start.
-- `W8 R8.COM` exports to `Exports/r8.com`, with the destination logged as the
-  full path and the containment check passing.
-- The Settings slider reads 1000, drags to Off, and persists as
-  `scrollback_lines` in the preferences file.
-- The terminal parser is thinner than `z80cpmw`'s FEATURE_PARITY.md claimed -
-  its CSI dispatch is `H f A B C D J K m` and nothing else, its SGR handles
-  foreground only, and ESC followed by anything but `[` is discarded, so there
-  is no VT52, no DECSTBM, no DECSC/DECRC, no answerback and no background
-  colour. That column has been corrected in `z80cpmw`; the gap itself is row 13
-  and is not closed here.
-- Not built with the NDK and not run anywhere: the zero-byte export fix, the
-  last bullet under **Fixed**. It was checked by compiling
-  `emu_io_android.cpp` for the host against a stub `jni.h`, which is not the
-  same as compiling it for Android and is not the same as watching `W8` on a
-  device. What that host run did and did not cover is written into the bullet.
-- Not verified, and it cannot be from here: `HBF_HOST_CAPS` and
-  `HBF_HOST_GETNAME` reaching a guest. The disk images this port downloads still
-  carry the pre-`98eb6a1` `w8.com`, which neither probes nor asks. (This entry
-  said "bundled"; nothing is bundled - see the `todo.txt` bullet above.) See
-  `todo.txt`.
-- Nothing was built or run in the 2026-08-26 documentation pass. It changed
-  `todo.txt` and this file and no source, on a machine with no Android SDK, NDK,
-  Gradle or `javac`. Every claim it makes about this tree was checked by reading
-  or grepping the working tree at `c06fa58`; every claim about a sibling was
-  checked against that checkout at the commit named beside it.
-- The new `gradlew` was run, twice and by two passes, on macOS 27 arm64:
-  `JAVA_HOME=... GRADLE_USER_HOME=<scratch> ./gradlew --version` downloaded the
-  pinned `gradle-8.13-bin.zip` and printed `Gradle 8.13`, launcher JVM 21.0.6,
-  exit 0. So the script, the tracked wrapper jar and the pin in
-  `gradle-wrapper.properties` all work together, and `GradleWrapperMain` really
-  ran rather than merely being reached. It was also checked with `sh -n` under
-  `sh`, `bash`, `dash` and `zsh`; through a symlink, a daisy-chained relative
-  symlink and a foreign working directory with `CDPATH` set, all three resolving
-  `APP_HOME` to this repository; and against an invalid `JAVA_HOME`, which
-  refuses with the same wording as `gradlew.bat`. The Gradle user home was in
-  scratch and was deleted afterwards, so nothing landed in `~/.gradle`.
-- **Nothing past `--version` was attempted, and no Android build happened.** The
-  machine has no Android SDK - `ANDROID_HOME` is empty and there is no
-  `~/Library/Android/sdk` - and the only JVM on it is a stripped runtime bundled
-  inside another application, whose `bin` holds `java` and nothing else and whose
-  module list has no `java.instrument`, so a Gradle daemon cannot fork there.
-  Read none of the above as evidence that this app compiles. The zero-byte export
-  fix is still not built and still not run.
-- The 2026-08-27 documentation and wrapper pass changed no app behaviour. Its
-  only edits to compiled files are two comment lines, and they were not
-  compiled; the rest is `gradlew`, `gradle.properties`, `README.md`,
-  `todo.txt`, `MANUAL_CHECKS.md` and this file. No device or emulator was
-  involved at any point. The ANSI colour fix landed later the same day and is
-  the exception - it does change what the user sees, and it is covered by the
-  bullet below.
-- **The ANSI colour fix was not built and not run.** Same machine as the
-  wrapper work above: no Android SDK, no NDK, no Gradle, and no usable JVM, so
-  `TerminalView.kt` was not compiled by anything, not even to check that it
-  parses. What was checked instead: `ansiToCgaIndex`'s body was read back out
-  of the source file, translated operator-for-operator into Python, and run
-  over all eight indices. It produces `0->0 1->4 2->2 3->6 4->1 5->5 6->3
-  7->7`; it is a bijection on 0-7 and its own inverse; and driven through the
-  sixteen palette entries parsed out of `cgaColors` in the same file, `ESC[31m`
-  now selects Red, `ESC[33m` Brown, `ESC[34m` Blue and `ESC[36m` Cyan, with the
-  other four unmoved, and `ESC[91m` through `ESC[97m` select the matching
-  bright entries. The first run of that check failed, which is the reason to
-  record it: Kotlin's `or` on an `Int` is bitwise and Python's is not, so the
-  translation, not the Kotlin, was wrong. That is the whole of the evidence.
-  Nobody has seen a coloured character from this build.
+**Read this section top to bottom rather than by bullet.** Three earlier passes
+wrote here that the zero-byte export fix and the ANSI colour fix "were not built
+and not run", and each was honest when it was written - the machines those
+passes ran on had no Android SDK. The 2026-08-29 round had one. Those statements
+are superseded and are not repeated below; what replaces them is not "it
+probably works" but a list of things that were watched happening.
+
+**What the 2026-08-29 round had.** Windows 11, JDK 21.0.8, Android SDK with NDK
+`28.0.13004108`, and the `Medium_Phone_API_36.1` AVD. Every claim below was made
+against a build produced that day from this tree.
+
+#### The build
+
+- **`./gradlew clean assembleDebug` succeeds from scratch: 52 tasks executed,
+  zero up-to-date.** The native library compiles for all four ABIs -
+  `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` - which means `emu_io_android.cpp`
+  and the seven core files `CMakeLists.txt` pulls out of `../romwbw_emu/src` and
+  `../cpmemu/src` were all compiled, at `-Wall -Wextra`, against those siblings'
+  current heads. **Not one native warning.** The three warnings the build does
+  emit are `javac`'s, about `source`/`target` 8 being obsolete, and predate this
+  work.
+- That settles a question `romwbw_emu`'s `todo.txt` asks of its downstreams: the
+  `qkz80_MK_INT16` narrowings in `cpmemu`'s `qkz80_reg_pair.h` are **invisible
+  here**. They are what `-Wshorten-64-to-32` and `-Wconversion` find, and neither
+  is in `-Wall -Wextra`, which is what this port compiles with.
+- **A Windows shell build works with `JAVA_HOME` set**, which is what `d4ee298`
+  claimed when it commented out `org.gradle.java.home`. That line had pinned an
+  absolute Windows JDK path in a tracked file and Gradle rejected it on every
+  other host before reading a build script. Confirmed on the platform that
+  originally needed it.
+
+#### The zero-byte export (`c06fa58`)
+
+Run in full, in CP/M 2.2 booted from `hd1k_combo.img`. **Boot unit 2, not 0** -
+units 0 and 1 are the RAM and ROM disks and booting `0` prints
+`*** No system image on disk`. That cost this round fifteen minutes and is now
+in the help topics.
+
+- `SAVE 0 EMPTY.TXT` then `DIR EMPTY.TXT` shows `A: EMPTY    TXT`.
+- `W8 EMPTY.TXT` prints `Done: 0 bytes` and the full destination path, and **a
+  real zero-byte `empty.txt` exists in `Exports/`**. That is the fix: the old
+  code only reached `HOST_FILE_WRITE_READY` when the buffer had bytes in it, so
+  the guest was told about a file that was never created.
+- The regression half holds. `W8 R8.COM` prints `Done: 1792 bytes` and the host
+  file is exactly 1792 bytes - the state test that replaced a byte-count test
+  did not break a normal export.
+
+#### ANSI colour, and the half nobody had looked for
+
+- **Foreground is correct, and was watched.** A file of SGR escapes was staged
+  in `Imports/`, imported with `R8`, and `TYPE`d - which is how an ESC byte gets
+  past the CCP, and is worth writing down because the check had been open for
+  want of a way to do it. All of `ESC[30m`-`ESC[37m` and `ESC[90m`-`ESC[97m`
+  render correctly on screen: `31` red, `33` brown, `34` blue, `36` cyan, and the
+  four that were already right unmoved. `ansiToCgaIndex()` is confirmed.
+- **The backgrounds were not wrong; they did not exist.** `ESC[40m`-`ESC[47m`
+  and `ESC[100m`-`ESC[107m` reached a `when` that had no branch for them, and
+  `drawRow` skipped any cell whose character was a space, so a background could
+  not have appeared even if it had been stored. On screen the bright block was
+  *invisible* - black text on a background that never painted. This is the same
+  bug `ioscpm` fixed in `0dbab43`, presenting differently: there the byte was
+  stored in the wrong order and filled the screen red, here there was no byte.
+- After the fix, watched again: every background renders and the ANSI-to-CGA
+  conversion is right in both directions - **`41` is red and `44` is blue**, not
+  swapped - and the bright range `100`-`107` is visible and correct.
+- **The case the whole cross-port thread was about now behaves.** `ESC[44m`
+  followed by `ESC[2J` fills the live 24-row screen solid blue, including rows
+  that hold no text; `ESC[41m` followed by `ESC[K` erases to end of line in red
+  across the full width.
+- **The default look did not move.** A session that has never seen an SGR
+  sequence is green on black exactly as before. `DEFAULT_FG` is still
+  `Color.GREEN`, and a cell holding `DEFAULT_BG` is skipped by the same fast
+  path as before, so the common case costs what it used to.
+
+#### Keyboard and scrollback (`690da30`), first time anyone has watched it
+
+On the AVD, portrait and landscape. The tablet half is still open and is now
+check 1 of `MANUAL_CHECKS.md`.
+
+- Fixed 24-row live screen, prompt at the bottom, content filling the view.
+  **No black void below the content** - the bug this design replaced. Rotating
+  to landscape resets `fullHeight` and re-sizes from the full height:
+  `rows=24, cols=160`, prompt still visible, content still filling.
+- Drag DOWN pages back into history and reveals output that had scrolled off;
+  drag UP snaps back to live; a tap with no drag raises the keyboard.
+- With the keyboard up: `ime.bottom=1006`, view height 1089 against a
+  `fullHeight` of 2032 kept from before, `rows=24`, and the font **not** shrunk
+  (29.5 either way). The prompt stays visible.
+- The Settings scrollback slider runs 0 (Off) to 10000. Set to **Off** it clears
+  the history: a drag afterwards reveals nothing and the view is not left
+  scrolled past the end.
+- `copyScreenToClipboard` prepending history is read from the source, and the
+  history was confirmed non-empty on the device by dragging into it. **The
+  clipboard itself was not read back** - this system image has no
+  `cmd clipboard`, and `dumpsys clipboard` returns nothing.
+- Settings cannot be opened while the emulator runs; the tap raises
+  `Stop emulator before changing settings`. That is deliberate and is now said
+  in the help topics, which previously told the reader to go to Settings without
+  mentioning it.
+
+#### Ctrl+arrows, byte for byte
+
+At the CP/M prompt, where the CCP echoes `ESC` as `^[`, so the two cases are
+distinguishable on screen. Plain Left produces `^[[D`; Ctrl+Left produces
+`^[[1;5D`. That is the xterm form `z80cpmw`'s `Keymap.h` and `ioscpm`'s
+`KeyMap.swift` both send. Before this round the four `KEYCODE_DPAD_*` arms
+matched on the key code alone and returned before the modifier was consulted, so
+Ctrl+Left was byte-for-byte a bare Left.
+
+#### File transfer (parity item 4(a)), both directions
+
+- **Out of the sandbox.** File transfer > `r8.com` > **Save as...** opens the
+  system document picker with the name pre-filled; saving to `Downloads` puts a
+  file there whose md5 equals the one in `Exports/` and whose length is 1792.
+  A file written by `W8` inside CP/M has left the app's storage entirely, which
+  is what item 4(a) asked for and what no version of this app could do before.
+- **In through the picker.** `Import file...` then a file named
+  `My Long Archive.tar.gz` - a name CP/M cannot express - lands in `Imports/` as
+  **`my-long-.gz`**, and then `R8 MY-LONG-.GZ` inside CP/M prints
+  `Creating: MY-LONG-.GZ` and `Done: 30 bytes`. The mangling is a fixed point
+  under R8's own `path_to_fcb`, which is the property that matters: what the app
+  says the file is called is what the user can type.
+- **The share sheet opens** with a valid
+  `content://com.awohl.cpmdroid.fileprovider/...` Uri, no `SecurityException`,
+  and offers Quick Share, Chrome, Drive, Messages **and CPMDroid itself** - the
+  last of those being `ImportReceiverActivity`'s intent-filter, so the app is a
+  share target as well as a share source. No share was completed to a real
+  recipient; an emulator has no account signed in. That is check 3 of
+  `MANUAL_CHECKS.md`.
+- The share sheet's own log asked for `Intent#setClipData()` so it could read
+  the file for a preview; it now gets one.
+- **The confused-deputy hole was found by review and closed, and the attack was
+  then run against the fix.** `ImportReceiverActivity` is exported, and an
+  intent-filter constrains only implicit intents and only the intent's data Uri
+  - never `EXTRA_STREAM`, and not at all for an explicit intent. So any app
+  could have named a `file://` Uri and had this app open its *own* private data
+  with its own uid and copy it into `Imports/`, where `R8` can read it. Running
+  that exact intent against the fixed build logs
+  `W HostTransfer: Refusing a non-content Uri: file` and **nothing appears in
+  `Imports/`**. Imports are also bounded at 16 MB now, against a CP/M 2.2 slice
+  that holds 8.
+
+#### Help, with the network switched off
+
+`svc wifi disable` and `svc data disable`, then Help from the toolbar. The index
+lists all seven topics and opening one shows its text, where before this round
+both would have been an error - `HelpActivity`'s only source was HTTP. The index
+also reads **"Getting started with CPMDroid"**, which is the shared asset no
+longer calling itself iOSCPM. The eight files are in the APK under
+`assets/help/`, byte-identical to the copies in `release_assets/`, so a reader
+offline and a reader online see the same document.
+
+#### What is still not verified
+
+- **`HBF_HOST_CAPS` and `HBF_HOST_GETNAME` reaching a guest.** Unchanged: the
+  disk images this port downloads carry the pre-`98eb6a1` `w8.com`, which
+  neither probes nor asks. The refreshed image in `romwbw_emu/disks/` does, and
+  `todo.txt` now says to push it at a device rather than wait for the release.
+- **The tablet**, and its third-party IME. See `MANUAL_CHECKS.md` check 1.
+- **Receiving a share from a real app.** The receive path was exercised only by
+  an explicit `am start`, which is the attacker's shape and not the user's.
+- The **download** size/`sha256` refusal is compiled and was not made to fire.
+  Forcing it needs a deliberately corrupt or truncated asset, which means
+  standing something up to serve one.
 
 ## Version 1.19 (versionCode 20)
 
@@ -461,6 +697,7 @@ and this code went through the same compiler on the way. Still unpublished.
 
 - Version bump for a fresh Google Play submission. Already targets Android 16 (API 36), which meets Play's Aug 31 2026 target-API requirement (min is API 35).
 - The pinned ioscpm `v1.4.5` disk catalog is now published upstream, so the downloadable disk list loads (that release was missing when 1.17 was built, and the catalog fetch returned HTTP 404). No app code changes since 1.17.
+- **That last sentence describes the published APK, and the owner settled on 2026-08-29 that this is what the entry is for.** It was queried because it is false of the source tree: `690da30`, the keyboard-aware scrolling and scrollback work, sat on `master` under this version number for a time. The shipped 1.18 binary was built from `5ae1bdd`, before that commit, so the sentence is exact about what users received. `690da30` belongs to the **Unreleased** section above, where it now appears, and it has never been in a published build - a clean install from the store is still the pre-scrollback terminal.
 
 ## Version 1.17 (versionCode 18)
 

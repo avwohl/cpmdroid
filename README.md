@@ -6,18 +6,26 @@ A Z80/CP/M emulator for Android phones and tablets, built on the [RomWBW](https:
 
 - **Full Z80 emulation** with accurate instruction timing
 - **RomWBW HBIOS** compatibility for authentic CP/M experience
-- **VT100/ANSI terminal** with escape sequence support (runs Zork, WordStar, etc.)
+- **ANSI/VT terminal** - cursor motion, erase, 16-colour SGR foreground and
+  background, scrollback. Deliberately partial: there is no VT52 mode, no
+  scrolling region, and no bold/underline/reverse. `todo.txt` lists what is
+  missing; this used to claim "runs Zork, WordStar, etc.", which outran what
+  anybody had measured.
 - **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
 - **Download disk images** from the [ioscpm](https://github.com/avwohl/ioscpm) releases - no bundled copyrighted content
 - **Hardware keyboard support** - Bluetooth and USB keyboards
 - **Control strip** - Ctrl, Esc, Tab, Copy, Paste buttons for touch input
-- **Help system** - Built-in documentation downloaded from GitHub
-- **R8/W8 file transfer** - Transfer files between Android and CP/M
+- **Help system** - seven topics bundled in the app, refreshed from GitHub when
+  there is a network and cached after that, so it works offline
+- **R8/W8 file transfer** - move files between Android and CP/M, with an in-app
+  Imports/Exports browser, save-as and share out, and a picker in. CPMDroid is
+  also a share target, so other apps can send it a file
 
 ## Getting Started
 
 1. **First launch** automatically downloads a default boot disk
-2. **Open Settings** (gear icon) to configure disks and options
+2. **Open Settings** (the wrench, in the toolbar) to configure disks and
+   options. Stop the emulator first - Settings refuses to open while it runs
 3. **Download additional disk images** from the disk catalog
 4. **Press Play** to start the emulator
 5. At boot menu, press `2` to boot from the first hard disk (units 0 and 1 are the RAM and ROM memory disks and carry no OS)
@@ -43,13 +51,25 @@ Transfer files between Android and CP/M using the R8/W8 utilities:
 - **Imports folder**: `Android/data/com.awohl.cpmdroid/files/Imports/`
 - **Exports folder**: `Android/data/com.awohl.cpmdroid/files/Exports/`
 
+Since Android 11 the stock Files app does not show `Android/data` at all, so
+those two paths are where the files live rather than somewhere you can browse
+to. Use the **File transfer** button in the toolbar, which is the app's own view
+of both folders.
+
 To import a file to CP/M:
-1. Copy file to Imports folder using a file manager
-2. In CP/M, run: `R8 FILENAME.EXT`
+1. **File transfer > Import file...**, and pick it. Or share it to CPMDroid from
+   any other app. Either way it is renamed to something CP/M can address:
+   `My Long Archive.tar.gz` becomes `my-long-.gz`, and the app tells you which
+   name it got
+2. In CP/M, run: `R8 MY-LONG-.GZ`
 
 To export a file from CP/M:
-1. In CP/M, run: `W8 FILENAME.EXT`
-2. File appears in Exports folder
+1. In CP/M, run: `W8 FILENAME.EXT`. It prints the full host path it wrote to
+2. **File transfer**, then **Save as...** to put it anywhere on the device, or
+   **Share** to send it to another app
+
+Staging a file into `Imports/` by hand with a third-party file manager still
+works, and is no longer the only way.
 
 ## Disk Images
 
@@ -109,9 +129,12 @@ Uses RomWBW hd1k format:
 ## Building
 
 ### Requirements
-- Android Studio Hedgehog (2023.1) or later
-- Android SDK 24+ (Android 7.0)
-- Android NDK 27+
+- Android Studio, or just a JDK and the SDK - the tracked wrapper pins Gradle
+  8.13, and a shell build needs `JAVA_HOME` set (`gradle.properties` no longer
+  pins one, because an absolute path there broke every other host)
+- JDK 21
+- Android SDK: `compileSdk`/`targetSdk` 36, `minSdk` 24 (Android 7.0)
+- Android NDK `28.0.13004108`, which `app/build.gradle.kts` pins by version
 
 ### Build Steps
 1. Clone sibling projects (cpmemu, romwbw_emu) beside this one - `CMakeLists.txt`
