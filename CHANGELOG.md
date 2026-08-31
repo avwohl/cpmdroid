@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## Version 1.22 (versionCode 23)
+
+The 1.19 entry below is folded into this release. versionCode 20 was
+bumped in the tree on 2026-08-07 but was never built or uploaded, so its
+changes reach users here for the first time. The last version to reach the
+Play Store was 1.18 (versionCode 19).
 
 Synced to emulator core **v1.36**, and took the four keyboard and terminal
 gaps the cross-port sweep found here.
@@ -886,7 +891,7 @@ offline and a reader online see the same document.
   Forcing it needs a deliberately corrupt or truncated asset, which means
   standing something up to serve one.
 
-## Version 1.19 (versionCode 20)
+### Emulator core v1.35, and the refreshed ROM
 
 - Synced with emulator core **v1.35**, which pins the RomWBW release it
   emulates (v3.5.1) in `src/romwbw_pin.h` and now refuses a ROM built for a
@@ -906,12 +911,11 @@ offline and a reader online see the same document.
   `emu_file_*` and `emu_disk_*` are deliberate stubs (Android does file I/O
   through JNI and keeps disks in memory), so there was nothing to harden.
 
-**Not built or published when this was written.** No Android SDK, NDK or JDK
-was available at the time, and the repo ships only `gradlew.bat`; the C++ was
-reviewed and type-checked against the real core headers with clang, but
-neither Gradle nor the NDK had compiled it. That gap is now closed - the
-Unreleased section above was built and run on a machine with the toolchain,
-and this code went through the same compiler on the way. Still unpublished.
+**Drafted without a toolchain, shipped with one.** No Android SDK, NDK or JDK
+was available when this was written; the C++ was reviewed and type-checked
+against the real core headers with clang, but neither Gradle nor the NDK had
+compiled it. That gap is closed: it was built with the NDK and run on an API 36
+emulator, and it ships to users as part of 1.22.
 
 ## Version 1.18 (versionCode 19)
 
