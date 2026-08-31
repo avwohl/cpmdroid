@@ -1,11 +1,39 @@
 import java.util.Properties
-import java.util.Date
-import java.text.SimpleDateFormat
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Identity of the source this binary was built from.
+//
+// Deliberately NOT a wall clock. buildConfigField is evaluated during the
+// configuration phase, so a clock-based stamp has two failure modes: Gradle's
+// configuration cache freezes it, after which the app reports a build time
+// older than its own binary - which is precisely how a stale install goes
+// unnoticed - and because it changes on every single build it also defeats the
+// up-to-date check on generateBuildConfig and every compile task downstream.
+//
+// A git-derived stamp is a function of the source instead of the clock: correct
+// by construction, and stable across rebuilds of the same commit. The commit
+// hash is the part that matters - it is checkable against the repo, so a build
+// that did not come from where you think it did is obvious rather than
+// plausible. Falls back to "nogit" when built from a tarball with no git.
+fun gitOutput(vararg args: String): String = try {
+    val proc = ProcessBuilder(listOf("git") + args)
+        .directory(rootProject.projectDir)
+        .redirectErrorStream(true)
+        .start()
+    val text = proc.inputStream.bufferedReader().readText().trim()
+    if (proc.waitFor() == 0) text else ""
+} catch (e: Exception) {
+    ""
+}
+
+val gitSha = gitOutput("rev-parse", "--short=9", "HEAD").ifEmpty { "nogit" } +
+    if (gitOutput("status", "--porcelain").isNotEmpty()) "+dirty" else ""
+val gitCommitDate = gitOutput("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M:%S")
+    .ifEmpty { "unknown" }
 
 // Load keystore properties
 val keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -34,11 +62,15 @@ android {
         applicationId = "com.awohl.cpmdroid"
         minSdk = 24
         targetSdk = 36
-        versionCode = 23
-        versionName = "1.22"
+        versionCode = 24
+        versionName = "1.23"
 
-        // Build timestamp - regenerated every build
-        buildConfigField("String", "BUILD_TIME", "\"${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())}\"")
+        // Source identity - see the gitOutput() comment above for why this is a
+        // commit rather than a clock. SOURCE_DATE is the commit's date, not the
+        // moment the compiler ran; when the binary was actually written is read
+        // from the installed APK at runtime, where it cannot go stale.
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
+        buildConfigField("String", "SOURCE_DATE", "\"$gitCommitDate\"")
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")

@@ -2,6 +2,7 @@ package com.awohl.cpmdroid
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -30,6 +31,9 @@ import com.awohl.cpmdroid.data.SettingsRepository
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -452,8 +456,49 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * versionCode of the APK that is actually installed. Worth showing next to
+     * the name because it is the number Play orders releases by, so an install
+     * that silently did not replace an older one shows up here as a number that
+     * went backwards.
+     */
+    private fun getVersionCode(): Long {
+        return try {
+            val info = packageManager.getPackageInfo(packageName, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                info.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                info.versionCode.toLong()
+            }
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
+    /**
+     * When the running APK was written, read from the file backing this very
+     * process. Unlike anything baked into BuildConfig at compile time, this
+     * cannot survive into a later build: if it reports last month, then last
+     * month's APK is what is running, whatever the source tree says. This is
+     * the one field that answers "did my install actually take?".
+     */
+    private fun getApkBuildTime(): String {
+        return try {
+            val written = File(applicationInfo.sourceDir).lastModified()
+            if (written > 0) {
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(written))
+            } else {
+                "unknown"
+            }
+        } catch (e: Exception) {
+            "unknown"
+        }
+    }
+
     private fun createVersionBanner(): ByteArray {
-        return "CPMDroid v${getVersionString()} (${BuildConfig.BUILD_TIME})\r\n".toByteArray()
+        return ("CPMDroid v${getVersionString()} (${getVersionCode()}) " +
+            "${BuildConfig.GIT_SHA} ${getApkBuildTime()}\r\n").toByteArray()
     }
 
     /**
@@ -517,13 +562,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAboutDialog() {
         val version = getVersionString()
-        val buildTime = BuildConfig.BUILD_TIME
+        val versionCode = getVersionCode()
+        val apkBuilt = getApkBuildTime()
 
+        // Three separate identities, because they answer different questions.
+        // "Built" is the installed file's own timestamp and settles whether an
+        // install took. "Source" is the commit, and is checkable against the
+        // repo - a hash that is not HEAD means this binary is not the tree you
+        // are looking at. A +dirty suffix means it was built over uncommitted
+        // edits, so no commit describes it exactly.
         AlertDialog.Builder(this)
             .setTitle("About CPMDroid")
             .setMessage("""
-                CPMDroid v$version
-                Built: $buildTime
+                CPMDroid v$version ($versionCode)
+                Built: $apkBuilt
+                Source: ${BuildConfig.GIT_SHA} of ${BuildConfig.SOURCE_DATE}
 
                 A Z80 CP/M emulator for Android using RomWBW HBIOS.
 

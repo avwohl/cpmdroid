@@ -1,5 +1,67 @@
 # Changelog
 
+## Version 1.23 (versionCode 24)
+
+### The version banner stops being able to lie
+
+1.22 was installed on a tablet and greeted its owner with a build date from
+July. The binary was innocent - the shipped APK carries `2026-08-31 16:29:09`,
+and the banner had simply never been able to tell "this build" from "the build
+that is running", so an install that did not take looked exactly like one that
+did.
+
+- **`BUILD_TIME` is gone.** It was `SimpleDateFormat(...).format(Date())`
+  evaluated inside `buildConfigField`, which runs at *configuration* time. Two
+  ways that goes wrong: Gradle's configuration cache freezes the value, after
+  which the app reports a build time older than its own binary; and because it
+  changed on every build it also defeated the up-to-date check on
+  `generateBuildConfig` and every compile task downstream, so nothing incremental
+  ever stayed incremental.
+- **`GIT_SHA` and `SOURCE_DATE` replace it**, derived from `git rev-parse` and
+  the commit date. A commit is a function of the source rather than of the
+  clock, so it is correct by construction and stable across rebuilds of the same
+  tree. A `+dirty` suffix marks a build made over uncommitted edits, which no
+  commit describes exactly. Built without git, it degrades to `nogit`.
+- **The build time now comes from the installed APK itself**, via
+  `File(applicationInfo.sourceDir).lastModified()`. This is the field that
+  answers the question that was actually asked: it is read from the file backing
+  the running process, so it cannot survive into a later build the way a
+  compiled-in constant can.
+- **The banner and the About dialog both show `versionCode`.** That is the
+  number Play orders releases by, so an install that silently did not replace an
+  older one now shows up as a number that went backwards.
+
+The boot banner is now `CPMDroid v1.23 (24) <sha> <when the APK was written>`,
+and About adds the commit and its date under it.
+
+### Play's edge-to-edge warning: not acted on, deliberately
+
+Play flags `Window.setStatusBarColor` and `setNavigationBarColor` as deprecated,
+naming `BottomSheetDialog.onCreate`, `EdgeToEdgeUtils.applyEdgeToEdge` and
+`SheetDialog.onCreate`. All three are Material's, none is reachable - this app
+constructs no sheet of any kind and uses Material only as a theme parent. It was
+investigated properly and left alone, because every route out costs more than it
+saves:
+
+- Upgrading Material does not help: 1.12, 1.13 and 1.14 all carry the same
+  references, confirmed by extracting the AARs.
+- Enabling R8 does not clear it either. It deletes `EdgeToEdgeUtils` as a class
+  only by *inlining* it into `MaterialDatePicker`, and Play deobfuscates with the
+  uploaded mapping, so the same origin is reported under the same name.
+  `MaterialDatePicker` is itself a keep root seeded by fragment's own consumer
+  rules, so no rule can drop it.
+- Play saw six callers and named three. The other three are androidx.activity's
+  `EdgeToEdgeApi23/26/29`, reached from this app's own `enableEdgeToEdge()` on
+  every launch - Play exempts them. Upgrading androidx.activity would make it
+  worse, adding an `EdgeToEdgeApi35` that calls both setters too.
+- Only removing Material entirely would clear it, and five of the six attributes
+  in `themes.xml` do not exist in AppCompat.
+
+On targetSdk 36 the platform forces the bars transparent and ignores these
+setters anyway, so the warning describes bytes rather than behaviour. It will
+reappear on every release until Material leaves the project; reappearing is not
+new information.
+
 ## Version 1.22 (versionCode 23)
 
 The 1.19 entry below is folded into this release. versionCode 20 was
