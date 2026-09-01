@@ -35,8 +35,33 @@ val gitSha = gitOutput("rev-parse", "--short=9", "HEAD").ifEmpty { "nogit" } +
 val gitCommitDate = gitOutput("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M:%S")
     .ifEmpty { "unknown" }
 
-// Load keystore properties
-val keystorePropertiesFile = rootProject.file("keystore.properties")
+// Signing credentials, resolved from OUTSIDE the repo.
+//
+// keystore.properties is gitignored, so when C:\temp\src was deleted and
+// re-cloned it went with the directory and the upload key looked lost - it
+// survived only as a deleted file in the Recycle Bin. Credentials must live
+// somewhere the repo's own lifecycle cannot reach.
+//
+// The path is per-machine configuration, so it is NOT hardcoded here. That is
+// the same mistake gradle.properties documents backing out of, when an absolute
+// Windows java home in a tracked file stopped every other host before it could
+// read a single build script. Point at yours from your own
+// ~/.gradle/gradle.properties (%USERPROFILE%\.gradle\gradle.properties):
+//
+//     cpmdroidKeystoreProperties=C:/aw/keys/cpmdroid-keystore.properties
+//
+// or pass -PcpmdroidKeystoreProperties=<path>, or set
+// CPMDROID_KEYSTORE_PROPERTIES in the environment. First one that exists wins.
+// A checkout that still keeps keystore.properties in the repo root goes on
+// working. When nothing resolves, release builds come out unsigned - run
+// :app:signingReport before a release and check the alias and SHA-256 rather
+// than trusting that a build succeeding means it was signed.
+val keystorePropertiesFile = listOfNotNull(
+    findProperty("cpmdroidKeystoreProperties") as String?,
+    System.getenv("CPMDROID_KEYSTORE_PROPERTIES"),
+).map { file(it) }.firstOrNull { it.exists() }
+    ?: rootProject.file("keystore.properties")
+
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(keystorePropertiesFile.inputStream())

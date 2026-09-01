@@ -38,6 +38,28 @@ did.
 The boot banner is now `CPMDroid v1.23 (24) <sha> <when the APK was written>`,
 and About adds the commit and its date under it.
 
+### Signing credentials move out of the checkout
+
+`keystore.properties` was read from the repo root and gitignored, which is the
+combination that nearly lost the upload key: when `C:	emp\src` was deleted and
+re-cloned, the file went with the directory and survived only as a deleted entry
+in the Recycle Bin.
+
+`app/build.gradle.kts` now resolves it from outside the checkout instead, taking
+the first that exists: `-PcpmdroidKeystoreProperties=<path>`, the same-named
+property in the user's own `~/.gradle/gradle.properties`, the
+`CPMDROID_KEYSTORE_PROPERTIES` environment variable, or - still - the old repo
+root location, so an existing checkout keeps working.
+
+The path is per-machine configuration and is deliberately not hardcoded: that is
+the mistake the root `gradle.properties` already documents backing out of, when
+an absolute Windows java home in a tracked file stopped every other host before
+it could read a build script.
+
+Worth knowing, because nothing announces it: when none of the four locations
+resolves, the release build still SUCCEEDS and produces an UNSIGNED artifact.
+`:app:signingReport` is the check, not the exit code.
+
 ### Play's edge-to-edge warning: not acted on, deliberately
 
 Play flags `Window.setStatusBarColor` and `setNavigationBarColor` as deprecated,
