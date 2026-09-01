@@ -1,6 +1,10 @@
 # Changelog
 
-## Version 1.23 (versionCode 24)
+## Version 1.24 (versionCode 25)
+
+Renumbered from 1.23 / versionCode 24, which Play would not take - the
+versionCode was already spoken for. Nothing below changed with the number;
+it is the same work, and 1.23 never reached anyone.
 
 ### The version banner stops being able to lie
 
