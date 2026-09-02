@@ -159,6 +159,66 @@ divergence in the SGR handler that makes this port MORE conformant, not less,
 and it predates the attribute work.
 
 
+SCROLLBACK IS ROW 2, AND ROW 2 IS NOT LEVEL
+--------------------------------------------
+
+Found on 2026-09-02 from the other side: ioscpm's scrollback turned out never to
+have captured a line in its life - its line-feed handler called scrollRegion(),
+which shifts rows without keeping them, where only scrollUp() appends to the
+buffer.  It was fixed there by moving the whole-screen test inside
+scrollRegion() so no call site can miss it.  Reading the three ports side by
+side to write that up turned up four things here.  None of them was found by a
+device; all four are visible in this tree with grep.
+
+The first is a product decision and not a bug until someone decides it is.  The
+other three are defects.
+
+- [ANDROID] scrollback is usable only while the guest is idle.  processOutput
+zeroes userScrollUp on the first line of the function, guarded by nothing but
+data.isNotEmpty(), so any output at all - a DIR, a directory listing, a BBS
+session - yanks the view back to the live prompt before the bytes are even
+parsed.  Both siblings anchor instead: ioscpm advances scrollbackOffset by the
+number of lines captured, z80cpmw does the same in its scroll path, and in both
+the reader stays put while output arrives underneath.  The comment on the line
+calls it "snap back to the live prompt on new output", and help_quick_start.md
+documents it to users as intended, so this is a decision to make explicitly and
+then write down in one place, not a bug to fix quietly.  Note which way the
+decision goes costs something: anchoring is what makes scrollback useful for
+reading a listing that is still being printed, which is most of the reason to
+have it.
+
+- [ANDROID] no scrollback is drawn at all while the soft keyboard is up.
+onDraw splits on viewportRows < rows, and that branch scrolls within the live
+screen to keep the cursor visible and never reads userScrollUp or historyChars -
+history is composed only in the else branch.  The drag handler and the chord
+handler still mutate the offset and still call invalidate(), so the gesture is
+consumed and absolutely nothing appears, which reads as a dead feature rather
+than an unsupported layout.  The condition is not incidental: calculateFontSize
+pins rows to MIN_ROWS against the keyboard-hidden height while adjustResize in
+AndroidManifest.xml plus the IME padding shrink the view, so the branch is
+reached whenever the keyboard is open.  Neither sibling has such a branch
+because neither has a soft keyboard.  Deciding this one needs a screen; the
+cheapest honest fix may be to say so in the UI rather than to render history
+into a viewport that cannot hold the live screen either.
+
+- [ANDROID] a cold boot keeps the previous session's history.  clear() zeroes
+userScrollUp but never touches historyChars, historyColors, historyBg or
+historyFlags, and the only place those are emptied is the scrollback-turned-off
+path inside the scroll routine.  bootEmulation calls clear(), so booting leaves
+the dead session sitting above the new banner and a drag walks straight back
+into a machine that no longer exists.  z80cpmw clears at both start and reset;
+ioscpm clears in reset() only, which is its own smaller version of this and is
+noted in its todo.  FEATURE_PARITY.md item 2 states "history cleared on emulator
+start/reset" as though all three agreed, and no two of them do.
+
+- [ANDROID] the cursor is drawn on top of history.  In the else branch drawCursor
+is called whenever liveRow == cursorRow, with no test on the scroll offset, so
+the live cursor is painted into the history view whenever the live cursor row
+falls inside the visible window - after a full-screen redraw, or any cursor-home.
+z80cpmw gates its cursor on the offset, and ioscpm passes showCursor as
+!isScrolledBack from ContentView.  This one is a one-line fix.
+
+
 PARITY WITH THE OTHER PORTS
 ----------------------------
 
@@ -184,3 +244,16 @@ intent-filter - were folded into row 4 rather than given a fourteenth row.  Row
 "arbitrary host paths + a findable data folder"; a new row would have renumbered
 every "item 13" and "(#4)" cross-reference in a document that has dozens of
 them.  If a future capability needs a row of its own, that is the cost to price.
+
+- [PARITY] row 2's "Verified Android behaviour" block in z80cpmw's
+FEATURE_PARITY.md cites five symbols that have never existed in this tree:
+userScrollUp++, resetTerminal, historyIsContiguous, visibleHistorySize and
+snapToLive.  grep finds none of them in app/src/main/java, and git log -S finds
+no commit that ever removed them.  The paragraphs built on them assert the
+opposite of what this port does - that the view stays anchored as output
+arrives, and that history is cleared on a cold boot - which is how row 2 came to
+be scored level while the three defects above were live.  Correcting it is an
+edit in z80cpmw, and the useful correction is not just the five names: row 2 was
+flipped from a paraphrase of ioscpm's commit message twelve minutes after that
+commit landed, without either sibling's source being opened.  That is the thing
+worth not repeating.
