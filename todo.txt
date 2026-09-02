@@ -170,8 +170,8 @@ scrollRegion() so no call site can miss it.  Reading the three ports side by
 side to write that up turned up four things here.  None of them was found by a
 device; all four are visible in this tree with grep.
 
-The first is a product decision and not a bug until someone decides it is.  The
-other three are defects.
+The first is a product decision and not a bug until someone decides it is, and so
+- as a correction made the same day - is the third.  The other two are defects.
 
 - [ANDROID] scrollback is usable only while the guest is idle.  processOutput
 zeroes userScrollUp on the first line of the function, guarded by nothing but
@@ -201,15 +201,19 @@ because neither has a soft keyboard.  Deciding this one needs a screen; the
 cheapest honest fix may be to say so in the UI rather than to render history
 into a viewport that cannot hold the live screen either.
 
-- [ANDROID] a cold boot keeps the previous session's history.  clear() zeroes
-userScrollUp but never touches historyChars, historyColors, historyBg or
-historyFlags, and the only place those are emptied is the scrollback-turned-off
-path inside the scroll routine.  bootEmulation calls clear(), so booting leaves
-the dead session sitting above the new banner and a drag walks straight back
-into a machine that no longer exists.  z80cpmw clears at both start and reset;
-ioscpm clears in reset() only, which is its own smaller version of this and is
-noted in its todo.  FEATURE_PARITY.md item 2 states "history cleared on emulator
-start/reset" as though all three agreed, and no two of them do.
+- [DELIBERATE, corrected 2026-09-02] a cold boot keeps the previous session's
+history, and this was written up here as a defect on the day it was found.  That
+was wrong, and clear()'s own docstring says why: "The scrollback itself is
+deliberately kept... losing the user's history is a product decision, not part of
+putting the terminal back to power-on."  It even names how the siblings differ -
+both drop it at the CALL SITE, z80cpmw's startEmulator and onEmulatorReset
+calling resetScrollback beside clear(), ioscpm's reset() emptying its buffer -
+which here would be MainActivity.  So the divergence is real and intentional, and
+FEATURE_PARITY.md item 2's "history cleared on emulator start/reset" is a spec
+line the three ports disagree on by choice rather than one of them being broken.
+Left here as a decision someone may still want to revisit at the MainActivity
+call site, not as a bug.  Worth noting how it was got wrong: the code said so in
+a comment nobody read, which is the same failure the parity document made.
 
 - [ANDROID] the cursor is drawn on top of history.  In the else branch drawCursor
 is called whenever liveRow == cursorRow, with no test on the scroll offset, so
