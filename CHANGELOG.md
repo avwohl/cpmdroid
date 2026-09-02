@@ -1,5 +1,58 @@
 # Changelog
 
+## Unreleased
+
+Two scrollback defects, both found on 2026-09-02 by reading this port against
+z80cpmw and ioscpm rather than by running it. No versionCode bump: whoever cuts
+the next release decides whether this folds into 1.24 or takes a number.
+
+### The view stops being yanked to the bottom by the guest
+
+`processOutput` opened with `if (data.isNotEmpty()) userScrollUp = 0`, before the
+bytes were even parsed, so any output at all threw the reader back to the live
+prompt. Scrollback was usable only while the guest was idle - which rules out
+reading a `DIR` or an assembly listing while it is still printing, and that is
+most of the reason to have scrollback.
+
+`scrollUp` now advances `userScrollUp` with each captured line while the user is
+reading history, so the view stays on the same content as output arrives beneath
+it. That is what both siblings do: z80cpmw advances `m_scrollOffset`, ioscpm
+advances `scrollbackOffset`.
+
+The snap now happens where the spec always said it should - on a key sent to
+CP/M. `sendChar` returns to live, and paste goes through `sendChar`, so both
+behave. `sendAnswerback` deliberately bypasses it, so a terminal query cannot
+throw the user out of history; that function's comment anticipated `sendChar`
+growing exactly this side effect, and now it has one.
+
+### Scrollback works with the soft keyboard open
+
+`onDraw` split on `viewportRows < rows`, and the short-viewport branch - the
+keyboard being up - never read `userScrollUp` or `historyChars` at all. No
+history was drawn however far the user dragged, while the drag and chord
+handlers still moved the offset and still called `invalidate()`, so the feature
+looked dead rather than unavailable.
+
+There is now one drawing path. What changes with the keyboard is only where the
+live screen sits inside the scrollable content, not whether there is any. The
+scroll limit moved with it: `maxScrollLines()` counts the hidden live rows as
+well as the history, because clamping to `historyChars.size` left a user with the
+keyboard up unable to reach the top of their own screen on a fresh boot.
+
+The live cursor is no longer painted into the history view - it is drawn only at
+the live bottom, as z80cpmw gates on its offset and ioscpm does by passing
+`showCursor` as `!isScrolledBack`.
+
+### Not verified on a screen
+
+There is no SDK, no kotlinc and no emulator on the machine that made these
+changes. What backs them: a brace-balance check, a line-by-line read against both
+siblings, and a port of `onDraw`'s windowing arithmetic to a scratch script,
+which reproduces the old keyboard-down output exactly for every combination of
+history size, viewport and scroll offset tried, and shows the new keyboard-up
+window reaching the top of the live screen. None of that is a screen, and
+todo.txt says what to point at it.
+
 ## Version 1.24 (versionCode 25)
 
 Renumbered from 1.23 / versionCode 24, which Play would not take - the

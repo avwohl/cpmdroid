@@ -170,36 +170,9 @@ scrollRegion() so no call site can miss it.  Reading the three ports side by
 side to write that up turned up four things here.  None of them was found by a
 device; all four are visible in this tree with grep.
 
-The first is a product decision and not a bug until someone decides it is, and so
-- as a correction made the same day - is the third.  The other two are defects.
-
-- [ANDROID] scrollback is usable only while the guest is idle.  processOutput
-zeroes userScrollUp on the first line of the function, guarded by nothing but
-data.isNotEmpty(), so any output at all - a DIR, a directory listing, a BBS
-session - yanks the view back to the live prompt before the bytes are even
-parsed.  Both siblings anchor instead: ioscpm advances scrollbackOffset by the
-number of lines captured, z80cpmw does the same in its scroll path, and in both
-the reader stays put while output arrives underneath.  The comment on the line
-calls it "snap back to the live prompt on new output", and help_quick_start.md
-documents it to users as intended, so this is a decision to make explicitly and
-then write down in one place, not a bug to fix quietly.  Note which way the
-decision goes costs something: anchoring is what makes scrollback useful for
-reading a listing that is still being printed, which is most of the reason to
-have it.
-
-- [ANDROID] no scrollback is drawn at all while the soft keyboard is up.
-onDraw splits on viewportRows < rows, and that branch scrolls within the live
-screen to keep the cursor visible and never reads userScrollUp or historyChars -
-history is composed only in the else branch.  The drag handler and the chord
-handler still mutate the offset and still call invalidate(), so the gesture is
-consumed and absolutely nothing appears, which reads as a dead feature rather
-than an unsupported layout.  The condition is not incidental: calculateFontSize
-pins rows to MIN_ROWS against the keyboard-hidden height while adjustResize in
-AndroidManifest.xml plus the IME padding shrink the view, so the branch is
-reached whenever the keyboard is open.  Neither sibling has such a branch
-because neither has a soft keyboard.  Deciding this one needs a screen; the
-cheapest honest fix may be to say so in the UI rather than to render history
-into a viewport that cannot hold the live screen either.
+Two of the four are closed: the snap-to-live and the keyboard-up rendering were
+fixed on 2026-09-02 and are in CHANGELOG.md.  What is left is one deliberate
+divergence and one small drawing bug.
 
 - [DELIBERATE, corrected 2026-09-02] a cold boot keeps the previous session's
 history, and this was written up here as a defect on the day it was found.  That
@@ -215,12 +188,16 @@ Left here as a decision someone may still want to revisit at the MainActivity
 call site, not as a bug.  Worth noting how it was got wrong: the code said so in
 a comment nobody read, which is the same failure the parity document made.
 
-- [ANDROID] the cursor is drawn on top of history.  In the else branch drawCursor
-is called whenever liveRow == cursorRow, with no test on the scroll offset, so
-the live cursor is painted into the history view whenever the live cursor row
-falls inside the visible window - after a full-screen redraw, or any cursor-home.
-z80cpmw gates its cursor on the offset, and ioscpm passes showCursor as
-!isScrolledBack from ContentView.  This one is a one-line fix.
+- [ANDROID DEVICE] the scrollback fixes of 2026-09-02 have not been watched
+run.  There is no SDK, no kotlinc and no emulator on the machine that made them,
+so what backs them is a brace-balance check, a line-by-line read against both
+siblings, and a port of onDraw's windowing arithmetic to a scratch script that
+reproduces the old keyboard-down behaviour exactly and shows the new keyboard-up
+window reaching the top of the live screen.  None of that is a screen.  What to
+point at it: drag back with the keyboard closed, then open the keyboard and drag
+again; run a long DIR and confirm the view stays put while it prints; type a key
+and confirm it returns to live; confirm the cursor is absent while scrolled back
+and present at the bottom.
 
 
 PARITY WITH THE OTHER PORTS

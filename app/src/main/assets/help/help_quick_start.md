@@ -111,9 +111,11 @@ Scrollback is a drag or a key combination. Pull the terminal down to walk back
 through the history and up to return. With a hardware keyboard, Shift+PageUp
 and Shift+PageDown move a screen at a time and Ctrl+Home and Ctrl+End jump to
 the oldest line and back to the live prompt; the app answers those four itself,
-so plain PageUp, PageDown, Home and End still reach CP/M. Any new output from
-CP/M snaps you back to the live prompt. How much history is kept is
-**Terminal Scrollback** in Settings.
+so plain PageUp, PageDown, Home and End still reach CP/M. The view stays where
+you put it while CP/M keeps printing, so you can read a listing that is still
+being written; typing anything returns you to the live prompt. Scrollback works
+with the keyboard open too. How much history is kept is **Terminal Scrollback**
+in Settings.
 
 Copy and paste are the **Copy** and **Paste** buttons on the control strip -
 Ctrl+C is a CP/M keystroke here, not a copy.

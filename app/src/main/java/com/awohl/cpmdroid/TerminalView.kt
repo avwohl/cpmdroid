@@ -188,8 +188,12 @@ class TerminalView @JvmOverloads constructor(
             historyFlags.removeFirst()
         }
         // The user may have been looking further back than what is left.
-        if (userScrollUp > historyChars.size) {
-            userScrollUp = historyChars.size
+        // maxScrollLines(), not historyChars.size: with the keyboard up the
+        // hidden live rows are scrollable too, and clamping to the history alone
+        // would jump the view forward for no reason the user can see.
+        val limit = maxScrollLines()
+        if (userScrollUp > limit) {
+            userScrollUp = limit
         }
         invalidate()
     }
@@ -538,6 +542,15 @@ class TerminalView @JvmOverloads constructor(
     private fun sendChar(ch: Int) {
         // Only send ASCII characters (0-127)
         if (ch in 0..127) {
+            // Typing returns the view to the live prompt: you have just sent a
+            // key to a machine you would otherwise not be watching.  This is the
+            // side effect sendAnswerback's comment anticipated - answerbacks
+            // bypass sendChar precisely so a terminal query cannot yank the user
+            // out of history, and now that distinction does something.
+            if (userScrollUp != 0) {
+                userScrollUp = 0
+                invalidate()
+            }
             inputListener?.invoke(ch)
         }
     }
@@ -606,8 +619,28 @@ class TerminalView @JvmOverloads constructor(
      * prompt, which is the sense userScrollUp already carries for the drag
      * gesture - the bound is the same one onTouchEvent uses.
      */
+    /** Live rows the viewport can show right now.  Mirrors onDraw exactly. */
+    private fun viewportRows(): Int {
+        if (charHeight <= 0f) return rows
+        val availableHeight = height - paddingTop - paddingBottom
+        return maxOf(1, (availableHeight / charHeight).toInt())
+    }
+
+    /**
+     * How far back the view can go.  Not simply historyChars.size: when the soft
+     * keyboard shortens the viewport below the live screen, the live rows above
+     * the visible window are scrollable content too, and clamping to the history
+     * alone left the user unable to reach the top of their own screen on a fresh
+     * boot with nothing in history yet.
+     */
+    private fun maxScrollLines(): Int {
+        val vp = viewportRows()
+        val liveTop = if (vp < rows) (cursorRow - vp + 1).coerceIn(0, rows - vp) else 0
+        return historyChars.size + liveTop
+    }
+
     private fun scrollHistoryBy(lines: Int) {
-        userScrollUp = (userScrollUp + lines).coerceIn(0, historyChars.size)
+        userScrollUp = (userScrollUp + lines).coerceIn(0, maxScrollLines())
         invalidate()
     }
 
@@ -663,7 +696,7 @@ class TerminalView @JvmOverloads constructor(
                 if (isDragging && charHeight > 0f) {
                     // Drag DOWN reveals older history (scroll up); drag UP returns toward live.
                     val lines = (dy / charHeight).toInt()
-                    userScrollUp = (touchDownScrollUp + lines).coerceIn(0, historyChars.size)
+                    userScrollUp = (touchDownScrollUp + lines).coerceIn(0, maxScrollLines())
                     invalidate()
                 }
             }
@@ -1018,36 +1051,44 @@ class TerminalView @JvmOverloads constructor(
         val availableHeight = height - paddingTop - paddingBottom
         val viewportRows = maxOf(1, (availableHeight / charHeight).toInt())
 
-        if (viewportRows < rows) {
-            // Live screen taller than the viewport (soft keyboard up / very short view):
-            // scroll within the live screen so the cursor stays visible. Font unchanged.
-            val scrollRows = (cursorRow - viewportRows + 1).coerceIn(0, rows - viewportRows)
-            for (r in 0 until viewportRows) {
-                val liveRow = scrollRows + r
-                if (liveRow >= rows) break
+        // One drawing path for both viewport sizes.  There used to be two, and
+        // the short-viewport one - the soft keyboard being up - never read
+        // userScrollUp or historyChars at all, so with the keyboard open no
+        // history was drawn however far the user dragged.  The gestures still
+        // moved the offset and still invalidated, so the feature looked dead
+        // rather than unavailable.  Splitting on viewport size is the bug: what
+        // changes with the keyboard is only where the live screen sits in the
+        // scrollable content, not whether there is any.
+        //
+        // Content is [history..., live 0..rows-1].  bottomExclusive is the
+        // content line just past the last one the viewport shows when the user
+        // is live: the whole live screen when it fits, and the cursor-tracking
+        // window into it when it does not.
+        val historySize = historyChars.size
+        val contentRows = historySize + rows
+        val liveTop = if (viewportRows < rows) {
+            (cursorRow - viewportRows + 1).coerceIn(0, rows - viewportRows)
+        } else 0
+        val bottomExclusive =
+            historySize + if (viewportRows < rows) liveTop + viewportRows else rows
+        val scroll = userScrollUp.coerceIn(0, maxOf(0, bottomExclusive - viewportRows))
+        val topLine = bottomExclusive - viewportRows - scroll
+        for (r in 0 until viewportRows) {
+            val lineIdx = topLine + r
+            if (lineIdx < 0 || lineIdx >= contentRows) continue   // empty area above the history
+            if (lineIdx < historySize) {
+                drawRow(canvas, historyChars[lineIdx], historyColors[lineIdx], historyBg[lineIdx],
+                        historyFlags[lineIdx], r, offsetX, offsetY, baseline)
+            } else {
+                val liveRow = lineIdx - historySize
                 drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], bgBuffer[liveRow],
                         attrBuffer[liveRow], r, offsetX, offsetY, baseline)
-            }
-            drawCursor(canvas, cursorRow - scrollRows, viewportRows, offsetX, offsetY)
-        } else {
-            // Live screen fits: anchor it at the bottom, scrollback history fills above.
-            // Combined content = [history..., live 0..rows-1]; the user drags up into history.
-            val historySize = historyChars.size
-            val contentRows = historySize + rows
-            val maxScroll = maxOf(0, contentRows - viewportRows)
-            val scroll = userScrollUp.coerceIn(0, maxScroll)
-            val topLine = contentRows - viewportRows - scroll   // content-line index at viewport row 0
-            for (r in 0 until viewportRows) {
-                val lineIdx = topLine + r
-                if (lineIdx < 0 || lineIdx >= contentRows) continue   // empty area above the history
-                if (lineIdx < historySize) {
-                    drawRow(canvas, historyChars[lineIdx], historyColors[lineIdx], historyBg[lineIdx],
-                            historyFlags[lineIdx], r, offsetX, offsetY, baseline)
-                } else {
-                    val liveRow = lineIdx - historySize
-                    drawRow(canvas, screenBuffer[liveRow], colorBuffer[liveRow], bgBuffer[liveRow],
-                            attrBuffer[liveRow], r, offsetX, offsetY, baseline)
-                    if (liveRow == cursorRow) drawCursor(canvas, r, viewportRows, offsetX, offsetY)
+                // Only at the live bottom.  Painting the live cursor into a
+                // history view was its own small lie, and both siblings gate it:
+                // z80cpmw on its offset, ioscpm by passing showCursor as
+                // !isScrolledBack.
+                if (liveRow == cursorRow && scroll == 0) {
+                    drawCursor(canvas, r, viewportRows, offsetX, offsetY)
                 }
             }
         }
@@ -1167,7 +1208,6 @@ class TerminalView @JvmOverloads constructor(
         if (processOutputCount++ < 3) {
             android.util.Log.i("TerminalView", "processOutput: ${data.size} bytes, charWidth=$charWidth, charHeight=$charHeight")
         }
-        if (data.isNotEmpty()) userScrollUp = 0   // snap back to the live prompt on new output
         for (b in data) {
             processChar(b.toInt() and 0xFF)
         }
@@ -1863,6 +1903,17 @@ class TerminalView @JvmOverloads constructor(
                 historyColors.removeFirst()
                 historyBg.removeFirst()
                 historyFlags.removeFirst()
+            }
+            // Follow the new line so a reader stays on the same content while
+            // output arrives underneath.  Without this the view drifts by a row
+            // for every line the guest prints, which is why processOutput used
+            // to give up and snap to the bottom instead - and being unable to
+            // read a listing while it is still printing is most of the reason
+            // to have scrollback at all.  Both siblings anchor: z80cpmw's
+            // scrollUp advances m_scrollOffset, ioscpm's advances
+            // scrollbackOffset.
+            if (userScrollUp > 0) {
+                userScrollUp = minOf(userScrollUp + 1, historyChars.size)
             }
         } else if (historyChars.isNotEmpty()) {
             // Scrollback was turned off after lines were already kept.
