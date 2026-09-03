@@ -357,6 +357,7 @@ class MainActivity : AppCompatActivity() {
         escButton.setOnClickListener {
             controlifyMode = false
             updateCtrlButtonState()
+            terminalView.returnToLive()
             emulator.queueInput(0x1B)
             wakeRunLoop()
         }
@@ -365,6 +366,7 @@ class MainActivity : AppCompatActivity() {
         tabButton.setOnClickListener {
             controlifyMode = false
             updateCtrlButtonState()
+            terminalView.returnToLive()
             emulator.queueInput(0x09)
             wakeRunLoop()
         }

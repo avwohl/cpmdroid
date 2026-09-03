@@ -17,7 +17,7 @@ they found is in **Verified**.
 added the rest of the terminal parser and the per-cell attributes on a machine
 with no Android SDK at all. That code is compiled - by host `clang++` and by
 `kotlinc` against real Android framework classes, which `CHANGELOG.md`'s
-Unreleased preamble describes exactly - and it is unrun. Everything in section 5
+1.22 preamble describes exactly - and it is unrun. Everything in section 5
 is a first sighting, not a regression check.
 
 One note for whoever runs these, because it cost this round twice: `adb shell

@@ -87,8 +87,8 @@ android {
         applicationId = "com.awohl.cpmdroid"
         minSdk = 24
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.24"
+        versionCode = 27
+        versionName = "1.25"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the

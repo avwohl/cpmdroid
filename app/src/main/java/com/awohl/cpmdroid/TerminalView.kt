@@ -539,6 +539,25 @@ class TerminalView @JvmOverloads constructor(
         return true
     }
 
+    /**
+     * Put the view back on the live prompt.
+     *
+     * Public because not every key the user presses arrives through sendChar:
+     * the Esc and Tab buttons on the control strip queue their byte straight
+     * into the emulator.  Without this they left a reader parked in history
+     * while CP/M's reply was painted off-screen, which reads as a dead button -
+     * and the control strip is the nearest keyboard in exactly the soft-keyboard
+     * case this release adds scrollback for.  help_quick_start.md tells the user
+     * that typing returns them to the live prompt; this is what makes that true
+     * of the buttons as well as of typed characters.
+     */
+    fun returnToLive() {
+        if (userScrollUp != 0) {
+            userScrollUp = 0
+            invalidate()
+        }
+    }
+
     private fun sendChar(ch: Int) {
         // Only send ASCII characters (0-127)
         if (ch in 0..127) {
@@ -547,10 +566,7 @@ class TerminalView @JvmOverloads constructor(
             // side effect sendAnswerback's comment anticipated - answerbacks
             // bypass sendChar precisely so a terminal query cannot yank the user
             // out of history, and now that distinction does something.
-            if (userScrollUp != 0) {
-                userScrollUp = 0
-                invalidate()
-            }
+            returnToLive()
             inputListener?.invoke(ch)
         }
     }
@@ -642,6 +658,26 @@ class TerminalView @JvmOverloads constructor(
     private fun scrollHistoryBy(lines: Int) {
         userScrollUp = (userScrollUp + lines).coerceIn(0, maxScrollLines())
         invalidate()
+    }
+
+    /**
+     * Collapse a scroll position the new geometry can no longer reach.
+     *
+     * onDraw clamps a local copy and never writes back, so a userScrollUp that
+     * has gone out of range is invisible until the next captured line latches
+     * it.  Hiding the soft keyboard is the way in: maxScrollLines() drops by the
+     * hidden live rows, the screen still draws correctly because onDraw clamped,
+     * and then scrollUp() sees a non-zero offset and pins the view to the oldest
+     * history line with the cursor suppressed - the terminal looks frozen while
+     * CP/M keeps printing, and nothing on screen says that typing gets you out.
+     * Before the snap-on-output was removed this state was unreachable, so the
+     * clamp has to live where the geometry changes instead.
+     */
+    private fun clampScrollToViewport() {
+        val limit = maxScrollLines()
+        if (userScrollUp > limit) {
+            userScrollUp = limit
+        }
     }
 
     /**
@@ -801,11 +837,11 @@ class TerminalView @JvmOverloads constructor(
             // gets the scroll they asked for from Shift+PageUp too. A page is
             // rows - 1, the same overlap-by-one-line z80cpmw scrolls.
             KeyEvent.KEYCODE_MOVE_HOME -> {
-                if (ctrl) scrollHistoryBy(historyChars.size) else sendEscapeSeq("[H")
+                if (ctrl) scrollHistoryBy(maxScrollLines()) else sendEscapeSeq("[H")
                 return true
             }
             KeyEvent.KEYCODE_MOVE_END -> {
-                if (ctrl) scrollHistoryBy(-historyChars.size) else sendEscapeSeq("[F")
+                if (ctrl) scrollHistoryBy(-maxScrollLines()) else sendEscapeSeq("[F")
                 return true
             }
             KeyEvent.KEYCODE_PAGE_UP -> {
@@ -905,6 +941,7 @@ class TerminalView @JvmOverloads constructor(
         fullHeight = if (w != oldw) h else maxOf(fullHeight, h)
         android.util.Log.i("TerminalView", "onSizeChanged: w=$w, h=$h, fullHeight=$fullHeight")
         calculateFontSize()
+        clampScrollToViewport()
     }
 
     override fun setPadding(left: Int, top: Int, right: Int, bottom: Int) {
@@ -912,6 +949,7 @@ class TerminalView @JvmOverloads constructor(
         android.util.Log.i("TerminalView", "setPadding: bottom=$bottom")
         if (width > 0 && height > 0) {
             calculateFontSize()
+            clampScrollToViewport()
             invalidate()
         }
     }
@@ -920,6 +958,7 @@ class TerminalView @JvmOverloads constructor(
     fun recalculateSize() {
         post {
             calculateFontSize()
+            clampScrollToViewport()
             invalidate()
         }
     }
@@ -1504,12 +1543,12 @@ class TerminalView @JvmOverloads constructor(
      * which is where the two differ on the sibling ports: z80cpmw's key path
      * calls scrollToBottom() and drops the mouse selection, so its
      * sendAnswerback deliberately bypasses it - "the terminal answering a
-     * question is not the user typing". Nothing here does that yet; sendChar()
-     * is a bare invoke and the scroll position is reset by processOutput, on
-     * output. Keeping the reply off the key path anyway is what stops that
-     * from silently becoming untrue the first time sendChar() grows a side
-     * effect, which on this port it eventually will - the on-screen Ctrl latch
-     * is already one caller's worth of state away.
+     * question is not the user typing". That now holds here too: sendChar()
+     * calls returnToLive(), so putting an answerback through it would let a
+     * terminal query throw a reader out of history. This comment used to say
+     * the side effect did not exist yet and that processOutput reset the scroll
+     * on output instead; both stopped being true when the snap moved to the key
+     * path, which is the change this block anticipated.
      */
     private fun sendAnswerback(s: String) {
         inputListener?.let { listener ->
@@ -1912,8 +1951,15 @@ class TerminalView @JvmOverloads constructor(
             // to have scrollback at all.  Both siblings anchor: z80cpmw's
             // scrollUp advances m_scrollOffset, ioscpm's advances
             // scrollbackOffset.
+            // The bound is maxScrollLines(), not historyChars.size.  Every other
+            // scroll path clamps to it, and with the soft keyboard up the user
+            // can legitimately sit above the history - that is the range
+            // maxScrollLines() exists to open.  Clamping to the history alone
+            // here yanked the view FORWARD by up to a full short viewport on the
+            // first line of output, which is the defect this whole change is
+            // about, still present in the case it advertises.
             if (userScrollUp > 0) {
-                userScrollUp = minOf(userScrollUp + 1, historyChars.size)
+                userScrollUp = minOf(userScrollUp + 1, maxScrollLines())
             }
         } else if (historyChars.isNotEmpty()) {
             // Scrollback was turned off after lines were already kept.

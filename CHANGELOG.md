@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## Version 1.25 (versionCode 27)
 
 Two scrollback defects, both found on 2026-09-02 by reading this port against
-z80cpmw and ioscpm rather than by running it. No versionCode bump: whoever cuts
-the next release decides whether this folds into 1.24 or takes a number.
+z80cpmw and ioscpm rather than by running it, and four more found on 2026-09-03
+by reading the fix. They take a number of their own rather than folding into
+1.24. versionCode skips 26: Play has already refused one number this repo
+believed was free, and the App bundle explorer, not this file, is the authority
+on which are spent.
 
 ### The view stops being yanked to the bottom by the guest
 
@@ -42,6 +45,55 @@ keyboard up unable to reach the top of their own screen on a fresh boot.
 The live cursor is no longer painted into the history view - it is drawn only at
 the live bottom, as z80cpmw gates on its offset and ioscpm does by passing
 `showCursor` as `!isScrolledBack`.
+
+### The new bound was not applied everywhere it had to be
+
+`maxScrollLines()` arrived with the fix above and then reached only some of the
+paths that move the view, which left the keyboard-open case it exists for broken
+in two ways.
+
+`scrollUp`'s follow-along anchor still clamped to `historyChars.size`. Above the
+history - the range `maxScrollLines()` opened, and the only range a fresh boot
+with the keyboard up has - that clamp runs backwards and pulls the view forward
+instead of holding it. With a 10-row viewport of a 24-row screen, the first line
+of output moved the view 14 rows toward live: the defect the first section
+describes, still present in the case this release advertises. It clamps to
+`maxScrollLines()` now.
+
+Nothing re-clamped `userScrollUp` when the viewport changed size. `onDraw` clamps
+a local copy and never writes back, so an offset that had gone out of range
+stayed in the field, invisible, until the next captured line latched it.
+Dismissing the soft keyboard is the way in: the limit drops by the hidden live
+rows, the screen still draws correctly because `onDraw` clamped, and then
+`scrollUp` pins the view to the oldest history line with the cursor suppressed.
+The terminal looks frozen while CP/M keeps printing, and nothing on screen says
+that typing gets you out. Before the snap-on-output was removed that state was
+unreachable, which is why the clamp now lives where the geometry changes:
+`onSizeChanged`, `setPadding` and `recalculateSize` call
+`clampScrollToViewport()`.
+
+Ctrl+Home and Ctrl+End were still measured in `historyChars.size`, so with the
+keyboard up and nothing in history yet, Ctrl+End was `scrollHistoryBy(0)` - a
+no-op, and the documented way back to the live prompt could not rescue a user
+from the state above. Both take `maxScrollLines()` now.
+
+The Esc and Tab buttons on the control strip queued their byte straight into the
+emulator, bypassing `sendChar`, so they never returned the view to live and the
+guest's reply was painted off-screen. That reads as a dead button, and the
+control strip is the nearest keyboard in exactly the soft-keyboard case this
+release is about. `sendChar`'s return-to-live is now `returnToLive()`, public,
+and both buttons call it first.
+
+### The help topic stops documenting the old behaviour
+
+`help_quick_start.md` said "Any new output from CP/M snaps you back to the live
+prompt" - the defect above, written down as a feature. It now says the view stays
+where you put it while CP/M prints, that typing returns you to the live prompt,
+and that scrollback works with the keyboard open. Both copies changed and are
+still identical: `app/src/main/assets/help/` ships inside the APK as the offline
+tier, while `release_assets/` is what `HelpActivity` fetches through
+`releases/latest`, so the corrected wording reaches an online reader only once it
+is attached to the release.
 
 ### Not verified on a screen
 
@@ -1062,7 +1114,7 @@ emulator, and it ships to users as part of 1.22.
 
 - Version bump for a fresh Google Play submission. Already targets Android 16 (API 36), which meets Play's Aug 31 2026 target-API requirement (min is API 35).
 - The pinned ioscpm `v1.4.5` disk catalog is now published upstream, so the downloadable disk list loads (that release was missing when 1.17 was built, and the catalog fetch returned HTTP 404). No app code changes since 1.17.
-- **That last sentence describes the published APK, and the owner settled on 2026-08-29 that this is what the entry is for.** It was queried because it is false of the source tree: `690da30`, the keyboard-aware scrolling and scrollback work, sat on `master` under this version number for a time. The shipped 1.18 binary was built from `5ae1bdd`, before that commit, so the sentence is exact about what users received. `690da30` belongs to the **Unreleased** section above, where it now appears, and it has never been in a published build - a clean install from the store is still the pre-scrollback terminal.
+- **That last sentence describes the published APK, and the owner settled on 2026-08-29 that this is what the entry is for.** It was queried because it is false of the source tree: `690da30`, the keyboard-aware scrolling and scrollback work, sat on `master` under this version number for a time. The shipped 1.18 binary was built from `5ae1bdd`, before that commit, so the sentence is exact about what users received. `690da30` belongs to the **1.22** section above, where it now appears - it was written here when that section was still headed *Unreleased*, and the pointer moved with the rename. It had never been in a published build when this was written; it is an ancestor of `v1.24`, so whether a store install is still the pre-scrollback terminal now depends on which of 1.22 and 1.24 actually reached users, which this file cannot settle.
 
 ## Version 1.17 (versionCode 18)
 
