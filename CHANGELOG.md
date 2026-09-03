@@ -97,13 +97,22 @@ is attached to the release.
 
 ### Not verified on a screen
 
-There is no SDK, no kotlinc and no emulator on the machine that made these
-changes. What backs them: a brace-balance check, a line-by-line read against both
-siblings, and a port of `onDraw`'s windowing arithmetic to a scratch script,
-which reproduces the old keyboard-down output exactly for every combination of
-history size, viewport and scroll offset tried, and shows the new keyboard-up
-window reaching the top of the live screen. None of that is a screen, and
-todo.txt says what to point at it.
+The 2026-09-02 changes were made on a machine with no SDK, no kotlinc and no
+emulator; the 2026-09-03 ones were found by reading them. What backs the
+arithmetic: a brace-balance check, a line-by-line read against both siblings, and
+a port of `onDraw`'s windowing to a scratch model, which reproduces the old
+keyboard-down output exactly for every combination of history size, viewport and
+scroll offset tried, reproduces both defects fixed above, and sweeps every valid
+offset over 40 history sizes, 24 viewports and 24 cursor rows without producing
+an out-of-range window or a position the user cannot reach.
+
+The 1.25 release build compiled all of it, against the NDK and a real SDK, so it
+is no longer untested against a toolchain - and that is the whole of what the
+build settles. Nobody has watched it run. todo.txt says what to point at it:
+drag back with the keyboard closed, then open the keyboard and drag again; run a
+long `DIR` and confirm the view stays put while it prints; type a key and confirm
+it returns to live; confirm the cursor is absent while scrolled back and present
+at the bottom.
 
 ## Version 1.24 (versionCode 25)
 
