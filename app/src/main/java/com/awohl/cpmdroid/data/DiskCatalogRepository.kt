@@ -25,7 +25,24 @@ class DiskCatalogRepository {
         // slices from other RomWBW releases print a HBIOS/CBIOS mismatch
         // warning. Bump this tag together with core/ROM upgrades. Help
         // content (HelpActivity) deliberately stays on releases/latest.
-        private const val RELEASE_TAG = "v1.4.5"
+        //
+        // v1.4.12 (2026-09-03) replaces v1.4.5, which served an R8 that hands
+        // an unfiltered host basename to F_DELETE: importing a host file whose
+        // name contains ? or * made an ambiguous FCB and erased every matching
+        // CP/M file first, silently. The fix was published upstream on
+        // 2026-09-01 and reached no user of any port for two days, because
+        // every port's pin still named the old release. tools/check-disk-pins.sh
+        // exists to make that gap fail rather than go unnoticed.
+        //
+        // The RomWBW generation this comment pins against does not move.
+        // Byte-diffing the two images: 5,121 bytes differ out of 51,380,224,
+        // all of it R8.COM, W8.COM and their two directory entries, with the
+        // first difference 1.02 MB in - the boot slices, HBIOS/CBIOS area and
+        // CP/M system image are byte-identical, so the mismatch warning this
+        // pin guards against cannot appear. No other image in the catalog
+        // changes: the two disks.xml are 7042 bytes each and differ on one
+        // line, hd1k_combo.img's <sha256>.
+        private const val RELEASE_TAG = "v1.4.12"
         private const val CATALOG_URL =
             "https://github.com/avwohl/ioscpm/releases/download/$RELEASE_TAG/disks.xml"
         private const val DOWNLOAD_BASE_URL =
