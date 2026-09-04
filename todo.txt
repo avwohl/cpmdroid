@@ -54,25 +54,33 @@ prompt on an AVD, which is the live screen anchored at the bottom with nothing
 in history yet - by design, and still worth a person's opinion.
 
 
-THE DISK IMAGES ARE BEHIND THE CORE
-------------------------------------
+THE PACKAGE IS BEHIND THE TREE
+-------------------------------
 
-- [RELEASE] unchanged, and still the only thing between this port and a
-release.  The disk images this port serves carry the pre-98eb6a1 w8.com, so
-nothing this port gained from the v1.36 core is visible to a user.  This app
-bundles no disk image - app/src/main/assets holds emu_avw.rom and the help
-topics - so the refresh is a release action in ioscpm, not an edit here.
-romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md owns the order and the reasons;
-read it before publishing anything.  cpmdroid is step 2 of that plan and its
-code half is done.  The residue that is genuinely this repository's: repin
-RELEASE_TAG in data/DiskCatalogRepository.kt once the refreshed images have a
-new tag, and never onto v1.4.5, which every installed app already fetches.
+- [RELEASE] the repin is done and has shipped to nobody, and that gap is now the
+only thing between this port and a release.  RELEASE_TAG in
+data/DiskCatalogRepository.kt reads v1.4.12 as of 642b3b0, which is this
+repository's HEAD, and no release tag sits on or after it - the newest published
+one is v1.14 from 2026-01-16, from before that file existed.  So every installed
+copy still fetches v1.4.5 and still serves the pre-98eb6a1 w8.com and the R8
+that hands an unfiltered host basename to F_DELETE.  What is left is a build
+carrying 642b3b0 and a Play Store rollout; there is no edit remaining here.
+romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md owns the order and the reasons; read
+it before publishing anything.  This app bundles no disk image -
+app/src/main/assets holds emu_avw.rom and the help topics - so the image half
+was, and stays, a release action in ioscpm.
 
-  Read that document's second hazard before the repin.  disks.xml carries a
-  version attribute and bumping it deletes the user's downloaded disks; this
-  port's own download path was hardened (a size and sha256 check before
-  anything is replaced, in DiskDownloadManager.downloadDisk) but that guards a
-  corrupt download, not a catalog bump.
+  One thing the rollout does NOT fix, and it is worth knowing before writing
+  release notes that promise otherwise.  disks.xml's version attribute is 13 at
+  v1.4.5 and 13 at v1.4.12 alike - left there deliberately, because bumping it
+  deletes the user's downloaded disks - so nothing invalidates an image already
+  on the device.  hd1k_combo.img is the only one of the twenty whose bytes moved,
+  and a device that already downloaded it under the old pin keeps the old bytes
+  after the update.  DiskDownloadManager.downloadDisk checks size and sha256
+  before replacing anything, but that guards a corrupt download, not a stale
+  installed one.  Decide whether this port should re-fetch an image whose
+  installed hash disagrees with the catalog, and note that ioscpm has the
+  identical hole.
 
 - [ANDROID] the refreshed images are the only way to reach two paths this port
 implements and has never executed: HBF_HOST_CAPS and HBF_HOST_GETNAME.  The
