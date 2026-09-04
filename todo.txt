@@ -64,7 +64,16 @@ repository's HEAD, and no release tag sits on or after it - the newest published
 one is v1.14 from 2026-01-16, from before that file existed.  So every installed
 copy still fetches v1.4.5 and still serves the pre-98eb6a1 w8.com and the R8
 that hands an unfiltered host basename to F_DELETE.  What is left is a build
-carrying 642b3b0 and a Play Store rollout; there is no edit remaining here.
+carrying 642b3b0 and a Play Store rollout - and one edit, below, without which
+that rollout cannot happen at all.
+
+  versionCode is 27 and has to move before anything can be uploaded.  Both
+  versionCode = 27 and versionName = "1.25" were already set at 35873d0, and at
+  that commit DiskCatalogRepository.kt still read v1.4.5; the repin came after it
+  in 642b3b0 and bumped neither number.  Play refuses an upload at a versionCode
+  it has already seen, so the tree as it stands is literally un-uploadable: the
+  build that would carry the pin cannot go out under 27, and 27 is what the
+  published 1.25 used.  Bump versionCode past 27 as part of the release.
 romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md owns the order and the reasons; read
 it before publishing anything.  This app bundles no disk image -
 app/src/main/assets holds emu_avw.rom and the help topics - so the image half
