@@ -9,6 +9,14 @@ class SettingsRepository(context: Context) {
 
     companion object {
         private const val PREFS_NAME = "cpmdroid_prefs"
+        // The BUNDLED ROM's asset name, and nothing else. It names a file
+        // inside the APK, opened with assets.open(), which is why the v0 rename
+        // pass refuses it: a v0 name here shows "ROM not found" on every launch
+        // with no way back, the Settings row being read-only. Fetching a
+        // release's ROM from the catalog does not change what this key means -
+        // a downloaded ROM is named by the catalog and remembered under the
+        // per-release keys below, so this one still says what the package
+        // carries, and no migration is needed for it.
         private const val KEY_ROM_NAME = "rom_name"
         private const val KEY_DISK_SLOT_PREFIX = "disk_slot_"
         private const val KEY_FONT_SIZE = "font_size"
@@ -103,6 +111,15 @@ class SettingsRepository(context: Context) {
 
         private fun generationKey(romwbwVersion: String) =
             "catalog_generation" + scope(romwbwVersion)
+
+        // The catalog's claims about the ROM fetched for one release. Three
+        // keys rather than one blob because they are read on the launch path,
+        // where a parse failure would have to be handled as "no ROM" anyway.
+        private fun romFileKey(romwbwVersion: String) = "rom_file" + scope(romwbwVersion)
+
+        private fun romSizeKey(romwbwVersion: String) = "rom_size" + scope(romwbwVersion)
+
+        private fun romSha256Key(romwbwVersion: String) = "rom_sha256" + scope(romwbwVersion)
     }
 
     private val prefs: SharedPreferences =
@@ -229,6 +246,46 @@ class SettingsRepository(context: Context) {
         prefs.edit { putInt(key, generation) }
         // -1 is "never seen", which is every user's first fetch and not a change.
         return previous != -1
+    }
+
+    /**
+     * What the catalog said about the ROM fetched for [romwbwVersion], or null
+     * if none ever was.
+     *
+     * Recorded so that a launch with no network can still verify the ROM it
+     * already has. Without it, checking the size and sha256 "every time it is
+     * used" would silently become "whenever we happen to be online", and
+     * offline is exactly when a corrupt ROM is least recoverable.
+     *
+     * Per release, like the disk slots and the NVRAM setting, because that is
+     * what it means: 3.5.1's ROM and 3.6.0's are different files with different
+     * hashes, and both can sit in the directory at once.
+     */
+    fun romClaim(romwbwVersion: String): RomClaim? {
+        val filename = prefs.getString(romFileKey(romwbwVersion), null) ?: return null
+        if (filename.isEmpty()) return null
+        return RomClaim(
+            filename = filename,
+            size = prefs.getLong(romSizeKey(romwbwVersion), 0L),
+            sha256 = prefs.getString(romSha256Key(romwbwVersion), "") ?: ""
+        )
+    }
+
+    /**
+     * Remember what the catalog promised about a release's ROM.
+     *
+     * Written only after the bytes have been fetched and verified, so the claim
+     * and the file agree at the moment it is stored. They can disagree later -
+     * a file removed by hand, a restore from backup that brought the
+     * preferences and not the 512 KB - and that is the case readVerifiedRom
+     * exists to catch rather than to assume away.
+     */
+    fun setRomClaim(romwbwVersion: String, claim: RomClaim) {
+        prefs.edit {
+            putString(romFileKey(romwbwVersion), claim.filename)
+            putLong(romSizeKey(romwbwVersion), claim.size)
+            putString(romSha256Key(romwbwVersion), claim.sha256)
+        }
     }
 
     /**

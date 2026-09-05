@@ -111,17 +111,52 @@ class DiskDownloadManager(private val context: Context) {
     suspend fun downloadDisk(
         diskInfo: DiskInfo,
         onProgress: ((bytesRead: Long, totalBytes: Long) -> Unit)? = null
+    ): Result<File> = downloadAsset(
+        // The URL the catalog gave this entry - base_url + filename, built when
+        // the document was parsed. Nothing reconstructs it from a release tag
+        // any more, and nothing can pair this disk with another release's base:
+        // a DiskInfo carries its own.
+        filename = diskInfo.filename,
+        url = diskInfo.downloadUrl,
+        expectedSize = diskInfo.size,
+        expectedSha256 = diskInfo.sha256,
+        onProgress = onProgress
+    )
+
+    /**
+     * One catalog asset, streamed to the disks directory and verified on the
+     * way.
+     *
+     * Disks and ROMs go through this same path rather than two, and share one
+     * in-flight set, one scratch-file convention and one sweep. A second
+     * downloader for the ROM would be 90 lines of the same care taken again -
+     * the nonce in the scratch name, the cancellation check inside the read
+     * loop, the size and hash checks before the rename - and the ROM is the one
+     * file where getting any of it wrong produces a guest that boots to
+     * nothing rather than a missing drive.
+     *
+     * [expectedSize] and [expectedSha256] are the catalog's claims, and a zero
+     * or empty one skips that check rather than failing it - the same
+     * degradation the catalog document itself gets when the index publishes no
+     * hash for it.
+     */
+    private suspend fun downloadAsset(
+        filename: String,
+        url: String,
+        expectedSize: Long,
+        expectedSha256: String,
+        onProgress: ((bytesRead: Long, totalBytes: Long) -> Unit)?
     ): Result<File> = withContext(Dispatchers.IO) {
-        // One transfer per disk at a time, checked before anything is opened.
+        // One transfer per file at a time, checked before anything is opened.
         // The read loop below only notices cancellation at a block boundary, so
         // leaving the Settings screen mid-download can leave the old coroutine
         // running for another moment while the user taps Download again - and
         // without this guard both writers would go at the same disk, and the
         // second would spend another 49MB of the user's data allowance on a
         // file that was already arriving.
-        if (!claimDownload(diskInfo.filename)) {
+        if (!claimDownload(filename)) {
             return@withContext Result.failure(
-                Exception(diskInfo.filename + " is already downloading")
+                Exception("$filename is already downloading")
             )
         }
 
@@ -129,14 +164,9 @@ class DiskDownloadManager(private val context: Context) {
         try {
             sweepStaleTempFiles(getDisksDir())
 
-            // The URL the catalog gave this entry - base_url + filename, built
-            // when the document was parsed. Nothing reconstructs it from a
-            // release tag any more, and nothing can pair this disk with another
-            // release's base: a DiskInfo carries its own.
-            val url = diskInfo.downloadUrl
             if (url.isEmpty()) {
                 return@withContext Result.failure(
-                    Exception("No download URL for " + diskInfo.filename)
+                    Exception("No download URL for $filename")
                 )
             }
             val request = Request.Builder().url(url).build()
@@ -157,7 +187,7 @@ class DiskDownloadManager(private val context: Context) {
                     ?: return@withContext Result.failure(Exception("Empty response"))
 
                 val totalBytes = body.contentLength()
-                val destFile = getDiskFile(diskInfo.filename)
+                val destFile = getDiskFile(filename)
 
                 // A nonce in the scratch name, because the old fixed
                 // "<filename>.tmp" was one name shared by every attempt at a
@@ -167,7 +197,7 @@ class DiskDownloadManager(private val context: Context) {
                 // two coroutines inside one process, which is the racer here.
                 val temp = File(
                     destFile.parentFile,
-                    diskInfo.filename + "." + System.nanoTime() + ".tmp"
+                    filename + "." + System.nanoTime() + ".tmp"
                 )
                 tempFile = temp
 
@@ -205,9 +235,9 @@ class DiskDownloadManager(private val context: Context) {
                 // <size>, and a chunked response carries no Content-Length. A
                 // connection dropped at 90% used to be renamed straight over the
                 // good copy and handed to the emulator as a bootable image.
-                if (diskInfo.size > 0 && bytesRead != diskInfo.size) {
+                if (expectedSize > 0 && bytesRead != expectedSize) {
                     return@withContext Result.failure(
-                        Exception("Download truncated: got $bytesRead of ${diskInfo.size} bytes")
+                        Exception("Download truncated: got $bytesRead of $expectedSize bytes")
                     )
                 }
                 if (totalBytes >= 0 && bytesRead != totalBytes) {
@@ -216,11 +246,11 @@ class DiskDownloadManager(private val context: Context) {
                     )
                 }
 
-                if (diskInfo.sha256.isNotEmpty()) {
+                if (expectedSha256.isNotEmpty()) {
                     val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
-                    if (!actualHash.equals(diskInfo.sha256, ignoreCase = true)) {
+                    if (!actualHash.equals(expectedSha256, ignoreCase = true)) {
                         return@withContext Result.failure(
-                            Exception("SHA256 mismatch: expected ${diskInfo.sha256}, got $actualHash")
+                            Exception("SHA256 mismatch: expected $expectedSha256, got $actualHash")
                         )
                     }
                 }
@@ -235,9 +265,7 @@ class DiskDownloadManager(private val context: Context) {
                     published = temp.renameTo(destFile)
                 }
                 if (!published) {
-                    return@withContext Result.failure(
-                        Exception("Could not save " + diskInfo.filename)
-                    )
+                    return@withContext Result.failure(Exception("Could not save $filename"))
                 }
                 Result.success(destFile)
             }
@@ -251,7 +279,7 @@ class DiskDownloadManager(private val context: Context) {
             // away, which is why this is not optional. It is a no-op after a
             // rename that worked, since the path no longer exists.
             tempFile?.delete()
-            releaseDownload(diskInfo.filename)
+            releaseDownload(filename)
         }
     }
 
@@ -272,6 +300,153 @@ class DiskDownloadManager(private val context: Context) {
                     it.lastModified() < cutoff && !isScratchOfLiveDownload(it.name)
             }
             ?.forEach { it.delete() }
+    }
+
+    // =========================================================================
+    // The ROM, which is a catalog asset like any other and used like none of
+    // them
+    // =========================================================================
+
+    /**
+     * The release's ROM, in the same flat directory as its disks.
+     *
+     * Under the catalog `filename`, which already carries the interface and the
+     * release - `emu_avw-v0-3.6.0.rom` - so two releases' ROMs coexist exactly
+     * as their disks do. getDownloadedDisks() filters on `.img` and so does not
+     * see it, and the catalog dialog's downloaded ticks are unaffected.
+     */
+    fun getRomFile(filename: String): File = File(getDisksDir(), filename)
+
+    /**
+     * Is the release's ROM apparently here - the file present, at the size the
+     * catalog claimed?
+     *
+     * A stat, deliberately, and not a hash. It answers a label on a screen that
+     * is being drawn, and RomwbwSupport's own comment about reading 264 bytes
+     * rather than 524288 is the standard this project holds the main thread to.
+     * It is NOT a substitute for readVerifiedRom: nothing decides to load a ROM
+     * on the strength of this.
+     */
+    fun romFileLooksPresent(claim: RomClaim): Boolean {
+        val file = getRomFile(claim.filename)
+        return file.isFile && (claim.size <= 0 || file.length() == claim.size)
+    }
+
+    /**
+     * The ROM's bytes, or why they cannot be used - checked EVERY time, not
+     * only after a download.
+     *
+     * A ROM is 512 KB. Hashing it costs a few milliseconds on the load path and
+     * it is the one file in this app whose corruption produces a guest that
+     * boots to nothing at all, rather than a missing drive or an empty list. A
+     * check that ran only at download time would never look at the copy that
+     * has been sitting on the device for six months, which is the copy that is
+     * actually used.
+     *
+     * Hashed from the bytes that are returned, not from a second pass over the
+     * file: what the emulator is handed is then exactly what was verified, and
+     * a file replaced between the check and the read cannot slip through.
+     */
+    fun readVerifiedRom(romwbwVersion: String, claim: RomClaim): Result<ByteArray> {
+        val file = getRomFile(claim.filename)
+        if (!file.isFile) {
+            return Result.failure(RomFailure.NotDownloaded(romwbwVersion, claim.filename))
+        }
+        val bytes = try {
+            file.readBytes()
+        } catch (e: Exception) {
+            return Result.failure(
+                RomFailure.DidNotVerify(
+                    romwbwVersion, claim.filename,
+                    "could not be read: ${e.message ?: e.javaClass.simpleName}"
+                )
+            )
+        }
+        if (claim.size > 0 && bytes.size.toLong() != claim.size) {
+            return Result.failure(
+                RomFailure.DidNotVerify(
+                    romwbwVersion, claim.filename,
+                    "${bytes.size} bytes, the catalog says ${claim.size}"
+                )
+            )
+        }
+        if (claim.sha256.isNotEmpty()) {
+            val actual = MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+            if (!actual.equals(claim.sha256, ignoreCase = true)) {
+                return Result.failure(
+                    RomFailure.DidNotVerify(
+                        romwbwVersion, claim.filename,
+                        "sha256 $actual, the catalog says ${claim.sha256}"
+                    )
+                )
+            }
+        }
+        return Result.success(bytes)
+    }
+
+    /**
+     * The release's ROM bytes: the copy already here if it verifies, otherwise
+     * fetched once and verified again.
+     *
+     * The re-download is deliberately once and not a loop. A file that fails
+     * verification twice is not a flaky connection, and a client that keeps
+     * pulling 512 KB on every launch to fail the same way is worse than one
+     * that says what went wrong. Nothing is deleted on the way: the fetch
+     * renames a fully verified transfer over the bad copy, so a failed attempt
+     * leaves what was already there rather than leaving nothing.
+     *
+     * The HCB bytes are compared before any transfer starts, because the
+     * catalog publishes what it read back out of the built image and the index
+     * publishes what the release must declare - a document disagreeing with
+     * itself is worth catching for a comparison rather than for 512 KB. It is
+     * not a substitute for emu_validate_rom_hcb, which reads the same two bytes
+     * out of the image the emulator is actually given.
+     */
+    suspend fun fetchAndReadRom(
+        romwbwVersion: String,
+        rom: RomInfo,
+        expectedVerByte: Int?,
+        expectedUpdByte: Int?,
+        onProgress: ((bytesRead: Long, totalBytes: Long) -> Unit)? = null
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
+        if (rom.hcbVerByte != null && rom.hcbUpdByte != null &&
+            expectedVerByte != null && expectedUpdByte != null &&
+            (rom.hcbVerByte != expectedVerByte || rom.hcbUpdByte != expectedUpdByte)
+        ) {
+            return@withContext Result.failure(
+                RomFailure.WrongRelease(
+                    romwbwVersion, rom.filename,
+                    "%02x %02x".format(rom.hcbVerByte, rom.hcbUpdByte)
+                )
+            )
+        }
+
+        val claim = rom.claim()
+        readVerifiedRom(romwbwVersion, claim)
+            .onSuccess { return@withContext Result.success(it) }
+
+        val downloaded = downloadAsset(
+            filename = rom.filename,
+            url = rom.downloadUrl,
+            expectedSize = rom.size,
+            expectedSha256 = rom.sha256,
+            onProgress = onProgress
+        )
+        // CouldNotFetch, not DidNotVerify. A transfer that failed never became
+        // a file, so there is nothing on the device that "did not verify" -
+        // and reporting a dropped connection as a bad ROM sends the user
+        // looking at their storage instead of their signal. DidNotVerify below
+        // is for the copy that IS there.
+        downloaded.exceptionOrNull()?.let { cause ->
+            return@withContext Result.failure(
+                RomFailure.CouldNotFetch(
+                    romwbwVersion, rom.filename,
+                    cause.message ?: cause.javaClass.simpleName
+                )
+            )
+        }
+        readVerifiedRom(romwbwVersion, claim)
     }
 
     fun deleteDisk(filename: String): Boolean {

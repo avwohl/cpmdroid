@@ -1,24 +1,3 @@
-FETCH THE ROM FROM THE CATALOG - THE LAST VERSION-COUPLED THING IN THIS APP
--------------------------------------------------------------------------------
-
-- [ANY] this app bundles a 3.5.1 ROM (app/src/main/assets/emu_avw.rom, opened with assets.open()) and
-downloads no ROM at all.  romwbw_disks published RomWBW 3.6.0 as stable and
-default on 2026-09-05, so a build shipped as it stands would preselect 3.6.0
-disks and boot them against a 3.5.1 ROM -> *** WARNING: HBIOS/CBIOS Version
-Mismatch ***.  Nothing is broken today: no released build reads that index, and a
-pre-v1.39 core filters 3.6.0 out by hbios.ver_byte before default is ever read.
-  The fix is to fetch the ROM from the catalog the way disks are fetched.  It is
-NOT to bundle a 3.6.0 ROM instead: that would put a store release for this app on
-the critical path for every RomWBW version, which is the whole cost romwbw_disks
-was created to remove.  Every catalog already carries roms[] with emu_avw flagged
-default, a sha256 and a size, under the same base_url as the disks.
-  The catalog parser already reads roms[] alongside disks[].  What is missing is
-the download-and-verify path for a ROM and a loader that takes a File instead of
-assets.open().  Keep the bundled asset as the first-launch fallback so the app
-boots offline out of the box.
-  romwbw_disks/docs/ROMWBW_VERSIONS.md "Why 3.6.0 is stable and default" has the
-same gate written down at the publishing end.
-
 Todo list.  Open items only - finished work is in CHANGELOG.md and in the commit
 messages that made the changes, not kept here.  Checks that need a person with a
 device are in MANUAL_CHECKS.md, one line each here.  WIP.md holds the
@@ -117,12 +96,11 @@ RomWBW release picker - have never fetched anything.  What has been done is one
 step further than 1.26 managed and worth knowing before repeating it: every
 Kotlin source in the app type-checks under kotlinc against real android.*,
 androidx, okhttp and coroutines classes with only R, BuildConfig and
-ActivitySettingsBinding stubbed, and all three JVM suites run and pass - 20
-catalog parser tests, 14 migration tests and 3 JNI name-parity ones.
-CHANGELOG.md's 1.27 preamble has the exact recipe; it needs no SDK.  What none
+ActivitySettingsBinding stubbed, and every JVM suite runs and passes.
+CHANGELOG.md's 1.28 preamble has the exact recipe; it needs no SDK.  What none
 of it reaches is a device.  MANUAL_CHECKS.md section 7 has the six that need
-one, and its check 2 is the one to do first: three new JNI bindings have no
-build-time guard of any kind, so a Kotlin/C++ name mismatch shows up as
+one, and its check 2 is the one to do first: three JNI bindings added in 1.27
+have no build-time guard of any kind, so a Kotlin/C++ name mismatch shows up as
 UnsatisfiedLinkError the first time Settings is opened and nowhere earlier.
 
 - [ANDROID] DISK_NAMES_MIGRATION_PASS is 2 because release A shipped a flag
@@ -132,15 +110,24 @@ should never be a pass 3: after this release the catalog publishes only v0
 names.  If one is ever needed, that is evidence something started writing
 pre-v0 names again, and the reason matters more than the sweep.
 
-- [ANDROID] the bundled ROM is still the only ROM.  Selecting a RomWBW release
-this build has no ROM for is allowed and confirmed with a warning, which is
-honest but is not the same as being able to run it.  The catalog already
-publishes roms[] with emu_avw and emu_rcz80 per release, and
-emu_romwbw_release_of_image() can vet a downloaded one before it is offered -
-but rom_name holds a bare filename that MainActivity opens with assets.open(),
-so it needs a source discriminator (asset or downloaded file) before it can
-name anything that is not inside the APK.  Until then, a 3.6.0 selection means
-3.6.0 disks under a 3.5.1 ROM and the guest's mismatch warning.
+- [ANDROID DEVICE or EMULATOR] the ROM now comes from the catalog and nothing
+about that has been watched on a screen.  What was run is in CHANGELOG.md's 1.28
+preamble: every Kotlin source type-checks, and four JVM suites pass - 24 catalog
+parser tests, 11 ROM selection ones, 14 migration ones and 3 JNI name-parity
+ones.  None of them reads a file, opens a socket or boots a guest.
+MANUAL_CHECKS.md section 8 has the nine that need a device, and two are worth
+doing before the others: check 1, that a first launch with no network still
+boots on the bundled ROM, and check 6, that a corrupted ROM stops the machine
+instead of quietly falling back to the bundled one.  A silent fallback would
+look like success everywhere except one warning line inside CP/M.
+
+- [ANDROID] a ROM is never deleted, including a bad one.  A file that fails
+verification is re-downloaded once, and the fetch renames a fully verified
+transfer over it - so a failed attempt leaves what was there rather than leaving
+nothing, and a ROM a user put in that directory themselves is never removed.
+The cost is an unused 512 KB file per withdrawn release, which nothing reclaims.
+That is the deliberate side of the trade; if it ever becomes a complaint, the
+answer is a user-initiated cleanup, not an automatic one.
 
 - [ANY] tools/check-disk-pins.sh has diverged in this repo: the cpmdroid row is
 now kind "index-v0" and asks a different question, because grepping for a
@@ -171,10 +158,11 @@ installed copy still fetches ioscpm v1.4.5 and still serves the pre-98eb6a1
 w8.com and the R8 that hands an unfiltered host basename to F_DELETE.  What is
 left is a build and a Play Store rollout.
 
-  versionCode has moved 27 -> 29 and versionName 1.25 -> 1.27, which unblocks
-  the upload.  28 / "1.26" names the disk-name migration alone and 29 / "1.27"
-  the catalog repoint and the release picker; whether they go out as one upload
-  or two, neither number is reused.  The history is worth keeping because it is
+  versionCode has moved 27 -> 30 and versionName 1.25 -> 1.28, which unblocks
+  the upload.  28 / "1.26" names the disk-name migration alone, 29 / "1.27" the
+  catalog repoint and the release picker, and 30 / "1.28" the ROM fetched from
+  the catalog; whether they go out as one upload or three, no number is reused.
+  The history is worth keeping because it is
   how the block happened: both versionCode = 27 and versionName = "1.25" were
   already set at 35873d0, and at that commit DiskCatalogRepository.kt still read
   v1.4.5; the repin came after it in 642b3b0 and bumped neither number, so the
@@ -206,6 +194,21 @@ was, and stays, a release action in ioscpm.
   catalog now publishes a sha256 for every entry, so the check is a hash of a
   local file against a field that is already parsed.  Note that ioscpm has the
   identical hole.
+
+  The ROM added in 1.28 has the same shape of gap and it is worth stating
+  separately, because the ROM path looks like it closes it and does not.  A
+  downloaded ROM IS hashed on every load - but against the size and sha256
+  recorded when it was fetched, not against the catalog's current ones, and
+  fetchRomForRelease returns on that check before it reads the index at all.  So
+  a release whose ROM is republished under a new hash leaves every device that
+  already has the old one using it indefinitely, verifying happily against a
+  stale claim.  That is the deliberate reading of "already present and
+  verifying: use it, download nothing", and it is right for a corrupt file; it
+  is not obviously right for a superseded one.  `generation` is what would
+  answer it, and this app records it per release and acts on it in no way - see
+  SettingsRepository.noteCatalogGeneration for why acting on it is the iOS bug
+  this port must not acquire.  A ROM is 512 KB rather than 49 MB, so re-fetching
+  one on a generation change is a far smaller decision than re-fetching disks.
 
 - [ANDROID] the refreshed images are the only way to reach two paths this port
 implements and has never executed: HBF_HOST_CAPS and HBF_HOST_GETNAME.  The

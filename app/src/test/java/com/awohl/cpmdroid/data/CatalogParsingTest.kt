@@ -14,14 +14,21 @@ import org.junit.Test
  * published.
  *
  * src/test/resources holds byte-for-byte copies of romwbw_disks
- * catalog/v0/index.json and the two catalog documents - 2942, 11826 and 14694
+ * catalog/v0/index.json and the two catalog documents - 3310, 11826 and 14694
  * bytes, the last two exactly the catalog_size the index declares for them, so
  * a copy that drifts fails the size assertion below rather than quietly
  * becoming a paraphrase. Parsing the real thing is the point: every field name
  * here was read out of those files, not remembered, and the fields this app
- * does not use (upstream, cbios, slices, rom_count, notes, roms) are in the
- * fixtures too, so "ignore unknown fields" is exercised by every test in the
- * file rather than only by the one named after it.
+ * does not use (upstream, cbios, slices, rom_count, notes) are in the fixtures
+ * too, so "ignore unknown fields" is exercised by every test in the file rather
+ * than only by the one named after it.
+ *
+ * The index copy was refreshed when the ROM download landed, and the refresh
+ * matters: 3.6.0 was published `preview` and not default, and is now `stable`
+ * and default. That is the state this whole feature exists for - a client that
+ * preselected the default release and had no way to get its ROM would pair
+ * 3.6.0 disks with the bundled 3.5.1 ROM - so the fixture has to be the
+ * document that says so.
  *
  * These need the REAL org.json, which is why app/build.gradle.kts puts
  * org.json:json on the unit-test classpath: android.jar's own org.json is a
@@ -49,34 +56,37 @@ class CatalogParsingTest {
         val versions = parseRomwbwIndex(index())
         assertEquals(2, versions.size)
 
-        val stable = versions[0]
-        assertEquals("3.5.1", stable.romwbwVersion)
-        assertEquals("RomWBW 3.5.1", stable.label)
-        assertEquals("stable", stable.status)
-        assertTrue(stable.isDefault)
-        assertFalse(stable.isPreview)
-        assertEquals(0x35, stable.verByte)
-        assertEquals(0x10, stable.updByte)
+        val older = versions[0]
+        assertEquals("3.5.1", older.romwbwVersion)
+        assertEquals("RomWBW 3.5.1", older.label)
+        assertEquals("stable", older.status)
+        assertFalse(older.isPreview)
+        assertEquals(0x35, older.verByte)
+        assertEquals(0x10, older.updByte)
         assertEquals(
             "https://github.com/avwohl/romwbw_disks/releases/download/" +
                 "v0-romwbw-3.5.1/catalog-v0-3.5.1.json",
-            stable.catalogUrl
+            older.catalogUrl
         )
-        assertEquals(11826L, stable.catalogSize)
+        assertEquals(11826L, older.catalogSize)
         assertEquals(
             "7a5411b329be606c2bcc7b8d2b051b8fca9a2906f780d65fc98221cb6b61ed65",
-            stable.catalogSha256
+            older.catalogSha256
         )
-        assertEquals(1, stable.generation)
+        assertEquals(1, older.generation)
 
-        val preview = versions[1]
-        assertEquals("3.6.0", preview.romwbwVersion)
-        assertEquals("preview", preview.status)
-        assertTrue(preview.isPreview)
-        assertFalse(preview.isDefault)
-        assertEquals(0x36, preview.verByte)
-        assertEquals(0x00, preview.updByte)
-        assertEquals(14694L, preview.catalogSize)
+        // The default moved to 3.6.0 when it was promoted out of preview, and
+        // the bundled ROM did not move with it - which is the pairing the ROM
+        // download exists to make impossible.
+        val current = versions[1]
+        assertEquals("3.6.0", current.romwbwVersion)
+        assertEquals("stable", current.status)
+        assertFalse(current.isPreview)
+        assertTrue(current.isDefault)
+        assertFalse(older.isDefault)
+        assertEquals(0x36, current.verByte)
+        assertEquals(0x00, current.updByte)
+        assertEquals(14694L, current.catalogSize)
     }
 
     @Test
@@ -182,8 +192,8 @@ class CatalogParsingTest {
     @Test
     fun aStoredChoiceThatIsGoneFallsBackToTheIndexDefault() {
         val versions = parseRomwbwIndex(index())
-        assertEquals("3.5.1", selectRomwbwVersion(versions, "3.4.0")?.romwbwVersion)
-        assertEquals("3.5.1", selectRomwbwVersion(versions, null)?.romwbwVersion)
+        assertEquals("3.6.0", selectRomwbwVersion(versions, "3.4.0")?.romwbwVersion)
+        assertEquals("3.6.0", selectRomwbwVersion(versions, null)?.romwbwVersion)
     }
 
     /**
@@ -279,18 +289,95 @@ class CatalogParsingTest {
         assertEquals(20, catalog.disks.size)
     }
 
+    //-------------------------------------------------------------------------
+    // roms[], which is what stops the ROM being version-coupled
+    //-------------------------------------------------------------------------
+
+    @Test
+    fun thePublishedRomsAreParsedWithTheirUrlsAndHcbBytes() {
+        val catalog = parseDiskCatalog(catalog360())!!
+        assertEquals(2, catalog.roms.size)
+
+        val avw = catalog.roms.first { it.id == "emu_avw" }
+        assertEquals("emu_avw-v0-3.6.0.rom", avw.filename)
+        assertEquals("EMU AVW", avw.name)
+        assertEquals(524288L, avw.size)
+        assertEquals(
+            "2f4a6252400276e2306d180704d33f70c92651d11a3e0780cd8a58e9921e8c4e",
+            avw.sha256
+        )
+        assertTrue(avw.isDefault)
+        assertEquals(
+            "https://github.com/avwohl/romwbw_disks/releases/download/" +
+                "v0-romwbw-3.6.0/emu_avw-v0-3.6.0.rom",
+            avw.downloadUrl
+        )
+        // hcb.version/hcb.update, the two bytes emu_validate_rom_hcb reads at
+        // 0x105/0x106. Hex strings in the document, like hbios.ver_byte, and
+        // the same values the index publishes for this release.
+        assertEquals(0x36, avw.hcbVerByte)
+        assertEquals(0x00, avw.hcbUpdByte)
+
+        val rcz80 = catalog.roms.first { it.id == "emu_rcz80" }
+        assertFalse(rcz80.isDefault)
+        assertEquals("emu_rcz80-v0-3.6.0.rom", rcz80.filename)
+    }
+
+    /** The 3.5.1 ROMs are a different file set under the same two ids. */
+    @Test
+    fun eachReleasePublishesItsOwnRomFilenames() {
+        val roms351 = parseDiskCatalog(catalog351())!!.roms
+        val roms360 = parseDiskCatalog(catalog360())!!.roms
+
+        assertEquals(roms351.map { it.id }, roms360.map { it.id })
+        assertTrue(roms351.all { it.filename.endsWith("-v0-3.5.1.rom") })
+        assertTrue(roms360.all { it.filename.endsWith("-v0-3.6.0.rom") })
+        // Different bytes under the same id: the whole reason a stored slot or
+        // ROM name has to carry the release.
+        assertTrue(
+            roms351.first { it.id == "emu_avw" }.sha256 !=
+                roms360.first { it.id == "emu_avw" }.sha256
+        )
+        assertEquals(0x35, roms351.first { it.id == "emu_avw" }.hcbVerByte)
+        assertEquals(0x10, roms351.first { it.id == "emu_avw" }.hcbUpdByte)
+    }
+
     /**
-     * roms[] is not read at all, so neither its contents nor its presence may
-     * matter: 6.1 says do not hardcode two entries and do not assume emu_avw is
-     * there.
+     * An absent roms[] is a release with no ROM, not a document to reject: 6.1
+     * says do not hardcode two entries and do not assume emu_avw is there.
      */
     @Test
-    fun aCatalogWithNoRomsArrayStillParses() {
+    fun aCatalogWithNoRomsArrayStillParsesAndOffersNoRom() {
         val document = JSONObject(catalog351())
         document.remove("roms")
 
         val catalog = parseDiskCatalog(document.toString())!!
         assertEquals(20, catalog.disks.size)
+        assertTrue(catalog.roms.isEmpty())
+        assertNull(selectRom(catalog.roms))
+    }
+
+    @Test
+    fun oneUnusableRomEntryCostsThatEntryAlone() {
+        val document = JSONObject(catalog351())
+        document.getJSONArray("roms").getJSONObject(0).remove("filename")
+
+        val catalog = parseDiskCatalog(document.toString())!!
+        assertEquals(1, catalog.roms.size)
+        assertEquals("emu_rcz80", catalog.roms[0].id)
+        // With the flagged default gone, the survivor is what is offered.
+        assertEquals("emu_rcz80", selectRom(catalog.roms)?.id)
+    }
+
+    @Test
+    fun aRomEntryWithNoHcbBlockParsesWithNoBytesToCheck() {
+        val document = JSONObject(catalog351())
+        document.getJSONArray("roms").getJSONObject(0).remove("hcb")
+
+        val rom = parseDiskCatalog(document.toString())!!.roms.first { it.id == "emu_avw" }
+        assertNull(rom.hcbVerByte)
+        assertNull(rom.hcbUpdByte)
+        assertEquals("emu_avw-v0-3.5.1.rom", rom.filename)
     }
 
     /**

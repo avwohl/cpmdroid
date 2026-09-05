@@ -100,8 +100,18 @@ android {
         // MainActivity.onCreate before anything fetches a catalog, so a device
         // that arrives at 1.27 without ever running 1.26 still renames its
         // files before it can download a v0 name beside a pre-v0 one.
-        versionCode = 29
-        versionName = "1.27"
+        //
+        // 30 / "1.28" is the ROM fetched from the catalog. It gets its own
+        // number even though 1.27 has been uploaded to nobody and could have
+        // absorbed it. Two reasons, and neither is ordering this time: 1.27's
+        // changelog entry says in as many words that no ROM is downloaded and
+        // that selecting another release boots with a mismatch warning, and
+        // folding this in would leave that entry describing a build that does
+        // the opposite; and MANUAL_CHECKS.md files its checks per release, so a
+        // build that fetches ROMs is a different thing to point at a device.
+        // A versionCode costs nothing. A record that says the wrong thing does.
+        versionCode = 30
+        versionName = "1.28"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the

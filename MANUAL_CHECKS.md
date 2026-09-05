@@ -259,30 +259,38 @@ the device are already on `-v0-3.5.1` names.
    once (the RomWBW row calls all three) and confirm no `UnsatisfiedLinkError`
    in logcat and that the row reads a version rather than being blank.
 
-3. **The version picker, and the preview marking.** Settings -> RomWBW Release
-   -> Change. Both releases must be listed, 3.6.0 must be marked `PREVIEW` and
-   `no ROM in this build`, 3.5.1 must be marked as matching the bundled ROM, and
-   the currently selected one must be pre-checked.
+3. **The version picker, and what each row says.** Settings -> RomWBW Release
+   -> Change. Both releases must be listed, 3.5.1 must be marked
+   `ROM bundled in the app`, 3.6.0 must be marked `ROM will be downloaded`
+   before it has been fetched and `ROM downloaded` after, each release's
+   published `status` must be shown, and the currently selected one must be
+   pre-checked. (3.6.0 was published `preview` when this check was written and
+   is `stable` now, so the `PREVIEW` marking may legitimately be absent - what
+   must not happen is a row claiming a status the index does not publish.)
 
 4. **A release switch loses nothing.** With all four slots assigned under 3.5.1,
-   switch to 3.6.0, accept the mismatch warning, and confirm the four slots read
-   `(empty)` and the toast says no disks are assigned yet. Leave Settings, come
-   back, switch back to 3.5.1, and confirm **all four slots are exactly what
-   they were**, with the same filenames. Then check that nothing was deleted:
+   switch to 3.6.0 (see section 8 check 3 for the ROM download that switch now
+   asks for) and confirm the four slots read `(empty)` and the toast says no
+   disks are assigned yet. Leave Settings, come back, switch back to 3.5.1, and
+   confirm **all four slots are exactly what they were**, with the same
+   filenames. Then check that nothing was deleted:
 
        adb shell ls /sdcard/Android/data/com.awohl.cpmdroid/files/Disks
        adb shell ls /sdcard/Android/data/com.awohl.cpmdroid/files/ModifiedDisks
 
-   Every file that was there before the switch must still be there. This is the
-   check that would have caught the iOS behaviour this app is deliberately not
-   copying, where a switch deleted the library.
+   Every file that was there before the switch must still be there - including
+   both releases' `.rom` files, which live in `Disks/` beside the images. This
+   is the check that would have caught the iOS behaviour this app is
+   deliberately not copying, where a switch deleted the library.
 
 5. **Downloading under 3.6.0.** Still on 3.6.0, download one small disk (not the
    51 MB combo). It must land beside the 3.5.1 files as `-v0-3.6.0.img`, with
    neither shadowing the other, and assigning it must fill a 3.6.0 slot only.
-   Booting it against the bundled 3.5.1 ROM is *expected* to print
-   `*** WARNING: HBIOS/CBIOS Version Mismatch ***`; confirm that it does, since
-   that warning is what the picker's confirmation promises.
+   Boot it and confirm CP/M prints **no** `HBIOS/CBIOS Version Mismatch`
+   warning: the 3.6.0 disks are now running under the 3.6.0 ROM, and that
+   warning appearing is the single clearest sign the ROM download did not
+   happen. (This inverts what this check asked for in 1.27, when the app had no
+   way to get any ROM but the bundled one.)
 
 6. **Three failures, three messages.** The one string this replaces said "check
    your internet connection" for all of them.
@@ -292,3 +300,95 @@ the device are already on `-v0-3.5.1` names.
      index reachable, and confirm the message names the *release's catalog*, not
      the index; and serve a truncated catalog and confirm the message says it
      did not verify and that nothing already downloaded was touched.
+
+---
+
+## 8. The ROM fetched from the catalog
+
+The app no longer boots only the ROM inside its own package. `roms[]` is read,
+the selected release's ROM is downloaded into `Disks/` beside the images, and
+its `size` and `sha256` are checked before every load. `RomSelectionTest` (11
+tests) and `CatalogParsingTest` (24) cover which entry is chosen and what the
+published documents say, on a host JVM. None of what follows can be settled that
+way: it needs the network, the device's storage, and a guest that boots.
+
+**Do sections 6 and 7 first if you are doing all three.**
+
+1. **A first launch still needs no network.** Fresh install, aeroplane mode on
+   before first launch. The machine must boot to a RomWBW prompt on the bundled
+   ROM with no dialog about a ROM at all, and logcat must show
+   `ROM loaded from assets` - not a catalog fetch. This is the check that the
+   bundled ROM is still a fallback and not decoration.
+
+2. **The bundled release boots with no download, online too.** Network back on,
+   still on RomWBW 3.5.1. Relaunch and confirm logcat still says
+   `ROM loaded from assets`, no `.rom` file appears in `Disks/`, and Settings'
+   RomWBW row reads "Boots the ROM bundled in the app, with no download."
+
+3. **Switching release fetches the ROM first.** Settings -> RomWBW Release ->
+   Change -> 3.6.0 -> Select. Expect a dialog saying the release has its own ROM
+   that has not been downloaded, then a progress dialog that reaches 100%, then
+   the switch. Confirm:
+
+       adb shell ls -l /sdcard/Android/data/com.awohl.cpmdroid/files/Disks/*.rom
+       # emu_avw-v0-3.6.0.rom, 524288 bytes
+
+   Then leave Settings and confirm the machine reboots onto it: logcat must say
+   `ROM loaded from the catalog download for RomWBW 3.6.0` and
+   `Rebooting onto the newly loaded ROM`, and the guest must print a 3.6.0
+   banner. The three ways this can be wrong all look like success from the
+   Settings screen alone: the ROM downloaded but not loaded, loaded but not
+   rebooted onto, or the switch applied with the download having failed.
+
+4. **A failed fetch does not switch.** From a fresh install, open
+   Settings -> RomWBW Release -> Change **with the network up** - the picker
+   fetches the index, so it cannot be opened in aeroplane mode at all - then
+   turn aeroplane mode on and only then choose 3.6.0 and Select. The switch must
+   NOT happen: the dialog must name the index as unreachable, and the RomWBW row
+   must still read 3.5.1 afterwards. The app pointed at a release it cannot
+   start on is the state this ordering exists to avoid.
+
+   Do it again with the connection dropped mid-transfer (aeroplane mode on while
+   the progress dialog is moving). The message must say the ROM **could not be
+   downloaded** and name what went wrong; it must not say it did not verify,
+   which is a different fault with a different fix.
+
+5. **A missing ROM stops the machine and offers two ways out.** With 3.6.0
+   selected and working, kill the app and delete its ROM:
+
+       adb shell rm /sdcard/Android/data/com.awohl.cpmdroid/files/Disks/emu_avw-v0-3.6.0.rom
+
+   Relaunch. Expect a dialog titled "RomWBW 3.6.0 needs its ROM" naming the file
+   and saying it is not on the device, with **Download ROM** and
+   **Use RomWBW 3.5.1**. The status strip must read `ROM needed` in orange and
+   the machine must not be running behind the dialog. Take **Use RomWBW 3.5.1**
+   and confirm it boots on the bundled ROM with the 3.5.1 slots restored and the
+   3.6.0 disks untouched on disk. Then switch back to 3.6.0 and take
+   **Download ROM** the second time round, and confirm it boots.
+
+6. **A corrupt ROM is refused rather than run.** With 3.6.0 selected and its ROM
+   present, corrupt it and relaunch:
+
+       adb shell "dd if=/dev/zero \
+         of=/sdcard/Android/data/com.awohl.cpmdroid/files/Disks/emu_avw-v0-3.6.0.rom \
+         bs=1 seek=1000 count=16 conv=notrunc"
+
+   Expect the same dialog, this time saying the ROM did not verify and naming
+   the hash it found. Take **Download ROM**: the fetch must replace the file and
+   the machine must boot. Nothing must ever start on the bundled 3.5.1 ROM while
+   3.6.0 is selected - if it does, the whole point of this release is gone and
+   the only visible symptom would have been a warning line inside CP/M.
+
+7. **Truncation is caught too, and by size before hash.** Same again with
+   `dd ... bs=1024 count=8 > file` to leave a short file. The message must say
+   the byte count, not a hash.
+
+8. **The ROM does not pollute the disk list.** With both releases' ROMs
+   downloaded, open the catalog dialog under each release. No `.rom` file may
+   appear as a row, and the downloaded ticks on the images must be unchanged -
+   `getDownloadedDisks()` filters on `.img`, and this is the check that it still
+   does.
+
+9. **Storage unavailable.** With the device's external storage unmounted or
+   otherwise unavailable, launch on 3.6.0. It must report a ROM it cannot find
+   rather than crash or start on the bundled one.

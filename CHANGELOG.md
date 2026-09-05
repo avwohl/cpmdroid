@@ -1,5 +1,197 @@
 # Changelog
 
+## Version 1.28 (versionCode 30)
+
+The ROM comes from the catalog. It is the last version-coupled thing in this
+app, and closing it is why `romwbw_disks` exists: until now a new RomWBW release
+could not reach a user without a store release of this app, however good the
+catalog was.
+
+**NOT BUILT AS AN APK, AND NOT RUN ON A DEVICE.** Same machine, same absence:
+no Android SDK, no NDK, no JDK that Kotlin 1.9.20 will start under. Nothing here
+has been through Gradle, aapt2, R8, dex or the NDK. What it has been through is
+1.27's recipe, rebuilt from scratch because nothing of it survived on this box:
+
+    # 1. every Kotlin source, type-checked against real classes
+    kotlinc 2.2.0 (on the JDK 25 that is here) -cp <30 jars>
+      org.robolectric:android-all 16-robolectric-13921718   # android.*
+      androidx appcompat 1.7.0, recyclerview 1.3.2, activity 1.9.3,
+        lifecycle 2.8.7 (the -android artifacts), core/core-ktx 1.15.0,
+        material 1.12.0, fragment, savedstate, collection and their transitives
+      com.squareup.okhttp3:okhttp 4.12.0, okio 3.6.0,
+        kotlinx-coroutines-core-jvm 1.7.3, org.json 20231013
+    # -> 22 app sources plus 2 stubs, exit 0. With warnings on, two, and
+    #    neither is new: the ProgressDialog deprecation SettingsActivity has
+    #    carried since 1.22, and displayMetrics.scaledDensity in TerminalView,
+    #    a file this release does not touch.
+
+    # 2. all four JVM test suites, run for real
+    java -cp <out>:json:junit:hamcrest:app/src/test/resources \
+      org.junit.runner.JUnitCore ...CatalogParsingTest ...RomSelectionTest \
+      ...V0MigrationTest ...JniNameParityTest
+    # -> OK (24), OK (11), OK (14), OK (3). 52 tests, all passing.
+
+`R`, `BuildConfig` and `ActivitySettingsBinding` are AGP-generated and are
+hand-written stubs again, the `R` one built by scanning every `R.*` reference in
+the tree. The compiler is 2.2.0 rather than the project's 1.9.20, so a 1.9-only
+rejection would not show up here. None of it reaches a device, and the things
+most likely to be wrong still need one: the JNI binding, the dialogs, and
+everything about storage. `MANUAL_CHECKS.md` section 8 is where those go.
+
+versionCode moves 29 -> 30 and versionName 1.27 -> 1.28. 1.27 has been uploaded
+to nobody and could have absorbed this, but its entry below says in as many
+words that no ROM is downloaded and that another release boots with a mismatch
+warning - folding this in would leave that description attached to a build that
+does the opposite, and the manual checks are filed per release. A versionCode is
+free; a record that says the wrong thing is not.
+
+### The ROM is a catalog asset, and the bundled one is the fallback
+
+`roms[]` was parsed by nothing. It is read now, the same way `disks[]` is: keyed
+on `id`, with the entry flagged `default` chosen and the first entry taken when
+none is - never by array position, never by looking for `emu_avw`, and an absent
+or empty array meaning "this release publishes no ROM" rather than "this
+document is broken". All three are what CATALOG_SCHEMA 6.1 asks for, and all
+three are exercised in `RomSelectionTest`.
+
+The ROM lands in the same flat directory as the disks under its catalog
+filename - `emu_avw-v0-3.6.0.rom` - so two releases' ROMs coexist exactly as
+their disks do. `getDownloadedDisks()` filters on `.img`, so it does not appear
+among them and the catalog dialog's ticks are unchanged.
+
+**The bundled `assets/emu_avw.rom` stays, and stays first.** A fresh install
+selects the release that ROM declares, takes the bundled branch, and boots with
+no network and no index fetch at all. Which release it declares is read from the
+image with `emu_romwbw_release_of_image()` rather than from a constant, so
+replacing the asset moves the decision with it.
+
+### The ROM lands before the emulator starts, or nothing starts
+
+This is where a ROM differs from a disk. A missing disk is an empty drive; a ROM
+from another release is a guest that prints
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***` and then misbehaves, which is
+the pairing this whole exercise removes. So:
+
+- Starting on release X requires X's ROM present and verified. There is no path
+  that starts on the bundled ROM because X's was awkward to get. Falling back
+  would recreate the exact mismatch, invisibly.
+- When it is not there, a dialog names the release, the file and the reason and
+  offers the two honest choices: **Download ROM**, or **Use RomWBW &lt;bundled&gt;**,
+  which switches back to the release the package can boot and keeps everything
+  belonging to the other one. The second button is absent when the bundled
+  asset's own HBIOS block cannot be read, because then it has nowhere to send
+  anyone.
+- Settings fetches a release's ROM **before** it switches to it, not after. The
+  switch happens in the download's success arm and nowhere else, so a failed
+  fetch leaves the app pointed at a release that still has a ROM behind it. The
+  old confirmation - "disks for this release can be downloaded, but booting them
+  prints a version mismatch warning" - describes a state the app can no longer
+  be left in, and is gone.
+- Both fetches report progress the way a disk download does. Half a megabyte is
+  quick, and on a bad connection it is the one thing between the user and a
+  machine that boots.
+- Changing release in Settings now reloads the ROM as well as the disks.
+  `onResume` compared only the four slots, which would have left 3.6.0 disks
+  mounted under the ROM 3.5.1 started with; the reload goes through the same
+  reset the Reboot button uses.
+- The play button asks again when there is no ROM. `startEmulation()` refuses
+  when nothing is loaded, so with the dialog dismissed it would have done
+  nothing at all and looked broken; it now re-runs the resolution, which either
+  starts the machine or brings back the dialog that says what is missing.
+
+### Verified before it is used, every time, and not only after a download
+
+`size` and `sha256` are checked on every load, from the bytes that are handed to
+the emulator rather than from a second pass over the file - so what was hashed
+is what is loaded, and a file swapped between the two cannot slip through. A ROM
+is 512 KB; the check costs milliseconds and it is the one file whose corruption
+produces a guest that boots to nothing at all.
+
+For that to work offline, the catalog's `filename`, `size` and `sha256` are
+recorded per release when a ROM is fetched, and written only after the bytes
+have verified. Without them, "verify every time" would quietly mean "verify when
+we happen to be online", which is the same as not verifying: offline is exactly
+when a corrupt ROM is least recoverable.
+
+Switching back to a release whose ROM was fetched months ago needs no network:
+the recorded claim is checked against the file before the index is touched, so
+the fast path is a verification rather than a way round one.
+
+A file that fails is re-downloaded **once**. Twice is not a flaky connection,
+and a client that spends 512 KB on every launch to fail the same way is worse
+than one that says what is wrong. Nothing is deleted on the way: the fetch
+renames a fully verified transfer over the bad copy, so a failed attempt leaves
+what was there. `emu_validate_rom_hcb` is still the last line of defence and is
+untouched - hashing the file does not make it redundant, and a ROM it refuses is
+still refused with the core's own message.
+
+The catalog's `hcb.version` / `hcb.update` are compared against the index's
+`hbios.ver_byte` / `upd_byte` before the transfer starts, so a document that
+disagrees with itself costs a comparison rather than 512 KB.
+
+### Two failures that look alike and are not
+
+A transfer that never produced a file is reported as
+`could not be downloaded`, not as a ROM that `did not verify`. They arrive at
+the same dialog and want opposite responses - one is a signal problem and the
+other is a bad copy on the device - and calling a dropped connection a corrupt
+ROM sends the user to look at their storage. `RomFailure.CouldNotFetch` carries
+what the transfer said verbatim, so a truncation and a 404 both read correctly;
+`DidNotVerify` is now only ever the copy that IS there, which is what makes
+Settings' "it was fetched again and still did not match" true.
+
+### One resolution at a time, and the last one wins
+
+Two things could have started a machine on the wrong ROM, and one field settles
+both. `startMachine()` refuses to run twice for the release already on its way -
+which matters because the play button re-runs the resolution and the download
+overlay does not consume the tap that lands on it - and a resolution that
+finishes after another has started is dropped rather than applied, because
+hashing 512 KB is long enough to be overtaken by a release switch. The
+first-launch starter-disk fetch is inside that window too: `loadSelectedCatalog`
+writes a new selection back when the stored release is no longer on offer, and
+the ROM resolved before it then belongs to the release that was, so the
+resolution is re-run rather than the old bytes loaded.
+
+Changing release while the machine is stopped now reloads as well. `onResume`
+only acted when a ROM was already loaded, so switching release out of the "ROM
+needed" state - which is exactly how somebody recovers from it - did nothing
+visible until the play button was pressed.
+
+### One downloader, not two
+
+`downloadDisk` became a thin call onto `downloadAsset`, and the ROM uses the
+same one. A second downloader would have been ninety lines of the same care
+taken again - the nonce in the scratch name, the cancellation check inside the
+read loop, the size and hash checks before the rename, the shared in-flight set -
+and the ROM is the file where getting any of it wrong is least visible.
+
+### `rom_name` still means what it always meant
+
+It names the file inside the APK that `assets.open()` opens, and nothing about
+this release changes that - which is why there is no migration for it. A
+downloaded ROM is named by the catalog and remembered under new per-release keys
+(`rom_file.v0.<release>` and its size and hash), so the two never have to mean
+the same thing. The v0 rename pass still refuses `rom_name` and
+`V0MigrationTest` still asserts it.
+
+### The test fixture caught up with what is published
+
+`app/src/test/resources/index-v0.json` was a copy of the index taken when 3.6.0
+was `preview` and 3.5.1 was `default`. 3.6.0 is now published `stable` and
+`default`, and that is not a detail: it is the state that makes this release
+necessary. A client that preselected the index default and had no way to fetch
+its ROM would pair 3.6.0 disks with the bundled 3.5.1 ROM. The fixture is the
+live document again, and the assertions moved with it.
+
+### What did not change
+
+The bundled ROM, its packaging entry, and the fact that a first launch needs no
+network. `emu_validate_rom_hcb`. The disk download path, the slice
+configuration, the manifest-warning behaviour, the v0 rename pass, and every
+per-release preference key that already existed. Nothing gained the ability to
+delete a user's image or a user-supplied ROM.
+
 ## Version 1.27 (versionCode 29)
 
 The interface-v0 catalog repoint and the RomWBW release picker - releases B and

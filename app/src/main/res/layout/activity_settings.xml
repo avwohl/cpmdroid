@@ -12,11 +12,15 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- ROM Selection -->
+        <!-- The BUNDLED ROM, which is what a fresh install boots and what the
+             app falls back on when the selected release is the one it declares.
+             Read-only, and deliberately still saying "Bundled": the ROM the
+             machine actually boots is the selected release's, which the RomWBW
+             Release row below names. -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="ROM"
+            android:text="Bundled ROM"
             android:textColor="#00FF00"
             android:textSize="18sp"
             android:textStyle="bold" />

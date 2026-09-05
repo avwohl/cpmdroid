@@ -9,7 +9,7 @@
       "romwbw_version": "3.5.1",
       "label": "RomWBW 3.5.1",
       "status": "stable",
-      "default": true,
+      "default": false,
       "released": "2025-05-21",
       "hbios": {
         "major": 3,
@@ -36,8 +36,8 @@
     {
       "romwbw_version": "3.6.0",
       "label": "RomWBW 3.6.0",
-      "status": "preview",
-      "default": false,
+      "status": "stable",
+      "default": true,
       "released": "2026-03-28",
       "hbios": {
         "major": 3,
@@ -57,10 +57,10 @@
       "rom_count": 2,
       "disk_count": 24,
       "notes": [
-        "PREVIEW. No released client can load a v3.6.0 ROM yet: romwbw_emu's emu_validate_rom_hcb (src/emu_init.cc:52-60) refuses any ROM whose HCB version bytes differ from the compile-time ROMWBW_PIN_STR. See docs/CLIENT_MIGRATION.md.",
+        "Promoted out of preview 2026-09-05. romwbw_emu v1.39 reads the RomWBW version out of the loaded ROM instead of a compile-time pin, so one binary boots this release and 3.5.1 alike; romwbw_disks tools/boot_test.sh asserts the boot, the CBIOS v3.6.0 [WBW] banner, no version-mismatch warning on a matched pair, and an R8/W8 round trip. NOTE: no client in any app store carries that core yet, so a SHIPPED client still cannot load a v3.6.0 ROM - it filters this entry out by hbios.ver_byte, which is what those bytes are in the index for.",
         "hd1k_ws4.img does not exist in v3.6.0; upstream combo.def slice 5 is 'wp' (WordStar / word processing) where v3.5.1 had 'ws4'.",
         "NVRAM checksums do not validate across a version change: RomWBW's NVSW_CHECKSUM XORs the version bytes into the seed, so a blob saved under 3.5.1 silently resets under a 3.6.0 ROM. Clients must namespace their NVRAM store per RomWBW version.",
-        "Do NOT build from archive/romwbw-v3.6.0/SBC_simh_std_v360.rom in romwbw_emu: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
+        "Do NOT build from a v3.6.0-dev snapshot. romwbw_emu's archive/romwbw-v3.6.0/SBC_simh_std_v360.rom was deleted 2026-09-05 for this reason: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
       ]
     }
   ]

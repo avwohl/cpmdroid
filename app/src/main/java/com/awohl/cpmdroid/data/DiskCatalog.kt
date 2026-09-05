@@ -11,12 +11,11 @@ import org.json.JSONObject
  * download base now comes out of the document instead of being interpolated
  * from a compile-time release tag.
  *
- * roms[] is deliberately not read. This build boots the ROM bundled in its own
- * assets and has no path that loads one from storage, so parsing an array it
- * could not act on would only invite somebody to assume emu_avw is in it -
- * which 6.1 says explicitly not to do, and which a release that publishes a
- * different default ROM would break. Ignoring the array is the behaviour the
- * compatibility rules ask for, not an omission.
+ * roms[] is read the same way, and is what stops the ROM being the one
+ * version-coupled thing left in this app. It is keyed on `id` with the
+ * `default` flag deciding which entry to use, never on array position and never
+ * by looking for "emu_avw": 6.1 forbids all three, and an absent or empty
+ * roms[] is a release with no ROM rather than a malformed document.
  */
 
 /** A parsed catalog document: what to show, and where its bytes live. */
@@ -32,6 +31,11 @@ data class DiskCatalog(
      */
     val generation: Int,
     val baseUrl: String,
+    /**
+     * This release's ROMs. Empty is a real state, not a parse failure - see
+     * selectRom(), and RomFailure.NoRomPublished for what it costs.
+     */
+    val roms: List<RomInfo>,
     val disks: List<DiskInfo>
 )
 
@@ -55,6 +59,45 @@ fun parseDiskCatalog(json: String): DiskCatalog? {
     // tag-interpolated URL this release exists to delete.
     val baseUrl = root.optString("base_url")
     if (baseUrl.isEmpty()) return null
+
+    val romEntries = root.optJSONArray("roms")
+    val roms = ArrayList<RomInfo>(romEntries?.length() ?: 0)
+    for (i in 0 until (romEntries?.length() ?: 0)) {
+        val entry = romEntries?.optJSONObject(i) ?: continue
+
+        // Same two required fields as a disk, for the same two reasons: the id
+        // is the identity across releases and the filename is both the storage
+        // name and the URL suffix.
+        val id = entry.optString("id")
+        val filename = entry.optString("filename")
+        if (id.isEmpty() || filename.isEmpty()) continue
+
+        // hcb is optional here even though every published catalog carries it,
+        // because a missing one costs only the pre-download check - the core
+        // reads the same two bytes out of the image itself and refuses a
+        // release it has not been run against, whatever this document says.
+        val hcb = entry.optJSONObject("hcb")
+
+        roms.add(
+            RomInfo(
+                id = id,
+                filename = filename,
+                name = entry.optString("name").ifEmpty { id },
+                size = entry.optLong("size", 0L),
+                sha256 = entry.optString("sha256"),
+                isDefault = entry.optBoolean("default", false),
+                downloadUrl = baseUrl + filename,
+                // "version"/"update" here, not "ver_byte"/"upd_byte": the same
+                // two bytes under different names, because hcb reports what was
+                // read back out of the built ROM and hbios reports what the
+                // release declares. Both are hex strings; hcb.platform beside
+                // them is a decimal integer, which is why nothing here assumes
+                // a uniform encoding.
+                hcbVerByte = parseHbiosByte(hcb?.optString("version")),
+                hcbUpdByte = parseHbiosByte(hcb?.optString("update"))
+            )
+        )
+    }
 
     val entries = root.optJSONArray("disks")
     val disks = ArrayList<DiskInfo>(entries?.length() ?: 0)
@@ -95,6 +138,7 @@ fun parseDiskCatalog(json: String): DiskCatalog? {
         status = root.optString("status"),
         generation = root.optInt("generation", 0),
         baseUrl = baseUrl,
+        roms = roms,
         disks = disks
     )
 }

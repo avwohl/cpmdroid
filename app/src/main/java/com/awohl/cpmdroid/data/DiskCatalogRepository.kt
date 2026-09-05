@@ -52,6 +52,19 @@ sealed class CatalogFailure(message: String) : Exception(message) {
                 "(this build's emulator supports $coreSupports)"
         )
 
+    /**
+     * The index no longer offers a release something is still asking for.
+     *
+     * Distinct from NoRunnableVersion, which says this build can run nothing at
+     * all: here the index answered, this build can run some of what it
+     * publishes, and the one release being asked about is not among them -
+     * withdrawn upstream, or dropped by a core the app was rebuilt against.
+     * The disks and preferences for it are untouched; there is simply nothing
+     * to fetch for it.
+     */
+    class VersionNotOffered(val romwbwVersion: String) :
+        CatalogFailure("The catalog index no longer publishes RomWBW $romwbwVersion")
+
     /** The selected release's catalog URL did not answer. */
     class CatalogUnavailable(val romwbwVersion: String, reason: String) :
         CatalogFailure("Could not download the RomWBW $romwbwVersion catalog: $reason")

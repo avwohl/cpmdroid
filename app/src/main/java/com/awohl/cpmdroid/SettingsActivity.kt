@@ -267,19 +267,47 @@ class SettingsActivity : AppCompatActivity() {
 
         is CatalogFailure.CatalogEmpty -> error.message ?: "The catalog lists no disks."
 
+        is CatalogFailure.VersionNotOffered ->
+            "${error.message}\n\nAnything already downloaded for it is untouched."
+
+        // The ROM failures reach here too, because the picker fetches a ROM
+        // and the same dialog reports it. They are separated from the catalog
+        // ones because none of them is a connection problem the user can fix by
+        // moving nearer a router - the catalog answered in every case.
+        is RomFailure.NoRomPublished ->
+            "${error.message}\n\nThere is nothing to boot it with, so this release " +
+                "cannot be selected."
+
+        is RomFailure.WrongRelease ->
+            "${error.message}\n\nThe ROM was not downloaded. This is a problem with the " +
+                "published catalog, not with this device."
+
+        is RomFailure.CouldNotFetch ->
+            "${error.message}\n\nThe release was not switched, and whatever is already on " +
+                "this device is untouched."
+
+        is RomFailure.DidNotVerify ->
+            "${error.message}\n\nIt was fetched again and still did not match, so it was " +
+                "not used."
+
+        // Every other ROM failure, so that none of them can be described as a
+        // disk-catalog failure by the arm below. RomFailure is sealed, so this
+        // covers whatever is added to it later rather than letting it fall
+        // through silently to the wrong sentence.
+        is RomFailure -> "${error.message}\n\nNothing was changed."
+
         else -> "Failed to load the disk catalog: ${error?.message ?: "unknown error"}"
     }
 
     /**
      * The RomWBW release row above the disk slots.
      *
-     * The note underneath is the honest half. This build boots the ROM inside
-     * its own package and has no path that loads one from storage, so selecting
-     * a release the bundled ROM was not built for gets you that release's disks
-     * and a guest that prints
-     * `*** WARNING: HBIOS/CBIOS Version Mismatch ***` when it boots them. Saying
-     * so here costs one line; not saying it costs a bug report that reads
-     * "CP/M prints a warning and behaves oddly".
+     * The note underneath used to warn that a release the bundled ROM was not
+     * built for would boot with `*** WARNING: HBIOS/CBIOS Version Mismatch ***`,
+     * because this app had no way to get any ROM but the one in its own
+     * package. It has one now, so the note says which ROM the release actually
+     * uses and whether it is here - the mismatch is no longer a state the app
+     * can be left in.
      */
     private fun updateRomwbwVersionDisplay() {
         val version = settingsRepo.selectedRomwbwVersion()
@@ -296,14 +324,36 @@ class SettingsActivity : AppCompatActivity() {
                 bundled == null ->
                     "The bundled ROM's RomWBW release could not be read."
                 bundled == version ->
-                    "Matches the bundled ROM. Disk slots and boot config are kept " +
-                        "separately for each release."
+                    "Boots the ROM bundled in the app, with no download. Disk slots " +
+                        "and boot config are kept separately for each release."
+                romLooksPresent(version) ->
+                    "Boots ${settingsRepo.romClaim(version)?.filename}, downloaded from " +
+                        "the catalog and verified on every start."
                 else ->
-                    "The bundled ROM is RomWBW $bundled, so disks for $version will boot " +
-                        "with a HBIOS/CBIOS version mismatch warning."
+                    "This release needs its own ROM from the catalog, and it is not on " +
+                        "this device. CPMDroid will offer to fetch it before it starts."
             }
         )
         binding.romwbwVersionNote.text = lines.joinToString("\n")
+    }
+
+    /**
+     * Does this release look as though its ROM is here?
+     *
+     * A stat of a file whose size the catalog already told us, not a hash. It
+     * decides a label, and the 512 KB read and SHA-256 that would make it
+     * authoritative do not belong on a thread that is drawing a screen -
+     * RomwbwSupport reads 264 bytes rather than 524288 for exactly that reason.
+     *
+     * Nothing acts on it. Selecting a release goes through
+     * downloadRomThenSwitch, which verifies for real and re-fetches if it has
+     * to, and MainActivity verifies again from the bytes it is about to load.
+     * So the worst this can be is a row that says "ROM downloaded" about a file
+     * that turns out to be corrupt, and the very next step catches it.
+     */
+    private fun romLooksPresent(romwbwVersion: String): Boolean {
+        val claim = settingsRepo.romClaim(romwbwVersion) ?: return false
+        return downloadManager.romFileLooksPresent(claim)
     }
 
     /**
@@ -382,10 +432,17 @@ class SettingsActivity : AppCompatActivity() {
             .setPositiveButton("Select") { _, _ ->
                 val entry = runnable.getOrNull(chosen) ?: return@setPositiveButton
                 if (entry.romwbwVersion == current) return@setPositiveButton
-                if (entry.romwbwVersion == bundled) {
-                    applyRomwbwVersion(entry)
-                } else {
-                    confirmRomwbwMismatch(entry, bundled, current)
+                when {
+                    // The bundled release needs no ROM at all.
+                    entry.romwbwVersion == bundled -> applyRomwbwVersion(entry)
+
+                    // A ROM that looks present is still verified before the
+                    // switch, and re-fetched if it does not hold up - but that
+                    // costs nothing when it does, and needs no network, so it
+                    // is not worth a dialog asking permission to download.
+                    romLooksPresent(entry.romwbwVersion) -> downloadRomThenSwitch(entry)
+
+                    else -> confirmRomDownload(entry, current)
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -393,13 +450,17 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
-     * One row of the picker: the release, its published status, and whether
-     * this build has a ROM for it.
+     * One row of the picker: the release, its published status, and where its
+     * ROM comes from.
      *
      * `status` is free text copied from the version metadata, not an enum, so
      * an unrecognised value is displayed rather than refused - only "preview"
      * is singled out, because that one is a claim about whether the release is
      * ready and the user is entitled to see it before choosing.
+     *
+     * The ROM half of the row used to read "no ROM in this build", which was
+     * true and is not any more: a release this build has no bundled ROM for is
+     * now one download away, not out of reach.
      */
     private fun romwbwChoiceLabel(entry: RomwbwVersion, bundled: String?): CharSequence {
         val marks = mutableListOf<String>()
@@ -409,35 +470,105 @@ class SettingsActivity : AppCompatActivity() {
             marks.add(entry.status)
         }
         marks.add(
-            if (entry.romwbwVersion == bundled) "matches the bundled ROM"
-            else "no ROM in this build"
+            when {
+                entry.romwbwVersion == bundled -> "ROM bundled in the app"
+                romLooksPresent(entry.romwbwVersion) -> "ROM downloaded"
+                else -> "ROM will be downloaded"
+            }
         )
         return entry.label + "\n" + marks.joinToString(" - ")
     }
 
-    private fun confirmRomwbwMismatch(
-        entry: RomwbwVersion,
-        bundled: String?,
-        current: String
-    ) {
-        val romLine = if (bundled == null) {
-            "This build's bundled ROM does not declare a readable RomWBW release."
-        } else {
-            "CPMDroid boots the ROM in its own package, which is RomWBW $bundled."
-        }
+    /**
+     * Switching to a release whose ROM is not here yet: fetch it first, and
+     * only switch if it arrives.
+     *
+     * The order is the point. Switching first and fetching afterwards would
+     * leave the app pointed at a release it cannot start on if the fetch failed,
+     * and the recovery from that is a dialog on the next launch that the user
+     * never needed to see. Booting the new release's disks against the bundled
+     * ROM instead is the one thing that is never offered: that is the pairing
+     * that makes CP/M print *** WARNING: HBIOS/CBIOS Version Mismatch ***, and
+     * removing it is what fetching the ROM from the catalog is for.
+     */
+    private fun confirmRomDownload(entry: RomwbwVersion, current: String) {
         AlertDialog.Builder(this)
             .setTitle("Switch to ${entry.label}?")
             .setMessage(
-                "$romLine\n\n" +
-                    "Disks for ${entry.label} can be downloaded and assigned, but booting " +
-                    "them makes CP/M print *** WARNING: HBIOS/CBIOS Version Mismatch *** " +
-                    "and behave unpredictably.\n\n" +
+                "${entry.label} has its own ROM, which has not been downloaded yet. " +
+                    "It is about half a megabyte and is checked against the catalog's " +
+                    "hash before it is ever used.\n\n" +
                     "Nothing is deleted. Your RomWBW $current disks, slots and boot config " +
                     "stay where they are and come back when you switch back."
             )
-            .setPositiveButton("Switch") { _, _ -> applyRomwbwVersion(entry) }
+            .setPositiveButton("Download and switch") { _, _ -> downloadRomThenSwitch(entry) }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /**
+     * Get the release's ROM in hand - verifying what is already here, fetching
+     * what is not - and switch only if that works.
+     *
+     * Titled "Preparing" rather than "Downloading" because it is often neither:
+     * a ROM already on the device that still verifies needs no index, no
+     * catalog and no transfer, and this returns almost at once. When there IS a
+     * transfer it reports it the way a disk download does - half a megabyte is
+     * quick, and on a bad connection it is the thing between the user and a
+     * machine that boots, so it must not look like a hang.
+     *
+     * The switch happens in the success arm and nowhere else: this is the "gate
+     * on a completion callback" half of the contract, not a timer.
+     */
+    private fun downloadRomThenSwitch(entry: RomwbwVersion) {
+        @Suppress("DEPRECATION")
+        val progressDialog = ProgressDialog(this).apply {
+            setTitle("Preparing ${entry.label}")
+            setMessage("Checking its ROM...")
+            isIndeterminate = false
+            max = 100
+            setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
+            setCancelable(false)
+            show()
+        }
+
+        downloadGate?.close()
+        val gate = DownloadProgressGate()
+        gate.attach(progressDialog)
+        downloadGate = gate
+
+        lifecycleScope.launch {
+            var lastPercent = -1
+            val result = fetchRomForRelease(
+                downloadManager, settingsRepo, entry.romwbwVersion
+            ) { bytesRead, totalBytes ->
+                val percent = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
+                if (percent != lastPercent) {
+                    lastPercent = percent
+                    gate.postProgress(percent, bytesRead)
+                }
+            }
+
+            gate.close()
+            if (downloadGate === gate) downloadGate = null
+
+            result.fold(
+                onSuccess = {
+                    // lastPercent moves only when bytes actually crossed the
+                    // network, so this says which of the two things happened
+                    // rather than claiming a download that never ran.
+                    val what = if (lastPercent >= 0) "Downloaded" else "Verified"
+                    Toast.makeText(
+                        this@SettingsActivity,
+                        "$what the ${entry.label} ROM", Toast.LENGTH_SHORT
+                    ).show()
+                    applyRomwbwVersion(entry)
+                },
+                // Not switched. The release stays where it was, which is the
+                // one that still has a ROM behind it.
+                onFailure = { showRomwbwProblem(it) }
+            )
+        }
     }
 
     /**
@@ -454,6 +585,9 @@ class SettingsActivity : AppCompatActivity() {
      * saying so is better than silently booting nothing.
      */
     private fun applyRomwbwVersion(entry: RomwbwVersion) {
+        // Only ever reached with a ROM behind it: the bundled release, a
+        // release whose downloaded ROM verified just now, or one whose ROM was
+        // fetched and verified by downloadRomThenSwitch immediately above.
         settingsRepo.setSelectedRomwbwVersion(entry.romwbwVersion)
         cachedSelection = null
         currentSettings = settingsRepo.getSettings()

@@ -30,7 +30,16 @@
 # table below), and the question changes with them: not "does the pin name the
 # newest tag" but "does the source still name the v0 index, is the legacy pin
 # really gone, and does that index still publish the RomWBW release this build's
-# bundled ROM declares".  ioscpm and z80cpmw move to that row as they migrate.
+# bundled ROM declares".
+#
+# That last one still matters after cpmdroid started fetching ROMs from the
+# catalog (1.28), but it means something narrower than it did.  A user can now
+# select a published release and download its ROM, so an unpublished bundled
+# release no longer strands them - it strands the OFFLINE first launch, which is
+# the one path with no catalog in reach.  That is still a failure worth exiting
+# 1 for, and the message says which one it is.
+#
+# ioscpm and z80cpmw move to that row as they migrate.
 #
 #   sh check-disk-pins.sh              tree pins + any artifacts found
 #   sh check-disk-pins.sh --tree-only  skip artifact scanning
@@ -329,7 +338,8 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
         else
             printf '%-10s BUNDLED ROM IS RomWBW %s, WHICH THE v0 INDEX NO LONGER PUBLISHES\n' \
                    "$port" "$romver"
-            printf '%-10s   users of this port can download no disks that match their ROM\n' ""
+            printf '%-10s   a first launch with no network boots that ROM and can then\n' ""
+            printf '%-10s   download nothing that matches it\n' ""
             echo 1 > "$tmp/fail"
             continue
         fi
