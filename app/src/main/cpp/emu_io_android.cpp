@@ -1081,11 +1081,13 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 
     // Ask the core why a ROM is unusable, while the Java array is still
     // mapped, so the log names the real problem: a corrupt HBIOS
-    // configuration block, or a ROM built for a RomWBW release other than
-    // the pinned one (src/romwbw_pin.h). Before the core validated this, a
-    // bad ROM was accepted and the emulator started a CPU that produced no
-    // output at all. emu_load_rom_from_buffer runs the same check and
-    // refuses too; this only recovers the reason for the log.
+    // configuration block, or a RomWBW release the core has not been checked
+    // against (ROMWBW_SUPPORTED_RELEASES in src/romwbw_pin.h). It is no longer
+    // "other than the pinned one" - the core reads the version out of whatever
+    // ROM it loads and runs any release on that list. Before the core
+    // validated this, a bad ROM was accepted and the emulator started a CPU
+    // that produced no output at all. emu_load_rom_from_buffer runs the same
+    // check and refuses too; this only recovers the reason for the log.
     const char* rom_problem = emu_validate_rom_hcb(
         reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(len));
     std::string rom_error = rom_problem ? rom_problem : std::string();

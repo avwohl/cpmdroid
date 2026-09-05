@@ -9,6 +9,31 @@ by reading the fix. They take a number of their own rather than folding into
 believed was free, and the App bundle explorer, not this file, is the authority
 on which are spent.
 
+### The ROM refusal comment stopped describing the pin, because there is none
+
+**NOT COMPILED** - no Android SDK or NDK on the machine this was written on.
+Comment-only in `emu_io_android.cpp`; no statement, symbol or signature changed,
+so the binary is unaffected.
+
+`romwbw_emu` v1.39 deleted `ROMWBW_PIN_STR` and the compile-time version pin
+behind it. Unlike `ioscpm` and `z80cpmw`, this port never displayed that value,
+so nothing here failed to compile - which is exactly why it was worth checking
+rather than assuming. What it did carry was a comment at the
+`emu_validate_rom_hcb` call in `nativeLoadRom` explaining the refusal as "a ROM
+built for a RomWBW release other than the pinned one", and that is now wrong in
+a way that would mislead the next person reading the log it describes.
+
+The core reads the RomWBW version out of whichever ROM it loads and runs any
+release in `ROMWBW_SUPPORTED_RELEASES`. What `emu_validate_rom_hcb` still
+refuses is a corrupt HBIOS configuration block, or a release this core has never
+been checked against - a narrower thing, and the message now names both the
+release it found and the list it accepts. The comment says that.
+
+Worth recording for whoever does the catalog migration: because the core no
+longer refuses a ROM for being the wrong release, the guest's
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***` is now the only thing enforcing
+that a ROM and its disk images come from the same release.
+
 ### The view stops being yanked to the bottom by the guest
 
 `processOutput` opened with `if (data.isNotEmpty()) userScrollUp = 0`, before the
