@@ -54,6 +54,28 @@ prompt on an AVD, which is the live screen anchored at the bottom with nothing
 in history yet - by design, and still worth a person's opinion.
 
 
+BEFORE ANYONE ADDS DISK-IMAGE HASH VERIFICATION, READ THIS
+-------------------------------------------------------------------------------
+
+- [ANY] this port verifies the CATALOG document's sha256 and nothing else - no
+disk image is ever hashed, and isDiskDownloaded() decides by filename.  That is
+why the v0 migration needed no freshness work here, and it is also a trap for
+whoever adds image verification later.
+  hd1k_combo is the one image of twenty whose bytes differ between the pre-v0
+catalog and catalog-v0-3.5.1.json, and the migration renames rather than
+re-downloads, so every migrated device holds it under a hash the catalog does
+not name.  It is not corrupt: the two images were compared byte for byte on
+2026-09-05 and slice 0's directory lists the same 94 files, all 94 extract
+byte-identical including r8.com and w8.com, slices 1-5 do not differ at all, and
+the 2,342 bytes that do differ are CP/M slack between the files.  Two toolchains
+wrote the same disk.
+  So a naive "hash mismatch means re-download" would hand every migrated user a
+49 MB download for nothing.  ioscpm and z80cpmw both carry the fix already -
+CatalogMigration.equivalentPriorImage and diskv0::isEquivalentPriorImage, keyed
+on provenance so that only the migration can produce it and a fresh download can
+never be blessed by it.  Copy that shape rather than inventing one.
+  romwbw_disks docs/FINDINGS.md section 10 has the measurements.
+
 NOBODY HAS UPGRADED A DEVICE ACROSS THE V0 MIGRATION, OR SEEN THE CATALOG FETCH
 -------------------------------------------------------------------------------
 
