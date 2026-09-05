@@ -171,3 +171,124 @@ characters at the guest's rate - see the note at the top of this file.
    and a colour selected. Everything must go back to power-on - and the
    scrollback must SURVIVE, deliberately, because the user's history is not the
    guest's to discard.
+
+---
+
+## 6. The v0 disk-name migration, on a device that has state to lose
+
+The pass in `V0Migration.kt` renames the user's downloaded images, the copies
+they have written to from inside CP/M, and the four `disk_slot_N` preferences
+that name them. `app/src/test/.../V0MigrationTest.kt` covers the name mapping
+and the two directories against temporary directories on a JVM. What it cannot
+reach is any of what follows: an upgrade in place over real pre-v0 state,
+external storage that is not there, and a restore from backup.
+
+**Build an old state first, and do not skip this.** These checks are worthless
+against a fresh install, because a fresh install has nothing to migrate.
+Install a build from before this change (`versionCode 27` or earlier), let it
+download, assign all four slots to four *different* disks in Settings, boot, and
+then **write something from inside CP/M** - `W8` a file, or copy one with `PIP` -
+so a `ModifiedDisks/` copy exists. Confirm it does:
+
+    adb shell ls -l /sdcard/Android/data/com.awohl.cpmdroid/files/ModifiedDisks
+
+1. **Upgrade in place.** Install the new build over it - `adb install -r`, not
+   an uninstall, which would take the state with it. Then:
+   - `adb logcat -d | grep 'v0 disk-name migration'` must report
+     `complete=true` and a `renamed=` count matching the files that were there.
+   - All four slots in Settings must still name a disk, now reading
+     `hd1k_*-v0-3.5.1.img`. A slot that has gone empty, or a slot 0 that has
+     become the Combo when the user had put something else there, is the
+     failure this whole change exists to prevent.
+   - Boot. The disk that comes up must be the one with the user's file on it,
+     **not** a pristine copy of the same image. `DIR` for the file written
+     above; that is the only way to tell the two apart from the screen.
+   - The catalog dialog must still show the downloaded ticks, and no download
+     must start by itself. A tick that has gone means the file rename did not
+     land while the preference did.
+   - Both directories must hold `-v0-3.5.1` names and nothing else, and the
+     byte counts must be unchanged - a rename keeps the size and the
+     modification time; a copy would not.
+
+2. **Storage that is not there.** Repeat the upgrade with external storage
+   unavailable (an emulator with the SD card ejected is the easiest way).
+   `getExternalFilesDir(null)` returns null and the pass must report
+   `complete=false` and rename nothing. Then make storage available again,
+   relaunch, and confirm the pass runs and completes *then*: the flag is only
+   written on a completed pass, and a device that stamped it while it could not
+   see the files would be left permanently half-migrated.
+
+3. **Restore from backup.** `android:allowBackup="true"` and there are no
+   extraction rules, so the 1 KB preferences file and a 51 MB image do not
+   travel together. Force a backup and restore of pre-v0 state
+   (`adb shell bmgr backupnow com.awohl.cpmdroid`, then wipe and restore) and
+   launch. Whatever arrives, nothing must be deleted and the app must boot: a
+   slot naming a file that did not come back is expected, and re-downloading it
+   is the user's decision to make, not the migration's.
+
+## 7. The two-level catalog and the RomWBW release picker
+
+`DiskCatalogRepository` no longer holds a release tag. It fetches
+`index-v0.json`, filters it by asking the emulator core, fetches the selected
+release's catalog, and takes every download URL from that catalog's `base_url`.
+`app/src/test/.../CatalogParsingTest.kt` covers the parsers against byte-for-byte
+copies of the published documents and has been run - 20 tests, all passing, on a
+host JVM. None of what follows can be settled that way: it needs the network, the
+device's storage and the three new JNI calls, which nothing but a running device
+links to their C++ side.
+
+**Do section 6 first if you are doing both.** These checks assume the disks on
+the device are already on `-v0-3.5.1` names.
+
+1. **The first fetch, and that it is the v0 one.** Fresh install, then
+   `adb logcat -d | grep -E 'RomwbwSupport|CatalogLoader|catalog fetched'`.
+   Expect the bundled ROM to read `3.5.1`, the core to report `3.5.1, 3.6.0`,
+   and the catalog line to name a generation. Then confirm no ioscpm URL is
+   requested at all - the point of the change is that nothing interpolates a
+   tag any more:
+
+       adb shell ping -c1 github.com >/dev/null; adb logcat -c
+       # browse the catalog, then:
+       adb logcat -d | grep -i ioscpm     # must find nothing from this app
+
+2. **The three natives are actually bound.** `JniNameParityTest` compares the
+   two *source* name lists and would fail the build on a typo, but it cannot see
+   what the NDK put in the built `.so`, and minification being off means R8 will
+   not either - so a binding that is wrong for any other reason is still an
+   `UnsatisfiedLinkError` at the first call and nowhere earlier. Open Settings
+   once (the RomWBW row calls all three) and confirm no `UnsatisfiedLinkError`
+   in logcat and that the row reads a version rather than being blank.
+
+3. **The version picker, and the preview marking.** Settings -> RomWBW Release
+   -> Change. Both releases must be listed, 3.6.0 must be marked `PREVIEW` and
+   `no ROM in this build`, 3.5.1 must be marked as matching the bundled ROM, and
+   the currently selected one must be pre-checked.
+
+4. **A release switch loses nothing.** With all four slots assigned under 3.5.1,
+   switch to 3.6.0, accept the mismatch warning, and confirm the four slots read
+   `(empty)` and the toast says no disks are assigned yet. Leave Settings, come
+   back, switch back to 3.5.1, and confirm **all four slots are exactly what
+   they were**, with the same filenames. Then check that nothing was deleted:
+
+       adb shell ls /sdcard/Android/data/com.awohl.cpmdroid/files/Disks
+       adb shell ls /sdcard/Android/data/com.awohl.cpmdroid/files/ModifiedDisks
+
+   Every file that was there before the switch must still be there. This is the
+   check that would have caught the iOS behaviour this app is deliberately not
+   copying, where a switch deleted the library.
+
+5. **Downloading under 3.6.0.** Still on 3.6.0, download one small disk (not the
+   51 MB combo). It must land beside the 3.5.1 files as `-v0-3.6.0.img`, with
+   neither shadowing the other, and assigning it must fill a 3.6.0 slot only.
+   Booting it against the bundled 3.5.1 ROM is *expected* to print
+   `*** WARNING: HBIOS/CBIOS Version Mismatch ***`; confirm that it does, since
+   that warning is what the picker's confirmation promises.
+
+6. **Three failures, three messages.** The one string this replaces said "check
+   your internet connection" for all of them.
+   - Aeroplane mode, then browse the catalog: the message must name the index.
+   - With the network up, that is as far as a device can go without a proxy. If
+     you have one, serve a 404 for `catalog-v0-3.5.1.json` while leaving the
+     index reachable, and confirm the message names the *release's catalog*, not
+     the index; and serve a truncated catalog and confirm the message says it
+     did not verify and that nothing already downloaded was touched.

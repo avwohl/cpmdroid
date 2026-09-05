@@ -12,6 +12,12 @@ import java.security.MessageDigest
 class DiskDownloadManager(private val context: Context) {
 
     companion object {
+        /** Catalog downloads, named by catalog filename. */
+        private const val DISKS_DIR_NAME = "Disks"
+
+        /** The user's written-to copies, named by the same catalog filename. */
+        private const val MODIFIED_DISKS_DIR_NAME = "ModifiedDisks"
+
         // Scratch files older than this are assumed abandoned. The sweep is age
         // gated rather than unconditional because rotating the Settings screen
         // recreates the Activity in the SAME process while the previous
@@ -44,11 +50,50 @@ class DiskDownloadManager(private val context: Context) {
 
     private val client = sharedHttpClient
 
-    suspend fun fetchCatalog(): Result<List<DiskInfo>> = catalogRepo.fetchCatalog()
+    /** index-v0.json: every RomWBW release romwbw_disks publishes, unfiltered. */
+    suspend fun fetchIndex(): Result<List<RomwbwVersion>> = catalogRepo.fetchIndex()
+
+    /**
+     * One release's catalog, verified against the size and hash its index entry
+     * publishes.
+     *
+     * Two round trips where there was one, and the entry has to come from the
+     * index rather than be built here: its catalog_url is used verbatim, which
+     * is the whole point of the two-level shape.
+     */
+    suspend fun fetchCatalog(entry: RomwbwVersion): Result<DiskCatalog> =
+        catalogRepo.fetchCatalog(entry)
 
     fun getDisksDir(): File {
-        val dir = File(context.getExternalFilesDir(null), "Disks")
+        val dir = File(context.getExternalFilesDir(null), DISKS_DIR_NAME)
         if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    /**
+     * [getDisksDir] as the v0 rename pass has to see it: null when external
+     * storage is unavailable, rather than the relative "Disks" in the process
+     * working directory that File(null, "Disks") yields - the accident
+     * HostTransfer.transferDir() already guards against, and MainActivity's
+     * comment on it calls "a folder no file manager, no adb pull and no user
+     * will ever find".
+     *
+     * A second accessor rather than a nullable return on the existing one,
+     * because every other caller in the app - download, load, delete, the
+     * catalog dialog's downloaded ticks - wants a File and has no answer for
+     * null beyond the one it already gives when the file is missing. The
+     * migration is the one caller that must refuse to act rather than act on an
+     * empty directory: it is what writes the flag saying the rename is done.
+     */
+    fun getDisksDirOrNull(): File? = externalSubdirOrNull(DISKS_DIR_NAME)
+
+    /** [getPersistedDisksDir] with the same guard, and for the same reason. */
+    fun getPersistedDisksDirOrNull(): File? = externalSubdirOrNull(MODIFIED_DISKS_DIR_NAME)
+
+    private fun externalSubdirOrNull(name: String): File? {
+        val root = context.getExternalFilesDir(null) ?: return null
+        val dir = File(root, name)
+        if (!dir.mkdirs() && !dir.isDirectory) return null
         return dir
     }
 
@@ -84,7 +129,16 @@ class DiskDownloadManager(private val context: Context) {
         try {
             sweepStaleTempFiles(getDisksDir())
 
-            val url = catalogRepo.getDownloadUrl(diskInfo.filename)
+            // The URL the catalog gave this entry - base_url + filename, built
+            // when the document was parsed. Nothing reconstructs it from a
+            // release tag any more, and nothing can pair this disk with another
+            // release's base: a DiskInfo carries its own.
+            val url = diskInfo.downloadUrl
+            if (url.isEmpty()) {
+                return@withContext Result.failure(
+                    Exception("No download URL for " + diskInfo.filename)
+                )
+            }
             val request = Request.Builder().url(url).build()
 
             // use{}, not a bare execute(): the early return below leaves the
@@ -238,7 +292,7 @@ class DiskDownloadManager(private val context: Context) {
      * These are kept separate from downloaded catalog disks.
      */
     fun getPersistedDisksDir(): File {
-        val dir = File(context.getExternalFilesDir(null), "ModifiedDisks")
+        val dir = File(context.getExternalFilesDir(null), MODIFIED_DISKS_DIR_NAME)
         if (!dir.exists()) dir.mkdirs()
         return dir
     }

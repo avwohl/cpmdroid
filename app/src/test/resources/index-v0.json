@@ -1,0 +1,67 @@
+{
+  "schema": "romwbw-disks-index",
+  "schema_version": 1,
+  "interface": "v0",
+  "repo": "https://github.com/avwohl/romwbw_disks",
+  "index_url": "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json",
+  "romwbw_versions": [
+    {
+      "romwbw_version": "3.5.1",
+      "label": "RomWBW 3.5.1",
+      "status": "stable",
+      "default": true,
+      "released": "2025-05-21",
+      "hbios": {
+        "major": 3,
+        "minor": 5,
+        "update": 1,
+        "patch": 0,
+        "ver_byte": "0x35",
+        "upd_byte": "0x10",
+        "sysver_de": "0x3510"
+      },
+      "release_tag": "v0-romwbw-3.5.1",
+      "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/catalog-v0-3.5.1.json",
+      "catalog_sha256": "7a5411b329be606c2bcc7b8d2b051b8fca9a2906f780d65fc98221cb6b61ed65",
+      "catalog_size": 11826,
+      "generation": 1,
+      "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/disks-v0-3.5.1.xml",
+      "rom_count": 2,
+      "disk_count": 20,
+      "notes": [
+        "The RomWBW release every shipped client is pinned to today.",
+        "CBIOS banner in the boot slices reads 'CBIOS v3.5.1 [WBW]'."
+      ]
+    },
+    {
+      "romwbw_version": "3.6.0",
+      "label": "RomWBW 3.6.0",
+      "status": "preview",
+      "default": false,
+      "released": "2026-03-28",
+      "hbios": {
+        "major": 3,
+        "minor": 6,
+        "update": 0,
+        "patch": 0,
+        "ver_byte": "0x36",
+        "upd_byte": "0x00",
+        "sysver_de": "0x3600"
+      },
+      "release_tag": "v0-romwbw-3.6.0",
+      "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.6.0/catalog-v0-3.6.0.json",
+      "catalog_sha256": "3907ba2f23f2307fdbc220fd20e3209b877357b5df1057b86db86a905090191f",
+      "catalog_size": 14694,
+      "generation": 1,
+      "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.6.0/disks-v0-3.6.0.xml",
+      "rom_count": 2,
+      "disk_count": 24,
+      "notes": [
+        "PREVIEW. No released client can load a v3.6.0 ROM yet: romwbw_emu's emu_validate_rom_hcb (src/emu_init.cc:52-60) refuses any ROM whose HCB version bytes differ from the compile-time ROMWBW_PIN_STR. See docs/CLIENT_MIGRATION.md.",
+        "hd1k_ws4.img does not exist in v3.6.0; upstream combo.def slice 5 is 'wp' (WordStar / word processing) where v3.5.1 had 'ws4'.",
+        "NVRAM checksums do not validate across a version change: RomWBW's NVSW_CHECKSUM XORs the version bytes into the seed, so a blob saved under 3.5.1 silently resets under a 3.6.0 ROM. Clients must namespace their NVRAM store per RomWBW version.",
+        "Do NOT build from archive/romwbw-v3.6.0/SBC_simh_std_v360.rom in romwbw_emu: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
+      ]
+    }
+  ]
+}

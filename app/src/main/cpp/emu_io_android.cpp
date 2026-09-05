@@ -1109,6 +1109,86 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
     return success ? JNI_TRUE : JNI_FALSE;
 }
 
+//-----------------------------------------------------------------------------
+// RomWBW release queries
+//
+// These three ask the core about a RomWBW release and touch no emulator state:
+// they read g_emu nowhere, so unlike every other native below them they are
+// callable before nativeInit() and from a screen that owns no emulator at all.
+// The version picker in Settings needs exactly that - it decides which releases
+// to offer before anything has been initialised, and Settings has no engine of
+// its own.
+//
+// Kotlin's `external fun` names and these symbol names are kept in lockstep by
+// hand. Nothing else does it: minification is off (app/build.gradle.kts), so R8
+// raises nothing, and a mismatch is an UnsatisfiedLinkError at the first call on
+// a device rather than a build failure. JniNameParityTest reads both files and
+// diffs the two name lists in each direction; by hand the same check is
+//   grep -o 'external fun native[A-Za-z0-9_]*' EmulatorEngine.kt |
+//     sed 's/.*fun //' | sort
+//   grep -oE '^Java_com_awohl_cpmdroid_EmulatorEngine_native[A-Za-z0-9_]*'
+//     emu_io_android.cpp | sed 's/.*EmulatorEngine_//' | sort
+// - 35 names on each side today. The ^ is load-bearing: every definition below
+// starts its name in column 0, and without it these comment lines match
+// themselves and come back as a name no Kotlin declaration has.
+//-----------------------------------------------------------------------------
+
+JNIEXPORT jboolean JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwReleaseSupported(JNIEnv* env, jobject thiz,
+                                                                    jint verByte, jint updByte) {
+    (void)env;
+    (void)thiz;
+    // Narrowed rather than validated: the two bytes come from hbios.ver_byte /
+    // hbios.upd_byte in the published index, and a value outside a byte there
+    // is a malformed document, which simply matches no supported release.
+    emu_romwbw_release r = {static_cast<uint8_t>(verByte & 0xFF),
+                            static_cast<uint8_t>(updByte & 0xFF)};
+    return emu_romwbw_release_supported(r) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwSupportedList(JNIEnv* env, jobject thiz) {
+    (void)thiz;
+    // "3.5.1, 3.6.0" - static storage owned by the core, copied into a Java
+    // string here and never freed by us.
+    return env->NewStringUTF(emu_romwbw_supported_list());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwReleaseOfImage(JNIEnv* env, jobject thiz,
+                                                                  jbyteArray romData) {
+    (void)thiz;
+    if (romData == nullptr) {
+        return nullptr;
+    }
+
+    jsize len = env->GetArrayLength(romData);
+    jbyte* data = env->GetByteArrayElements(romData, nullptr);
+    if (data == nullptr) {
+        return nullptr;
+    }
+
+    // The HCB lives in the first 264 bytes, so the caller may hand over just
+    // that prefix instead of a 512 KB ROM. Reading the whole bundled ROM on the
+    // main thread to learn two bytes is what this avoids.
+    emu_romwbw_release release;
+    bool have = emu_romwbw_release_of_image(reinterpret_cast<const uint8_t*>(data),
+                                            static_cast<size_t>(len), &release);
+
+    env->ReleaseByteArrayElements(romData, data, JNI_ABORT);
+
+    if (!have) {
+        // Null, not a guess: no 'W' 0xA8 marker means there is no HCB where the
+        // version would be, and two bytes read out of the middle of an
+        // arbitrary file is how you get a confident wrong answer.
+        return nullptr;
+    }
+
+    char buf[EMU_ROMWBW_STR_MAX];
+    emu_romwbw_release_str(release, buf, sizeof(buf));
+    return env->NewStringUTF(buf);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz,
                                                         jint unit, jbyteArray diskData) {
@@ -1128,25 +1208,23 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz,
 
     LOGI("Loading disk unit %d, size: %d bytes", unit, len);
 
-    // Hot-patch the miscompiled w8.com tolower: um80 0.3.42 assembled
-    // "add a,'a'-'A'" as "add a,0", so W8 exported UPPERCASE filenames.
-    // Every hd1k image built before 2026-07-21 (including all ioscpm v1.4.5
-    // catalog assets and any persisted copies of them) carries it, and the
-    // broken and fixed builds differ only in this one byte. Images with the
-    // fixed w8.com don't match the signature, so this is a no-op for them.
-    // (On ART, GetByteArrayElements usually returns a direct pointer for
-    // large arrays, so the caller's ByteArray may be patched in place too -
-    // don't rely on it still matching the on-disk file.)
-    static const uint8_t W8_BROKEN[8] =
-        {0xfe, 0x41, 0xd8, 0xfe, 0x5b, 0xd0, 0xc6, 0x00};
-    uint8_t* bytes = reinterpret_cast<uint8_t*>(data);
-    for (jsize i = 0; len >= 8 && i <= len - 8; i++) {
-        if (bytes[i] == 0xfe && memcmp(bytes + i, W8_BROKEN, 8) == 0) {
-            bytes[i + 7] = 0x20;  // add a,0 -> add a,'a'-'A'
-            LOGI("Patched broken w8.com tolower at offset %d in disk %d",
-                 (int)i, unit);
-        }
-    }
+    // No image is edited on the way in, deliberately. What stood here scanned
+    // every byte of every disk handed to this function for the eight bytes
+    // fe 41 d8 fe 5b d0 c6 00 and poked byte 7 to 0x20, repairing a w8.com that
+    // um80 0.3.42 miscompiled ("add a,'a'-'A'" assembled as "add a,0", so W8
+    // exported UPPERCASE names). The images it was written for are gone: none of
+    // the 44 published under romwbw_disks build/v0-romwbw-3.5.1 and
+    // build/v0-romwbw-3.6.0 contains that sequence, so it repaired nothing.
+    //
+    // Ten of them - five ids, in both RomWBW versions - contain the FIXED
+    // fe41d8fe5bd0c620, and only hd1k_combo carries a w8.com at all. So in
+    // hd1k_bp, hd1k_nzcom, hd1k_z3plus and hd1k_zpm3 that window is an ordinary
+    // CP/M tolower idiom (cp 'A' / ret c / cp '[' / ret nc / add a,N) inside
+    // unrelated programs, one byte away from the pattern this matched on. So it
+    // was not a dormant no-op waiting for its image either: any third-party or
+    // future image assembling "add a,0" after that same five-byte prologue was
+    // going to be rewritten in place, in an array the caller may still be
+    // holding, for a bug it never had.
 
     // Cache disk data for reboot
     g_cached_disks[unit].assign(reinterpret_cast<uint8_t*>(data),

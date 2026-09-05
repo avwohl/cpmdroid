@@ -30,6 +30,52 @@
             android:padding="8dp"
             android:layout_marginTop="4dp" />
 
+        <!-- RomWBW release: which catalog the disk slots and the boot config
+             below belong to. Deliberately next to the ROM, because the two have
+             to agree - a disk built for one release booted against a ROM from
+             another makes the guest print a version mismatch warning. -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="RomWBW Release"
+            android:textColor="#00FF00"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:id="@+id/romwbwVersionText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="RomWBW 3.5.1"
+                android:textColor="#AAFFAA"
+                android:padding="8dp" />
+
+            <Button
+                android:id="@+id/changeRomwbwButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Change"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/romwbwVersionNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#666666"
+            android:textSize="12sp"
+            android:layout_marginTop="4dp" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"

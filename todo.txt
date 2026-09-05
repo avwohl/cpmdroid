@@ -54,41 +54,114 @@ prompt on an AVD, which is the live screen anchored at the bottom with nothing
 in history yet - by design, and still worth a person's opinion.
 
 
+NOBODY HAS UPGRADED A DEVICE ACROSS THE V0 MIGRATION, OR SEEN THE CATALOG FETCH
+-------------------------------------------------------------------------------
+
+- [ANDROID DEVICE or EMULATOR] the v0 disk-name migration renames the user's
+downloaded images, the copies they have written to from inside CP/M, and the
+four disk_slot_N preferences that name them, and it has never run anywhere but
+in an argument.  V0MigrationTest covers the name mapping and both directories
+against temporary directories on a JVM, and those 14 tests now pass under the
+host recipe in CHANGELOG.md's 1.27 preamble - not under Gradle, which still
+cannot start here.  What no harness can settle is an upgrade in place over real
+pre-v0 state, external storage that is not there, and a restore from backup with
+allowBackup on: MANUAL_CHECKS.md section 6 has all three, and says to build the
+old state first, because a fresh install has nothing to migrate and passes every
+one of them for free.
+
+- [ANDROID DEVICE or EMULATOR] releases B and C - the two-level catalog and the
+RomWBW release picker - have never fetched anything.  What has been done is one
+step further than 1.26 managed and worth knowing before repeating it: every
+Kotlin source in the app type-checks under kotlinc against real android.*,
+androidx, okhttp and coroutines classes with only R, BuildConfig and
+ActivitySettingsBinding stubbed, and all three JVM suites run and pass - 20
+catalog parser tests, 14 migration tests and 3 JNI name-parity ones.
+CHANGELOG.md's 1.27 preamble has the exact recipe; it needs no SDK.  What none
+of it reaches is a device.  MANUAL_CHECKS.md section 7 has the six that need
+one, and its check 2 is the one to do first: three new JNI bindings have no
+build-time guard of any kind, so a Kotlin/C++ name mismatch shows up as
+UnsatisfiedLinkError the first time Settings is opened and nowhere earlier.
+
+- [ANDROID] DISK_NAMES_MIGRATION_PASS is 2 because release A shipped a flag
+saying the rename was done while this build still downloaded pre-v0 names, so a
+disk fetched under 1.26 could arrive after it.  Pass 2 sweeps those up.  There
+should never be a pass 3: after this release the catalog publishes only v0
+names.  If one is ever needed, that is evidence something started writing
+pre-v0 names again, and the reason matters more than the sweep.
+
+- [ANDROID] the bundled ROM is still the only ROM.  Selecting a RomWBW release
+this build has no ROM for is allowed and confirmed with a warning, which is
+honest but is not the same as being able to run it.  The catalog already
+publishes roms[] with emu_avw and emu_rcz80 per release, and
+emu_romwbw_release_of_image() can vet a downloaded one before it is offered -
+but rom_name holds a bare filename that MainActivity opens with assets.open(),
+so it needs a source discriminator (asset or downloaded file) before it can
+name anything that is not inside the APK.  Until then, a 3.6.0 selection means
+3.6.0 disks under a 3.5.1 ROM and the guest's mismatch warning.
+
+- [ANY] tools/check-disk-pins.sh has diverged in this repo: the cpmdroid row is
+now kind "index-v0" and asks a different question, because grepping for a
+release tag that no longer exists made it print NO PIN FOUND and exit 1 for a
+port that was working.  The other four copies - cpmemu, romwbw_emu, ioscpm,
+z80cpmw - still hold the old version, and its own header says to edit one and
+copy to the rest.  Copy it, and move the ioscpm and z80cpmw rows over as those
+ports migrate.
+
+- [ANY] romwbw_disks' published index-v0.json still carries a 3.6.0 note saying
+no released client can load a v3.6.0 ROM because emu_validate_rom_hcb refuses
+anything but the compile-time pin.  That was true before romwbw_emu v1.39 and is
+not true now.  Nothing here branches on note text - the compatibility rules
+forbid it - but a reader of the picker will find that note and conclude the
+version list cannot work.  It needs fixing in the publishing repo.
+
+
 THE PACKAGE IS BEHIND THE TREE
 -------------------------------
 
-- [RELEASE] the repin is done and has shipped to nobody, and that gap is now the
-only thing between this port and a release.  RELEASE_TAG in
-data/DiskCatalogRepository.kt reads v1.4.12 as of 642b3b0, which is this
-repository's HEAD, and no release tag sits on or after it - the newest published
-one is v1.14 from 2026-01-16, from before that file existed.  So every installed
-copy still fetches v1.4.5 and still serves the pre-98eb6a1 w8.com and the R8
-that hands an unfiltered host basename to F_DELETE.  What is left is a build
-carrying 642b3b0 and a Play Store rollout - and one edit, below, without which
-that rollout cannot happen at all.
+- [RELEASE] nothing since 642b3b0 has shipped to anyone, and that gap is now the
+only thing between this port and a release.  RELEASE_TAG is gone from
+data/DiskCatalogRepository.kt entirely - the file names index-v0.json and takes
+every URL from the documents it fetches - but that is a property of the tree,
+not of any installed copy.  No release tag sits on or after 642b3b0; the newest
+published one is v1.14 from 2026-01-16, from before that file existed.  So every
+installed copy still fetches ioscpm v1.4.5 and still serves the pre-98eb6a1
+w8.com and the R8 that hands an unfiltered host basename to F_DELETE.  What is
+left is a build and a Play Store rollout.
 
-  versionCode is 27 and has to move before anything can be uploaded.  Both
-  versionCode = 27 and versionName = "1.25" were already set at 35873d0, and at
-  that commit DiskCatalogRepository.kt still read v1.4.5; the repin came after it
-  in 642b3b0 and bumped neither number.  Play refuses an upload at a versionCode
-  it has already seen, so the tree as it stands is literally un-uploadable: the
-  build that would carry the pin cannot go out under 27, and 27 is what the
-  published 1.25 used.  Bump versionCode past 27 as part of the release.
+  versionCode has moved 27 -> 29 and versionName 1.25 -> 1.27, which unblocks
+  the upload.  28 / "1.26" names the disk-name migration alone and 29 / "1.27"
+  the catalog repoint and the release picker; whether they go out as one upload
+  or two, neither number is reused.  The history is worth keeping because it is
+  how the block happened: both versionCode = 27 and versionName = "1.25" were
+  already set at 35873d0, and at that commit DiskCatalogRepository.kt still read
+  v1.4.5; the repin came after it in 642b3b0 and bumped neither number, so the
+  build that would carry the pin could not go out under a number the published
+  1.25 had already spent.  Any of these is spent the moment something is
+  uploaded under it - check the App bundle explorer, not this file, before
+  reusing one.
 romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md owns the order and the reasons; read
 it before publishing anything.  This app bundles no disk image -
 app/src/main/assets holds emu_avw.rom and the help topics - so the image half
 was, and stays, a release action in ioscpm.
 
-  One thing the rollout does NOT fix, and it is worth knowing before writing
-  release notes that promise otherwise.  disks.xml's version attribute is 13 at
-  v1.4.5 and 13 at v1.4.12 alike - left there deliberately, because bumping it
-  deletes the user's downloaded disks - so nothing invalidates an image already
-  on the device.  hd1k_combo.img is the only one of the twenty whose bytes moved,
-  and a device that already downloaded it under the old pin keeps the old bytes
-  after the update.  DiskDownloadManager.downloadDisk checks size and sha256
-  before replacing anything, but that guards a corrupt download, not a stale
-  installed one.  Decide whether this port should re-fetch an image whose
-  installed hash disagrees with the catalog, and note that ioscpm has the
+  One thing the rollout does NOT fix, and the v0 rename makes it easier to
+  miss rather than harder.  Nothing has ever invalidated an image already on the
+  device: disks.xml's version attribute was 13 at v1.4.5 and 13 at v1.4.12
+  alike, deliberately, because bumping it deletes the user's downloaded disks.
+  hd1k_combo.img is the only one of the twenty whose bytes ever moved, and its
+  sha256 is be19984e... at v1.4.5/v1.4.11, 89b8ae1a... at v1.4.12, and
+  0ca4ec60... in catalog-v0-3.5.1.json - three different files under what used
+  to be one name.  So a device that downloaded the combo under ANY ioscpm pin
+  now has bytes that disagree with the v0 catalog, and after the rename they sit
+  there under the v0 name with the catalog dialog showing a downloaded tick.
+  The rename is still right - it is a rename, it loses nothing, and re-fetching
+  49 MB uninvited is not the migration's decision to make - but the disagreement
+  is now silent in a way it was not.  DiskDownloadManager.downloadDisk checks
+  size and sha256 before replacing anything, but that guards a corrupt download,
+  not a stale installed one.  Decide whether this port should re-fetch, or at
+  least flag, an image whose installed hash disagrees with the catalog - the
+  catalog now publishes a sha256 for every entry, so the check is a hash of a
+  local file against a field that is already parsed.  Note that ioscpm has the
   identical hole.
 
 - [ANDROID] the refreshed images are the only way to reach two paths this port

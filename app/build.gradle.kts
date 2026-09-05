@@ -87,8 +87,21 @@ android {
         applicationId = "com.awohl.cpmdroid"
         minSdk = 24
         targetSdk = 36
-        versionCode = 27
-        versionName = "1.25"
+        // 27 / "1.25" are spent: Play has seen them, and it refuses an upload at
+        // a versionCode it has seen, so the tree could not be uploaded at all
+        // while it still said 27. The catalog repin in 642b3b0 and everything
+        // since - the v0 disk-name migration included - has shipped to nobody
+        // and needs a number of its own.
+        //
+        // 28 / "1.26" is the disk-name migration (release A). 29 / "1.27" is the
+        // catalog repoint and the RomWBW release picker (releases B and C).
+        // They are numbered separately even if they are uploaded together,
+        // because the ordering is what makes the pair safe: the rename runs in
+        // MainActivity.onCreate before anything fetches a catalog, so a device
+        // that arrives at 1.27 without ever running 1.26 still renames its
+        // files before it can download a v0 name beside a pre-v0 one.
+        versionCode = 29
+        versionName = "1.27"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the
@@ -160,4 +173,23 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // Local JVM tests only - `./gradlew :app:test`. app/src/test holds three
+    // suites - the v0 disk-name migration, the catalog parsers, and the JNI
+    // name parity between EmulatorEngine.kt and emu_io_android.cpp - and none
+    // of them touches an Android class. The first renames the user's images and
+    // rewrites the preferences naming them, the second reads documents
+    // published by another repository, and the third guards the one mismatch in
+    // this project that fails nowhere but at runtime on a device. Nothing here
+    // is instrumented and nothing here needs an emulator.
+    testImplementation("junit:junit:4.13.2")
+
+    // The REAL org.json, for unit tests only. android.jar's org.json is a stub
+    // whose every method throws "not mocked", and the mockable android.jar is
+    // last on the unit-test classpath, so this shadows it and the catalog
+    // parsers run for real off the mockable stub. Note what is deliberately NOT
+    // set anywhere in this file: testOptions.unitTests.isReturnDefaultValues.
+    // With it on, losing this dependency would make every JSONObject call return
+    // an empty default and the parser tests would pass while parsing nothing.
+    testImplementation("org.json:json:20231013")
 }

@@ -28,11 +28,32 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var settingsRepo: SettingsRepository
-    private lateinit var catalogRepo: DiskCatalogRepository
     private lateinit var downloadManager: DiskDownloadManager
 
     private var currentSettings: EmulatorSettings = EmulatorSettings()
-    private var cachedCatalog: List<DiskInfo>? = null
+
+    /**
+     * The last successful index+catalog fetch, or null.
+     *
+     * It carries the release it was fetched for, and every read below checks
+     * that against the selected one. A plain list would survive a version
+     * switch and show 3.5.1's twenty disks while 3.6.0 was selected, which does
+     * not fail visibly - the names simply do not exist on the selected release's
+     * tag, so every download 404s.
+     */
+    private var cachedSelection: CatalogSelection? = null
+
+    /**
+     * The index entries this build can run, from the last fetch of either kind.
+     *
+     * Kept separately from [cachedSelection] and deliberately NOT cleared when
+     * the selected release changes: this is index data, the same list whichever
+     * release is selected, and it is what lets the row above the disk slots say
+     * "PREVIEW" for a release the user picked earlier without a fetch of its
+     * own. Empty before the first fetch, which is why every reader falls back to
+     * the bare version string.
+     */
+    private var knownVersions: List<RomwbwVersion> = emptyList()
 
     private var downloadGate: DownloadProgressGate? = null
 
@@ -55,7 +76,6 @@ class SettingsActivity : AppCompatActivity() {
         title = "Settings"
 
         settingsRepo = SettingsRepository(this)
-        catalogRepo = DiskCatalogRepository()
         downloadManager = DiskDownloadManager(this)
 
         currentSettings = settingsRepo.getSettings()
@@ -67,6 +87,12 @@ class SettingsActivity : AppCompatActivity() {
     private fun setupUI() {
         // ROM display (read-only)
         binding.romNameText.text = currentSettings.romName
+
+        // RomWBW release
+        updateRomwbwVersionDisplay()
+        binding.changeRomwbwButton.setOnClickListener {
+            showRomwbwVersionDialog()
+        }
 
         // Setup disk slot views
         diskNameViews.clear()
@@ -182,23 +208,266 @@ class SettingsActivity : AppCompatActivity() {
         loadingProgress.visibility = View.VISIBLE
 
         lifecycleScope.launch {
-            val catalog = cachedCatalog ?: run {
-                val result = catalogRepo.fetchCatalog()
-                result.getOrNull()?.also { cachedCatalog = it }
+            val cached = cachedSelection?.takeIf {
+                it.selected.romwbwVersion == settingsRepo.selectedRomwbwVersion()
+            }
+            val result = if (cached != null) {
+                Result.success(cached)
+            } else {
+                loadSelectedCatalog(downloadManager, settingsRepo).onSuccess {
+                    cachedSelection = it
+                    knownVersions = it.runnable
+                }
             }
 
             loadingProgress.visibility = View.GONE
 
-            if (catalog != null) {
-                val downloadedDisks = downloadManager.getDownloadedDisks().toSet()
-                recyclerView.adapter = DiskCatalogAdapter(catalog, downloadedDisks) { diskInfo ->
-                    handleDiskSelection(diskInfo, slotToAssign, dialog)
+            result.fold(
+                onSuccess = { selection ->
+                    val downloadedDisks = downloadManager.getDownloadedDisks().toSet()
+                    recyclerView.adapter =
+                        DiskCatalogAdapter(selection.catalog.disks, downloadedDisks) { diskInfo ->
+                            handleDiskSelection(diskInfo, slotToAssign, dialog)
+                        }
+                    updateRomwbwVersionDisplay()
+                },
+                onFailure = { error ->
+                    errorText.visibility = View.VISIBLE
+                    errorText.text = catalogErrorMessage(error)
                 }
-            } else {
-                errorText.visibility = View.VISIBLE
-                errorText.text = "Failed to load disk catalog. Check your internet connection."
-            }
+            )
         }
+    }
+
+    /**
+     * What to say about a fetch that did not produce a catalog.
+     *
+     * One string used to cover all of this - "Failed to load disk catalog.
+     * Check your internet connection." - and with a second round trip added it
+     * would now be wrong about two of the four failures. The index answering
+     * while a release's catalog does not is not a connection problem, and a
+     * core that can run nothing the catalog publishes is not one either: no
+     * amount of reconnecting fixes a build that needs replacing. CatalogFailure
+     * already carries the specific reason; this only adds what to do about it.
+     */
+    private fun catalogErrorMessage(error: Throwable?): String = when (error) {
+        is CatalogFailure.IndexUnavailable ->
+            "${error.message}\n\nThat is the one address this app has. " +
+                "Check your connection and try again."
+
+        is CatalogFailure.NoRunnableVersion ->
+            "${error.message}\n\nThis needs a newer CPMDroid, not a better connection."
+
+        is CatalogFailure.CatalogUnavailable ->
+            "${error.message}\n\nThe index itself was reached, so this is that one " +
+                "release's catalog file."
+
+        is CatalogFailure.CatalogCorrupt ->
+            "${error.message}\n\nIt was not used. Nothing already downloaded is affected."
+
+        is CatalogFailure.CatalogEmpty -> error.message ?: "The catalog lists no disks."
+
+        else -> "Failed to load the disk catalog: ${error?.message ?: "unknown error"}"
+    }
+
+    /**
+     * The RomWBW release row above the disk slots.
+     *
+     * The note underneath is the honest half. This build boots the ROM inside
+     * its own package and has no path that loads one from storage, so selecting
+     * a release the bundled ROM was not built for gets you that release's disks
+     * and a guest that prints
+     * `*** WARNING: HBIOS/CBIOS Version Mismatch ***` when it boots them. Saying
+     * so here costs one line; not saying it costs a bug report that reads
+     * "CP/M prints a warning and behaves oddly".
+     */
+    private fun updateRomwbwVersionDisplay() {
+        val version = settingsRepo.selectedRomwbwVersion()
+        val entry = knownVersions.firstOrNull { it.romwbwVersion == version }
+        binding.romwbwVersionText.text = entry?.label ?: "RomWBW $version"
+
+        val bundled = RomwbwSupport.bundledRomRelease(this, currentSettings.romName)
+        val lines = mutableListOf<String>()
+        if (entry?.isPreview == true) {
+            lines.add("PREVIEW: published as not yet recommended.")
+        }
+        lines.add(
+            when {
+                bundled == null ->
+                    "The bundled ROM's RomWBW release could not be read."
+                bundled == version ->
+                    "Matches the bundled ROM. Disk slots and boot config are kept " +
+                        "separately for each release."
+                else ->
+                    "The bundled ROM is RomWBW $bundled, so disks for $version will boot " +
+                        "with a HBIOS/CBIOS version mismatch warning."
+            }
+        )
+        binding.romwbwVersionNote.text = lines.joinToString("\n")
+    }
+
+    /**
+     * Offer the releases this build can actually run.
+     *
+     * Only the index is fetched, not a catalog: the picker needs labels,
+     * statuses and HBIOS bytes, all of which are in the 2.5 KB index, and
+     * pulling a release's whole catalog to draw a list of two rows would be a
+     * download the user did not ask for.
+     */
+    private fun showRomwbwVersionDialog() {
+        val progress = AlertDialog.Builder(this)
+            .setTitle("RomWBW Release")
+            .setMessage("Reading the catalog index...")
+            .setCancelable(false)
+            .create()
+        progress.show()
+
+        lifecycleScope.launch {
+            // finally, because leaving this screen mid-fetch cancels the
+            // coroutine and nothing after the fetch would run - and this dialog
+            // is setCancelable(false), so the user cannot take it away either.
+            // Without the dismiss the framework tears the window down
+            // underneath and logs a WindowLeaked, which is the same trap
+            // DownloadProgressGate was written for.
+            val result = try {
+                downloadManager.fetchIndex()
+            } finally {
+                if (progress.isShowing) progress.dismiss()
+            }
+            result.fold(
+                onSuccess = { index ->
+                    // Ask the core which of them this binary will load a ROM
+                    // for. Offering a release it refuses would put a row in
+                    // front of the user whose only outcome is a ROM load that
+                    // fails after they have downloaded 49 MB of disks for it.
+                    val runnable = runnableRomwbwVersions(index) { verByte, updByte ->
+                        RomwbwSupport.isRunnable(verByte, updByte)
+                    }
+                    if (runnable.isEmpty()) {
+                        showRomwbwProblem(
+                            CatalogFailure.NoRunnableVersion(RomwbwSupport.supportedList())
+                        )
+                    } else {
+                        knownVersions = runnable
+                        updateRomwbwVersionDisplay()
+                        showRomwbwChoices(runnable)
+                    }
+                },
+                onFailure = { showRomwbwProblem(it) }
+            )
+        }
+    }
+
+    private fun showRomwbwProblem(error: Throwable) {
+        AlertDialog.Builder(this)
+            .setTitle("RomWBW Release")
+            .setMessage(catalogErrorMessage(error))
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    private fun showRomwbwChoices(runnable: List<RomwbwVersion>) {
+        val current = settingsRepo.selectedRomwbwVersion()
+        val bundled = RomwbwSupport.bundledRomRelease(this, currentSettings.romName)
+        val labels = runnable.map { romwbwChoiceLabel(it, bundled) }.toTypedArray()
+
+        // The stored release may not be in the list at all - it can be
+        // withdrawn upstream, or stop being runnable when the core changes - and
+        // -1 is what setSingleChoiceItems wants for "nothing checked".
+        var chosen = runnable.indexOfFirst { it.romwbwVersion == current }
+
+        AlertDialog.Builder(this)
+            .setTitle("RomWBW Release")
+            .setSingleChoiceItems(labels, chosen) { _, which -> chosen = which }
+            .setPositiveButton("Select") { _, _ ->
+                val entry = runnable.getOrNull(chosen) ?: return@setPositiveButton
+                if (entry.romwbwVersion == current) return@setPositiveButton
+                if (entry.romwbwVersion == bundled) {
+                    applyRomwbwVersion(entry)
+                } else {
+                    confirmRomwbwMismatch(entry, bundled, current)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * One row of the picker: the release, its published status, and whether
+     * this build has a ROM for it.
+     *
+     * `status` is free text copied from the version metadata, not an enum, so
+     * an unrecognised value is displayed rather than refused - only "preview"
+     * is singled out, because that one is a claim about whether the release is
+     * ready and the user is entitled to see it before choosing.
+     */
+    private fun romwbwChoiceLabel(entry: RomwbwVersion, bundled: String?): CharSequence {
+        val marks = mutableListOf<String>()
+        if (entry.isPreview) {
+            marks.add("PREVIEW - not yet recommended")
+        } else if (entry.status.isNotEmpty()) {
+            marks.add(entry.status)
+        }
+        marks.add(
+            if (entry.romwbwVersion == bundled) "matches the bundled ROM"
+            else "no ROM in this build"
+        )
+        return entry.label + "\n" + marks.joinToString(" - ")
+    }
+
+    private fun confirmRomwbwMismatch(
+        entry: RomwbwVersion,
+        bundled: String?,
+        current: String
+    ) {
+        val romLine = if (bundled == null) {
+            "This build's bundled ROM does not declare a readable RomWBW release."
+        } else {
+            "CPMDroid boots the ROM in its own package, which is RomWBW $bundled."
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Switch to ${entry.label}?")
+            .setMessage(
+                "$romLine\n\n" +
+                    "Disks for ${entry.label} can be downloaded and assigned, but booting " +
+                    "them makes CP/M print *** WARNING: HBIOS/CBIOS Version Mismatch *** " +
+                    "and behave unpredictably.\n\n" +
+                    "Nothing is deleted. Your RomWBW $current disks, slots and boot config " +
+                    "stay where they are and come back when you switch back."
+            )
+            .setPositiveButton("Switch") { _, _ -> applyRomwbwVersion(entry) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Switch release: repoint, then re-read.
+     *
+     * Re-reading is not cosmetic. currentSettings still holds the previous
+     * release's four slot names, and saveSettings() writes that list back on
+     * every pause - into the keys of whichever release is selected then. It
+     * re-reads the slots itself for exactly this reason, but this screen would
+     * still be showing the wrong four names until it was left and reopened.
+     *
+     * Nothing is copied across and nothing is deleted. An empty slot list for a
+     * release the user has never used is the correct state, not a loss, and
+     * saying so is better than silently booting nothing.
+     */
+    private fun applyRomwbwVersion(entry: RomwbwVersion) {
+        settingsRepo.setSelectedRomwbwVersion(entry.romwbwVersion)
+        cachedSelection = null
+        currentSettings = settingsRepo.getSettings()
+        updateDiskSlotDisplays()
+        updateRomwbwVersionDisplay()
+
+        val assigned = currentSettings.diskSlots.count { it != null }
+        val message = if (assigned == 0) {
+            "${entry.label} selected. No disks are assigned for it yet - " +
+                "use Browse Disk Catalog."
+        } else {
+            "${entry.label} selected. $assigned disk slot(s) restored."
+        }
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun handleDiskSelection(diskInfo: DiskInfo, slotToAssign: Int?, dialog: AlertDialog) {
@@ -291,7 +560,7 @@ class SettingsActivity : AppCompatActivity() {
                         parentDialog.dismiss()
                     }
                     // Refresh the catalog display
-                    cachedCatalog = null
+                    cachedSelection = null
                 },
                 onFailure = { e ->
                     Toast.makeText(this@SettingsActivity,

@@ -28,6 +28,7 @@ import androidx.lifecycle.lifecycleScope
 import com.awohl.cpmdroid.data.DiskDownloadManager
 import com.awohl.cpmdroid.data.EmulatorSettings
 import com.awohl.cpmdroid.data.SettingsRepository
+import com.awohl.cpmdroid.data.V0_BUNDLED_ROMWBW
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
@@ -252,8 +253,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         settingsRepo = SettingsRepository(this)
-        settingsRepo.migrateIfNeeded()
+        // downloadManager before the migration, because the migration renames
+        // the files in its two directories. This is also the only place the
+        // rename may run: it must be finished before checkFirstLaunchAndLoad()
+        // at the end of onCreate, which reads a slot naming a file it cannot
+        // find as "first launch" and writes the catalog's default disk over the
+        // user's slot 0; and it must be before any ROM is loaded, because
+        // saveDirtyDisks() writes each unit back under the name it was loaded
+        // from and would put a pre-v0 name back into ModifiedDisks after the
+        // pass had moved it. Do not add a second entry point in SettingsActivity.
         downloadManager = DiskDownloadManager(this)
+        val nameMigration = settingsRepo.migrateIfNeeded(
+            downloadManager.getDisksDirOrNull(),
+            downloadManager.getPersistedDisksDirOrNull()
+        )
+        if (nameMigration != null) {
+            Log.i(TAG, "v0 disk-name migration: renamed=${nameMigration.renamed}, " +
+                "complete=${nameMigration.complete}, slots=${nameMigration.slots}")
+        }
+        checkBundledRomAgainstMigrationConstant()
 
         terminalView = findViewById(R.id.terminalView)
         playPauseButton = findViewById(R.id.playPauseButton)
@@ -567,6 +585,16 @@ class MainActivity : AppCompatActivity() {
         val versionCode = getVersionCode()
         val apkBuilt = getApkBuildTime()
 
+        // Three RomWBW facts, because they answer different questions and can
+        // disagree: which release's catalog the disk slots belong to, which one
+        // the ROM in the package boots, and which ones this build's emulator
+        // core has been checked against. A mismatch between the first two is
+        // what makes the guest print a HBIOS/CBIOS version warning.
+        val selectedRomwbw = settingsRepo.selectedRomwbwVersion()
+        val bundledRomwbw = RomwbwSupport.bundledRomRelease(this, settingsRepo.getSettings().romName)
+        val romwbwLine = "$selectedRomwbw selected, bundled ROM " +
+            "${bundledRomwbw ?: "unreadable"}, core supports ${RomwbwSupport.supportedList()}"
+
         // Three separate identities, because they answer different questions.
         // "Built" is the installed file's own timestamp and settles whether an
         // install took. "Source" is the commit, and is checkable against the
@@ -581,6 +609,8 @@ class MainActivity : AppCompatActivity() {
                 Source: ${BuildConfig.GIT_SHA} of ${BuildConfig.SOURCE_DATE}
 
                 A Z80 CP/M emulator for Android using RomWBW HBIOS.
+
+                RomWBW release: $romwbwLine
 
                 Features:
                 - VT100 terminal emulation
@@ -632,6 +662,35 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    /**
+     * Does the bundled ROM still declare the release the storage migration maps
+     * names to?
+     *
+     * V0_BUNDLED_ROMWBW is what `hd1k_combo.img` was renamed to
+     * (`hd1k_combo-v0-3.5.1.img`), what the seeded per-release preference keys
+     * are scoped by, and what a fresh install selects. The ROM in assets/ is
+     * what this build can actually boot. Nothing links the two except this
+     * check: replacing the ROM without moving the constant leaves every user's
+     * disks filed under a release the app no longer runs, and the symptom is
+     * the guest printing a version mismatch rather than anything in the log.
+     *
+     * Reported, not repaired. Changing the constant here would strand state
+     * that has already been written under the old one; the fix is a code change
+     * plus a migration, which is what this message is asking for.
+     */
+    private fun checkBundledRomAgainstMigrationConstant() {
+        val romName = settingsRepo.getSettings().romName
+        val declared = RomwbwSupport.bundledRomRelease(this, romName)
+        if (declared != null && declared != V0_BUNDLED_ROMWBW) {
+            Log.e(TAG, "assets/$romName declares RomWBW $declared but V0_BUNDLED_ROMWBW is " +
+                "$V0_BUNDLED_ROMWBW. Stored disk names and per-release preference keys are " +
+                "scoped by the constant, so the two must move together, with a migration.")
+        }
+        Log.i(TAG, "Selected RomWBW ${settingsRepo.selectedRomwbwVersion()}; bundled ROM " +
+            "declares ${declared ?: "(unreadable)"}; core supports " +
+            RomwbwSupport.supportedList())
+    }
+
     private fun checkFirstLaunchAndLoad() {
         val settings = settingsRepo.getSettings()
         val slot0Disk = settings.diskSlots.getOrNull(0)
@@ -655,17 +714,25 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "First launch - fetching disk catalog...")
 
         lifecycleScope.launch {
-            val catalogResult = downloadManager.fetchCatalog()
-            val catalog = catalogResult.getOrNull()
+            // index -> the releases this core can run -> the selected one's
+            // catalog. Two round trips where there was one, and no tag
+            // interpolated into either of them.
+            val catalogResult = loadSelectedCatalog(downloadManager, settingsRepo)
+            val selection = catalogResult.getOrNull()
 
-            if (catalog != null) {
-                Log.i(TAG, "Catalog fetched: ${catalog.size} disks")
-                catalog.forEach { disk ->
-                    Log.d(TAG, "  - ${disk.filename}: defaultSlot=${disk.defaultSlot}")
+            if (selection != null) {
+                val catalog = selection.catalog
+                Log.i(TAG, "RomWBW ${selection.selected.romwbwVersion} catalog fetched: " +
+                    "${catalog.disks.size} disks, generation ${catalog.generation}")
+                catalog.disks.forEach { disk ->
+                    Log.d(TAG, "  - ${disk.id} ${disk.filename}: defaultSlot=${disk.defaultSlot}")
                 }
 
-                // Find disk with defaultSlot = 0
-                val defaultDisk = catalog.find { it.defaultSlot == 0 }
+                // Whichever entry carries defaultSlot 0 - one does today
+                // (hd1k_combo) and the field is optional, so no entry carrying
+                // it is a catalog that simply nominates no starter disk, not an
+                // error.
+                val defaultDisk = catalog.disks.find { it.defaultSlot == 0 }
 
                 if (defaultDisk != null && !downloadManager.isDiskDownloaded(defaultDisk.filename)) {
                     Log.i(TAG, "Will download default disk: ${defaultDisk.filename}")
@@ -704,7 +771,19 @@ class MainActivity : AppCompatActivity() {
                     settingsRepo.markFirstLaunchDone()
                 }
             } else {
-                Log.e(TAG, "Could not fetch disk catalog: ${catalogResult.exceptionOrNull()?.message}")
+                // Said out loud, not only logged. This is a first launch: the
+                // user is looking at an emulator with no disks, and the four
+                // reasons that can happen - no index, no catalog, a catalog that
+                // did not verify, or a build whose core can run nothing
+                // published - want four different responses from them. Only the
+                // last one is not fixed by trying again later.
+                val error = catalogResult.exceptionOrNull()
+                Log.e(TAG, "Could not fetch disk catalog: ${error?.message}", error)
+                Toast.makeText(
+                    this@MainActivity,
+                    error?.message ?: "Could not fetch the disk catalog",
+                    Toast.LENGTH_LONG
+                ).show()
                 settingsRepo.markFirstLaunchDone()
             }
 

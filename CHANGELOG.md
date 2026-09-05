@@ -1,5 +1,403 @@
 # Changelog
 
+## Version 1.27 (versionCode 29)
+
+The interface-v0 catalog repoint and the RomWBW release picker - releases B and
+C of three. Release A (1.26) renamed what was already on the device; this one
+changes where things come from and lets the user choose which RomWBW release
+they come from.
+
+**NOT BUILT AS AN APK, AND NOT RUN ON A DEVICE.** This machine still has no
+Android SDK, no NDK and no JDK that Kotlin 1.9.20 will start under, so nothing
+here has been through Gradle, aapt2, R8, dex or the NDK, and no `.so` has been
+compiled for any ABI, let alone linked. What it *has* been through is more than
+1.26 managed, and the recipe is worth keeping because it needed no SDK at all:
+
+    # 1. every Kotlin source in the app, type-checked against the real classes
+    kotlinc 2.2.0 (running on the JDK 25 that is here) -cp <25 jars>
+      org.robolectric:android-all 16-robolectric-13921718   # android.*
+      androidx appcompat 1.7.0, recyclerview 1.3.2, activity 1.9.3,
+        lifecycle 2.8.7, core/core-ktx 1.15.0 and their transitives
+      com.squareup.okhttp3:okhttp 4.12.0, okio 3.6.0,
+        kotlinx-coroutines-core-jvm 1.7.3, org.json 20231013
+    # -> 23 source files, exit 0, and with warnings on the only one raised is
+    #    the pre-existing ProgressDialog deprecation.
+
+    # 2. all three JVM test suites, run for real
+    java -cp <out>:junit:hamcrest:org.json:app/src/test/resources \
+      org.junit.runner.JUnitCore ...CatalogParsingTest ...V0MigrationTest \
+      ...JniNameParityTest
+    # -> OK (20 tests), OK (14 tests), OK (3 tests). 1.26's suite had never
+    #    been run either; this is its first pass.
+
+Three things stand in for what is missing, and they are the reason this is a
+type-check rather than a build: `R`, `BuildConfig` and `ActivitySettingsBinding`
+are AGP-generated and were replaced by hand-written stubs, the `R` one built by
+scanning the 81 `R.*` references in the tree so it cannot silently omit an id
+somebody uses. The compiler is 2.2.0 rather than the project's 1.9.20, so a
+1.9-only rejection would not show up here.
+
+None of that reaches a device, and three of the four things most likely to be
+wrong need one: JNI binding, the picker's dialogs, and anything about storage.
+`MANUAL_CHECKS.md` section 7 is where those go, and its check 2 is not optional -
+the new JNI names have no build-time guard whatsoever.
+
+versionCode moves 28 -> 29 and versionName 1.26 -> 1.27. B and C carry one
+number between them rather than two, but A keeps its own, because the ordering
+is what makes the pair safe rather than the release count: the rename runs in
+`MainActivity.onCreate` before anything can fetch a catalog, so a device that
+arrives at 1.27 without ever having run 1.26 still renames its files before a v0
+name can be downloaded beside a pre-v0 one.
+
+### The release tag is gone, and nothing rebuilds a URL from one
+
+`RELEASE_TAG = "v1.4.12"` and the two ioscpm URLs interpolated from it are
+deleted. In their place is one compiled-in URL, `index-v0.json`, and two levels
+of document: the index names each RomWBW release's `catalog_url`, and that
+catalog names its own `base_url`. Every asset URL is `base_url + filename`,
+concatenated with no separator inserted, because `base_url` ends in `/` by
+contract.
+
+This is not tidying. A whole ioscpm release shipped with its pin naming a tag
+GitHub answered 404 for, and every user of that build could download nothing at
+all; the shape that allowed it - a client assembling an asset URL out of a
+constant it had been repinned to - no longer exists here. `DiskInfo` carries its
+own `downloadUrl`, built when the document was parsed, so a disk cannot be
+paired with another release's base either.
+
+The catalog document is verified before it is parsed, against the
+`catalog_size` and `catalog_sha256` the index publishes - 11826 bytes and
+`7a5411b3...` for 3.5.1 today. Parsing first would let a truncated response
+become a short disk list that looked like a whole catalog.
+
+### One malformed entry does not take the catalog away
+
+`parseDisksXml` is gone and the JSON parsers that replace it are per-entry
+tolerant: an index entry with no HBIOS bytes, or a disk entry with no `id`, is
+skipped and the rest of the document is used. The in-repo precedent does the
+opposite - `HelpActivity.parseHelpIndex` puts required-field getters inside one
+try/catch and returns null for the whole document - and copying it would mean
+that publishing one bad RomWBW 3.7.0 entry took the disk catalog away from every
+already-shipped client at once, including for the releases still described
+perfectly. Unknown fields are ignored at every level, which is what the
+compatibility rules require and what makes `upstream`, `slices`, `cbios` and
+`notes` free to appear.
+
+`roms[]` is not read at all. This build boots the ROM inside its own package and
+has no path that loads one from storage, so parsing an array it could not act on
+would only invite the assumption that `emu_avw` is in it.
+
+**Run, and passing:** `app/src/test/.../CatalogParsingTest.kt`, 20 tests, against
+byte-for-byte copies of the published `index.json` (2942 bytes) and both catalogs
+(11826 and 14694 - exactly the sizes the index declares, so a fixture that drifts
+fails the size assertion rather than quietly becoming a paraphrase). It asserts
+the 20 ids under 3.5.1 and the 24 under 3.6.0, that `hd1k_ws4` is absent from
+3.6.0 and `hd1k_wp` present, that `defaultSlot` is on `hd1k_combo` alone, that
+removing one entry's `id` costs that entry and leaves nineteen, that a missing
+`base_url` refuses the document, and that removing `roms` changes nothing.
+
+### Settings has four catalog messages where it had one
+
+"Failed to load disk catalog. Check your internet connection." covered every
+failure. With a second round trip it would now be wrong about most of them, so
+`CatalogFailure` carries the reason and Settings says which: the index did not
+answer, this build's core can run nothing the catalog publishes, that one
+release's catalog did not answer, or it answered and did not verify. Only the
+first is a connection problem, and the second is not fixed by retrying at all -
+it means no published RomWBW release matches this binary, which needs a new
+build. The first-launch download path says the same things in a toast rather
+than only in logcat, because a user whose first launch produced no disks is
+otherwise told nothing.
+
+### The RomWBW release is chosen, and the core is asked which are possible
+
+Settings gains a RomWBW Release row next to the ROM. It lists what
+`index-v0.json` publishes, filtered by `emu_romwbw_release_supported()` through
+a new JNI call, and marks each row: `preview` for a release published as not yet
+recommended, and whether this build has a ROM for it. Asking the core rather
+than hardcoding matters because the core is compiled in place from a sibling
+checkout, so this binary can be newer or older than the release list it was
+written against; a hardcoded answer is wrong in one direction or the other with
+nothing to notice it.
+
+Three natives are new - `nativeRomwbwReleaseSupported`,
+`nativeRomwbwSupportedList` and `nativeRomwbwReleaseOfImage` - and they are the
+only ones in the file that read no emulator state, which is what lets Settings
+call them without owning an engine. `RomwbwSupport` also reads the bundled ROM's
+own HBIOS block (the first 264 bytes of `assets/emu_avw.rom`, not all 524288) to
+answer which release this build can actually boot, rather than trusting a
+constant: the pin this release deletes was wrong for two days in every port at
+once, and no constant can report that it has gone stale.
+
+**Run:** the whole JNI translation unit type-checks against the real core
+headers -
+
+    clang++ -std=c++17 -Wall -Wextra -fsyntax-only -I<android/log.h stub> \
+      -I/home/wohl/emsdk/upstream/emscripten/third_party/jni \
+      -I../romwbw_emu/src -I../cpmemu/src -Iapp/src/main/cpp \
+      app/src/main/cpp/emu_io_android.cpp
+
+exit 0, no warnings. That is a syntax and type check against the headers, not a
+build: no object file, no `.so`, and no linker has ever looked for these
+symbols.
+
+The name parity that had no guard anywhere now has one.
+`app/src/test/.../JniNameParityTest.kt` reads both source files as text and
+compares the `external fun` names against the
+`Java_com_awohl_cpmdroid_EmulatorEngine_*` exports in each direction, plus a
+check that neither list came back empty - a regex that stopped matching would
+otherwise let it pass by comparing nothing to nothing. 35 on each side today,
+and it runs wherever `./gradlew :app:test` runs. Run here: OK (3 tests). It
+cannot see what the NDK exports from the built `.so`, which is why
+`MANUAL_CHECKS.md` section 7 still has a device check for the same thing.
+
+### Disk slots, NVRAM and the catalog generation are stored per release
+
+A 3.5.1 disk under a 3.6.0 ROM makes the guest print
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`, and an NVRAM setting means a
+different thing under each release - `0.5` is the WordStar 4 slice under 3.5.1
+and the `wp` slice under 3.6.0, because upstream renamed it. So everything whose
+validity depends on the release moved behind a `.v0.<release>` suffix, and a
+one-shot pass copies the pre-v0 unsuffixed `disk_slot_0..3` and `nvram` into the
+3.5.1 namespace before anything reads the new keys. The old keys are left in
+place: they are all an older build reinstalled over this one would find.
+
+The copy runs *before* the rename pass and hands it the values it settled on, so
+nothing depends on an `apply()`ed write being visible to the next read - the
+ordering hazard 1.26's notes describe. It is one-shot and never overwrites an
+existing key, which is what stops a slot the user deliberately cleared from
+being refilled from the legacy key on the next launch.
+
+**Switching release deletes nothing.** Not the other release's slots, not its
+NVRAM, and not a single downloaded image - the two releases' filenames differ,
+so both sets sit in one flat directory without shadowing each other, which is
+what the `-v0-<ver>` suffix was for. `generation` is recorded per release and
+reported, and acted on in no other way: the obvious use for it, deleting the
+images the catalog names so they are fetched again, is the iOS bug this app must
+not acquire, and per-file `size` and `sha256` already answer the staleness
+question on every download.
+
+### tools/check-disk-pins.sh stops crying wolf about this port
+
+The script greps each port's source for a `vX.Y.Z` literal. There is none here
+any more, so the cpmdroid row would have printed `NO PIN FOUND` and exited 1 for
+a port that was working correctly - and a gate that cries wolf is a gate that
+stops being read, which is the exact failure it was written after.
+
+Migrated ports now get a different question, and one that still fails loudly:
+does the source name the v0 index, is the legacy pin really gone, does the
+bundled ROM's own HBIOS block declare a release the index still publishes, and
+does the built APK name `index-v0.json` rather than an old tag. The last one
+replaces an artifact scan that would otherwise have gone quiet: a scan matching
+nothing lands in the "no evidence either way" case, so a stale package would
+never have been complained about.
+
+**This copy of the script has diverged from the other four**, and its header now
+says so. ioscpm and z80cpmw move to the same row as they migrate.
+
+**Run:** `sh -n tools/check-disk-pins.sh` passes, and the four new helpers were
+exercised against this tree - the index URL is found in
+`DiskCatalogRepository.kt`, no legacy pin remains in it, `assets/emu_avw.rom`
+reads `3.5.1` out of its HCB, and the published index carries that release. The
+full script needs the network and the other two checkouts.
+
+### What did not change
+
+The bundled ROM stays bundled, and no ROM is downloaded. Selecting a release
+this build has no ROM for is allowed, because the disks are still worth having,
+but it is confirmed with a dialog that says in as many words that the guest will
+print a version mismatch warning - the alternative was a picker with one row in
+it, which is not a picker.
+
+Nothing gained the ability to delete a user's image. The catalog dialog, the
+download path, the slice configuration and the manifest-warning behaviour are
+untouched apart from where their disk list comes from.
+
+And nothing re-checks an image that is already on the device, which is worth
+saying because this release makes that gap quieter rather than louder.
+`hd1k_combo.img`'s sha256 is `be19984e...` under ioscpm v1.4.5 and v1.4.11,
+`89b8ae1a...` under v1.4.12 and `0ca4ec60...` in the v0 catalog - three
+different files under what used to be one name - so a device that downloaded it
+under any pin now holds bytes the v0 catalog does not describe, under a v0 name,
+with a downloaded tick beside it. The rename is still the right thing: it loses
+nothing, and re-fetching 49 MB uninvited is not a migration's decision. But the
+disagreement used to be visible as a name and is now not visible at all.
+`todo.txt` carries it, and the fix - hashing an installed file against the
+`sha256` this parser already reads - is now a small one.
+
+## Version 1.26 (versionCode 28)
+
+The interface-v0 storage migration, release A of three, plus the deletion of a
+disk-image hot-patch that had outlived every image it was written for.
+
+**NOT COMPILED, AND NOT RUN** - the machine this was written on has no Android
+SDK, no NDK and no JDK that Kotlin 1.9.20 will start under (`./gradlew tasks`
+dies with `IllegalArgumentException: 25.0.4` inside the compiler's embedded
+version parser, before it ever looks for the SDK). What was run is named under
+each heading, and `MANUAL_CHECKS.md` section 6 says what has to be pointed at a
+real device before this ships.
+
+versionCode moves 27 -> 28 and versionName 1.25 -> 1.26. 27 is spent on the
+published 1.25, so the tree was un-uploadable as it stood; that is a
+prerequisite of this release, not a part of it. An unsigned release APK is still
+a *successful* build here, so run `:app:signingReport` rather than trusting an
+exit code.
+
+### Stored disk names move to the v0 convention
+
+`romwbw_disks` publishes its catalog with the RomWBW release in every asset
+name - `hd1k_combo-v0-3.5.1.img` where the catalog this app fetches today says
+`hd1k_combo.img` - so that a 3.5.1 image and a 3.6.0 one can share one flat
+directory. This release renames what is already on the device to match, and
+changes no URL: the catalog fetched, the tag pinned and the names downloaded are
+all exactly what 1.25 used. Splitting the rename from the repoint is deliberate.
+A build that both renames every stored file and changes where files come from
+gives nobody a way to tell which half broke.
+
+The whole of it is in `data/V0Migration.kt`, which has no `Context`, no
+`SharedPreferences` and no `android.*` import, because the alternative was
+shipping a pass that renames the user's files with no way to exercise it off a
+device. `SettingsRepository.migrateIfNeeded()` calls it once from
+`MainActivity.onCreate`, before `checkFirstLaunchAndLoad()` and before any ROM
+is loaded.
+
+What it will not do is as much of the point as what it does:
+
+- **It renames; it never copies.** Nineteen of the twenty published 3.5.1 images
+  are byte-identical to their pre-v0 selves, so `File.renameTo` keeps the size
+  and modification time a 51 MB image already has, and costs no download.
+- **It never deletes.** An unrecognised name is a user's own import. A
+  destination that already exists is kept and the source left beside it - an
+  orphan costs storage, and either alternative costs data.
+- **It leaves `rom_name` alone.** That key sits in the same preferences file as
+  `disk_slot_0..3`, holds a bare filename of exactly the same shape, and the v0
+  catalog really does publish `emu_avw-v0-3.5.1.rom` - so "rename every stored
+  bare filename" is the natural reading and the one that bricks the app:
+  `assets.open()` names a file inside the APK, and a renamed `rom_name` shows
+  "ROM not found" on every launch with no way back, the Settings row being
+  read-only. The set of migratable stems holds disk ids only, and
+  `V0MigrationTest` asserts the ROM names are refused.
+- **It migrates both image directories.** `Disks/` and `ModifiedDisks/`, in that
+  order per name: preferences are rewritten only after every rename, so a
+  process killed mid-pass comes back with the slot still naming the pre-v0 file,
+  and under that name `loadDiskDataWithPersistence` still finds the user's
+  written-to copy. The other order leaves the persisted copy under a name
+  nothing asks for and the pristine download answering in its place - hours of
+  CP/M work invisible, and no error anywhere.
+- **A pair that cannot both move does not move at all.** A failed rename in
+  `Disks/` already stops the `ModifiedDisks/` one for that name; the reverse -
+  the download moved and the written-to copy could not - now puts the download
+  back. Half a rename is worse than none: the slot correctly stays on the old
+  name, because that is where the user's work still is, but `Disks/` no longer
+  answers to it, so `isDiskDownloaded()` says false, `checkFirstLaunchAndLoad()`
+  reads a first launch, and slot 0 is overwritten with the catalog's default.
+  The failed pass has to leave a state the app boots, not one the recovery path
+  finishes off.
+- **A preference follows its file, not the convention.** If either directory
+  still holds the old name with no v0 file beside it, the rename for it did not
+  happen and the slot stays where the bytes are. Moving it anyway is the
+  expensive mistake: `checkFirstLaunchAndLoad()` reads a slot naming a file
+  `isDiskDownloaded()` cannot find as "first launch", downloads whatever the
+  catalog marks `defaultSlot` 0, and writes *that* over the user's slot-0
+  choice. The recovery path is what would destroy the configuration.
+- **It is idempotent, not merely guarded.** Every `prefs.edit {}` here uses
+  `apply()` while `renameTo` is immediate, so a kill between them comes back to
+  already-renamed files and an unwritten flag. Running the pass twice is a
+  no-op; the flag is an optimisation, not the correctness argument.
+- **It refuses to declare victory over a directory it cannot see.**
+  `getExternalFilesDir(null)` can return null, and `File(null, "Disks")` is a
+  relative directory in the process working directory - the accident
+  `HostTransfer.transferDir()` already guards. A pass that walked that would
+  list nothing, rename nothing, report success, and leave the migration stamped
+  done over a `ModifiedDisks/` still full of pre-v0 names. Two new accessors,
+  `DiskDownloadManager.getDisksDirOrNull()` and `getPersistedDisksDirOrNull()`,
+  answer null instead, and the flag is written only on a completed pass.
+
+The flag is `disk_names_migrated.v0.3.5.1`, per (interface, RomWBW version), and
+deliberately not a `CURRENT_PREFS_VERSION` bump: that stamp is one number for
+every past migration and version 2's step removes `warn_manifest_writes`, so
+declining to write it - which this pass must be able to do - would reset the
+user's choice on every launch until a rename succeeded.
+
+**Release B has to run this pass once more.** Between A and B this build still
+downloads pre-v0 names, so a device can acquire one after the flag is set. B
+either clears the flag or ships its own.
+
+### The w8.com hot-patch is gone
+
+`nativeLoadDisk` scanned every byte of every disk image handed to it for
+`fe 41 d8 fe 5b d0 c6 00` and poked byte 7 to `0x20`, repairing a `w8.com` that
+um80 0.3.42 miscompiled - `add a,'a'-'A'` assembled as `add a,0`, so W8 exported
+uppercase filenames.
+
+Checked rather than assumed, in Python over the images `romwbw_disks` publishes
+(`grep -P` cannot match the trailing NUL and reports nothing): **none** of the 44
+images under `build/v0-romwbw-3.5.1/` and `build/v0-romwbw-3.6.0/` contains that
+sequence, and `build/utils/w8.com` carries the fixed `fe41d8fe5bd0c620` and the
+`06 e9 cf` `HBF_HOST_CAPS` probe. So it repaired nothing.
+
+It was not a dormant no-op either, which is the reason to delete it rather than
+leave it. **Ten** of those images contain the fixed variant - `hd1k_bp`,
+`hd1k_combo`, `hd1k_nzcom`, `hd1k_z3plus`, `hd1k_zpm3`, identically under both
+RomWBW versions - and only `hd1k_combo` carries a `w8.com` at all. In the other
+four that eight-byte window is an ordinary CP/M tolower idiom (`cp 'A'` /
+`ret c` / `cp '['` / `ret nc` / `add a,N`) inside unrelated programs, one byte
+away from the pattern. Any third-party or future image assembling `add a,0`
+after that same five-byte prologue would have been rewritten in place - and in
+the caller's `ByteArray` too, since ART hands out a direct pointer for a large
+array. The comment left in its place says so, so nobody restores it.
+
+`emu_io_android.cpp` was compiled by host `clang++ -std=c++17 -Wall -Wextra
+-fsyntax-only` against the real `romwbw_emu` and `cpmemu` headers after the
+deletion - with emsdk's `jni.h` and a stand-in for `android/log.h`, this JDK
+having no `include/` of its own. Clean, no warnings. That is a translation unit
+type-checked, not an NDK build and not four ABIs.
+
+### The project has unit tests
+
+`app/src/test/java/com/awohl/cpmdroid/data/V0MigrationTest.kt`, the first test
+source set here, and one `testImplementation("junit:junit:4.13.2")` to run it
+with. It covers the twenty published name mappings against the filenames the
+catalogs actually carry, the ROM names, user imports, 3.6.0-only ids, scratch
+files and degenerate shapes, both directories, idempotence, an occupied
+destination, a rename that fails in either directory, and unavailable storage.
+It had **never been run** when this release was written - see the preamble -
+and it needs no SDK, no emulator and no device when somebody does run it:
+`./gradlew :app:test`. (It has since run, under 1.27's host recipe.)
+
+What *was* run, on this machine, is the in-repo precedent for exactly this
+situation - `android_host_path_basename()` was checked by lifting it into a host
+program and sweeping it, and the same was done here:
+
+- `v0NameOf()` transcribed statement for statement into Python and swept over
+  **200,070** cases: every filename the two published catalogs carry, the twenty
+  in the pre-v0 `disks.xml` this build fetches, both ROM names, the 3.6.0-only
+  ids, scratch and degenerate shapes, and 200,000 random strings over an
+  alphabet of dots, dashes, separators and spaces. The stem set was parsed out
+  of `V0Migration.kt` rather than retyped: it is exactly the legacy catalog's
+  twenty stems and exactly `catalog-v0-3.5.1.json`'s twenty ids, the mapping is
+  a bijection onto the twenty published v0 filenames, and it is idempotent
+  everywhere.
+- `migrateDiskNames()` modelled the same way and run over **768** combinations
+  of `Disks/` state, `ModifiedDisks/` state, slot value, kill point and
+  rename-failure mode. No combination loses or duplicates content, none rewrites
+  a user's slot, and every one of them - after the retry the next launch
+  performs before anything reads a slot - leaves the preference loading the
+  written-to copy. Seven leave the on-disk state briefly inconsistent when the
+  process dies between the renames and `apply()`; all seven are repaired by that
+  retry, which is what the idempotence is for.
+- A fifth invariant was added to that sweep afterwards and found the rollback
+  bug above: **a slot whose download was in `Disks/` must still find one there
+  when the pass returns**, because `isDiskDownloaded()` false is what
+  `checkFirstLaunchAndLoad()` reads as a first launch. Exactly one of the 768
+  violated it - `Disks/` renamed, `ModifiedDisks/` refused, no kill - and it is
+  the state that would have cost the user their slot-0 choice. With the
+  rollback, 768 of 768 hold.
+
+Neither is the Kotlin. A transcription checks the reasoning, not the code, and
+nothing here has been through a Kotlin compiler - though `V0MigrationTest`
+covers the same case directly, and has since run.
+
 ## Version 1.25 (versionCode 27)
 
 Two scrollback defects, both found on 2026-09-02 by reading this port against

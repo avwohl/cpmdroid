@@ -1,13 +1,16 @@
-// Backs row 5 of z80cpmw/FEATURE_PARITY.md - repinning RELEASE_TAG dates that column.
+// Backs row 5 of z80cpmw/FEATURE_PARITY.md. There is no release tag to repin
+// any more: what dates that column now is which RomWBW releases index-v0.json
+// publishes and which of them this build's core will load.
 package com.awohl.cpmdroid.data
 
-import android.util.Xml
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.xmlpull.v1.XmlPullParser
-import java.io.StringReader
+import okhttp3.Response
+import org.json.JSONException
+import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /** Shared OkHttpClient — single connection pool and thread pool for all network I/O. */
@@ -17,127 +20,238 @@ internal val sharedHttpClient: OkHttpClient = OkHttpClient.Builder()
     .followRedirects(true)
     .build()
 
+/**
+ * Why a catalog fetch failed, in the terms a user can act on.
+ *
+ * There are now two round trips where there was one, and they fail for
+ * unrelated reasons: the index can be unreachable while every catalog is fine,
+ * a catalog can 404 on a release the index still lists, and the version list
+ * can come back whole and contain nothing this build can run. Settings showed
+ * "Failed to load disk catalog. Check your internet connection." for all of
+ * them, which is wrong advice for two of the three - the connection is not the
+ * problem when this binary's core supports no published release.
+ */
+sealed class CatalogFailure(message: String) : Exception(message) {
+
+    /** The index URL did not answer, or did not answer with the index. */
+    class IndexUnavailable(reason: String) :
+        CatalogFailure("Could not read the catalog index: $reason")
+
+    /**
+     * The index parsed and this build can run none of what it publishes.
+     *
+     * A real, reportable condition rather than an empty list to shrug at: it
+     * means romwbw_disks has stopped publishing every RomWBW release this
+     * binary's emulator core has been checked against. [coreSupports] is
+     * emu_romwbw_supported_list(), so the message names what would have to
+     * appear for the app to work again.
+     */
+    class NoRunnableVersion(val coreSupports: String) :
+        CatalogFailure(
+            "The catalog publishes no RomWBW release this build can run " +
+                "(this build's emulator supports $coreSupports)"
+        )
+
+    /** The selected release's catalog URL did not answer. */
+    class CatalogUnavailable(val romwbwVersion: String, reason: String) :
+        CatalogFailure("Could not download the RomWBW $romwbwVersion catalog: $reason")
+
+    /**
+     * The catalog came back but is not the document the index describes.
+     *
+     * Checked before parsing, not after: the size and hash in the index are
+     * what distinguish a truncated or substituted catalog from a valid one, and
+     * a parser that runs first would happily read half a document and report a
+     * short disk list as though it were the whole catalog.
+     */
+    class CatalogCorrupt(val romwbwVersion: String, reason: String) :
+        CatalogFailure("The RomWBW $romwbwVersion catalog did not verify: $reason")
+
+    /** Parsed, verified, and lists no disks. */
+    class CatalogEmpty(val romwbwVersion: String) :
+        CatalogFailure("The RomWBW $romwbwVersion catalog lists no disks")
+}
+
 class DiskCatalogRepository {
 
     companion object {
-        // Pinned to an explicit ioscpm release (matching the Windows port):
-        // the core's built-in HBIOS identifies as RomWBW v3.5.1, and boot
-        // slices from other RomWBW releases print a HBIOS/CBIOS mismatch
-        // warning. Bump this tag together with core/ROM upgrades. Help
-        // content (HelpActivity) deliberately stays on releases/latest.
-        //
-        // v1.4.12 (2026-09-03) replaces v1.4.5, which served an R8 that hands
-        // an unfiltered host basename to F_DELETE: importing a host file whose
-        // name contains ? or * made an ambiguous FCB and erased every matching
-        // CP/M file first, silently. The fix was published upstream on
-        // 2026-09-01 and reached no user of any port for two days, because
-        // every port's pin still named the old release. tools/check-disk-pins.sh
-        // exists to make that gap fail rather than go unnoticed.
-        //
-        // The RomWBW generation this comment pins against does not move.
-        // Byte-diffing the two images: 5,121 bytes differ out of 51,380,224,
-        // all of it R8.COM, W8.COM and their two directory entries, with the
-        // first difference 1.02 MB in - the boot slices, HBIOS/CBIOS area and
-        // CP/M system image are byte-identical, so the mismatch warning this
-        // pin guards against cannot appear. No other image in the catalog
-        // changes: the two disks.xml are 7042 bytes each and differ on one
-        // line, hd1k_combo.img's <sha256>.
-        private const val RELEASE_TAG = "v1.4.12"
-        private const val CATALOG_URL =
-            "https://github.com/avwohl/ioscpm/releases/download/$RELEASE_TAG/disks.xml"
-        private const val DOWNLOAD_BASE_URL =
-            "https://github.com/avwohl/ioscpm/releases/download/$RELEASE_TAG/"
+        /**
+         * The only URL this app compiles in.
+         *
+         * It replaces RELEASE_TAG = "v1.4.12" and the two ioscpm URLs built out
+         * of it. Nothing may rebuild an asset URL from a tag again: this index
+         * names each release's catalog_url, that catalog names its own
+         * base_url, and every asset is base_url + filename. The failure that
+         * shape removes is not hypothetical - a shipped release pinned a tag
+         * GitHub answered 404 for, and no user of that build could download
+         * anything at all.
+         *
+         * Deliberately a fixed tag (`catalog-v0`) rather than
+         * releases/latest/download: this is the interface-v0 index, and a v1
+         * would live alongside it at a different URL rather than replace it
+         * here. HelpActivity's own index does float on releases/latest, and
+         * that difference is deliberate too.
+         */
+        const val INDEX_URL =
+            "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json"
+
+        /**
+         * Cap on a document read into memory.
+         *
+         * The published index is 2.5 KB and the largest catalog is 14.7 KB, so
+         * this is four orders of magnitude of headroom and exists for one case:
+         * a URL that answers with something that is not a catalog at all. A
+         * disk image on the same release is 49 MB, and reading one into a String
+         * on a phone is an OutOfMemoryError, not an error message.
+         */
+        private const val MAX_DOCUMENT_BYTES = 1L * 1024 * 1024
     }
 
     private val client = sharedHttpClient
 
-    suspend fun fetchCatalog(): Result<List<DiskInfo>> = withContext(Dispatchers.IO) {
+    /**
+     * Fetch and parse index-v0.json.
+     *
+     * Returns every entry the document describes, unfiltered - deciding which
+     * of them this build can run needs the emulator core and belongs to the
+     * caller (see runnableRomwbwVersions). An index that parses to nothing is
+     * returned as an empty list rather than as a failure, because "the index
+     * answered and lists no releases" and "the index did not answer" are
+     * different conditions and the caller reports them differently.
+     */
+    suspend fun fetchIndex(): Result<List<RomwbwVersion>> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url(CATALOG_URL)
-                .build()
+            val request = Request.Builder().url(INDEX_URL).build()
 
-            // use{}, not a bare execute(): the not-successful arm below returns
+            // use{}, not a bare execute(): the not-successful arm returns
             // without ever reading the body, and okhttp hands a connection back
             // to the pool only when the body is closed. Every call site in this
-            // app shares sharedHttpClient, so those leaks all land in one pool -
-            // and the arm is a live one, since a release shipped with
-            // RELEASE_TAG pointing at a tag GitHub answered 404 for.
+            // app shares sharedHttpClient, so those leaks all land in one pool.
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(
-                        Exception("HTTP ${response.code}: ${response.message}")
+                        CatalogFailure.IndexUnavailable("HTTP ${response.code} ${response.message}")
                     )
                 }
-
-                // isBlank, not a null check. Response.body is non-null for a
-                // response that came back from execute(), and string() answers
-                // "" for an empty body, so the null branch this replaces could
-                // never fire and an empty 200 reached parseDisksXml as an
-                // exception instead of as the plain refusal it deserves.
-                val xml = response.body?.string() ?: ""
-                if (xml.isBlank()) {
-                    return@withContext Result.failure(Exception("Empty response"))
+                val bytes = readBounded(response, MAX_DOCUMENT_BYTES)
+                    ?: return@withContext Result.failure(
+                        CatalogFailure.IndexUnavailable("response was not a catalog index")
+                    )
+                if (bytes.isEmpty()) {
+                    return@withContext Result.failure(
+                        CatalogFailure.IndexUnavailable("empty response")
+                    )
                 }
-
-                val disks = parseDisksXml(xml)
-                Result.success(disks)
+                Result.success(parseRomwbwIndex(String(bytes, Charsets.UTF_8)))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            // Includes JSONException, which is what a GitHub HTML error page
+            // parses to - so it is reported as "not the index", not as a
+            // network failure the user could fix by moving nearer a router.
+            Result.failure(CatalogFailure.IndexUnavailable(e.message ?: e.javaClass.simpleName))
         }
     }
 
-    private fun parseDisksXml(xml: String): List<DiskInfo> {
-        val disks = mutableListOf<DiskInfo>()
-        val parser = Xml.newPullParser()
-        parser.setInput(StringReader(xml))
+    /**
+     * Fetch, verify and parse one release's catalog document.
+     *
+     * [entry] comes from the index and is used verbatim: its catalog_url is
+     * requested as published, and its catalog_size and catalog_sha256 are what
+     * the body is checked against. Both checks are skipped when the index does
+     * not publish them, so an index that stops carrying a hash degrades to an
+     * unverified download rather than to no downloads at all.
+     */
+    suspend fun fetchCatalog(entry: RomwbwVersion): Result<DiskCatalog> =
+        withContext(Dispatchers.IO) {
+            val version = entry.romwbwVersion
+            try {
+                val request = Request.Builder().url(entry.catalogUrl).build()
 
-        var eventType = parser.eventType
-        var currentDisk: MutableMap<String, String>? = null
-        var currentTag: String? = null
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(
+                            CatalogFailure.CatalogUnavailable(
+                                version, "HTTP ${response.code} ${response.message}"
+                            )
+                        )
+                    }
 
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            when (eventType) {
-                XmlPullParser.START_TAG -> {
-                    when (parser.name) {
-                        "disk" -> currentDisk = mutableMapOf()
-                        else -> currentTag = parser.name
+                    val bytes = readBounded(response, MAX_DOCUMENT_BYTES)
+                        ?: return@withContext Result.failure(
+                            CatalogFailure.CatalogCorrupt(version, "response was too large to be a catalog")
+                        )
+
+                    if (entry.catalogSize > 0 && bytes.size.toLong() != entry.catalogSize) {
+                        return@withContext Result.failure(
+                            CatalogFailure.CatalogCorrupt(
+                                version,
+                                "got ${bytes.size} bytes, index says ${entry.catalogSize}"
+                            )
+                        )
                     }
-                }
-                XmlPullParser.TEXT -> {
-                    if (currentDisk != null && currentTag != null) {
-                        val text = parser.text?.trim() ?: ""
-                        if (text.isNotEmpty()) {
-                            currentDisk[currentTag] = text
-                        }
-                    }
-                }
-                XmlPullParser.END_TAG -> {
-                    if (parser.name == "disk" && currentDisk != null) {
-                        val filename = currentDisk["filename"] ?: ""
-                        if (filename.isNotEmpty()) {
-                            disks.add(
-                                DiskInfo(
-                                    filename = filename,
-                                    name = currentDisk["name"] ?: filename,
-                                    description = currentDisk["description"] ?: "",
-                                    size = currentDisk["size"]?.toLongOrNull() ?: 0,
-                                    license = currentDisk["license"] ?: "",
-                                    sha256 = currentDisk["sha256"] ?: "",
-                                    defaultSlot = currentDisk["defaultSlot"]?.toIntOrNull()
+                    if (entry.catalogSha256.isNotEmpty()) {
+                        val actual = sha256Hex(bytes)
+                        if (!actual.equals(entry.catalogSha256, ignoreCase = true)) {
+                            return@withContext Result.failure(
+                                CatalogFailure.CatalogCorrupt(
+                                    version,
+                                    "sha256 $actual, index says ${entry.catalogSha256}"
                                 )
                             )
                         }
-                        currentDisk = null
                     }
-                    currentTag = null
+
+                    val catalog = parseDiskCatalog(String(bytes, Charsets.UTF_8))
+                        ?: return@withContext Result.failure(
+                            CatalogFailure.CatalogCorrupt(version, "no base_url in the document")
+                        )
+                    if (catalog.disks.isEmpty()) {
+                        return@withContext Result.failure(CatalogFailure.CatalogEmpty(version))
+                    }
+                    Result.success(catalog)
                 }
+            } catch (e: JSONException) {
+                // Separate from the arm below: a body that is not JSON came back
+                // over a connection that worked, so calling it unavailable would
+                // send the user to check their network. It reaches here only
+                // when the index publishes no hash for this catalog - with one,
+                // the verification above rejects it first and says so.
+                Result.failure(
+                    CatalogFailure.CatalogCorrupt(version, "not a catalog document: ${e.message}")
+                )
+            } catch (e: Exception) {
+                Result.failure(
+                    CatalogFailure.CatalogUnavailable(version, e.message ?: e.javaClass.simpleName)
+                )
             }
-            eventType = parser.next()
         }
-        return disks
+
+    /**
+     * The whole body, or null when it would be larger than [limit].
+     *
+     * Not ResponseBody.bytes(): that reads whatever arrives, and the point here
+     * is to stop before an unexpected 49 MB response becomes an
+     * OutOfMemoryError. The declared length is checked first so an honest
+     * oversized response costs no transfer at all, and the running total is
+     * checked too, because a chunked response declares nothing.
+     */
+    private fun readBounded(response: Response, limit: Long): ByteArray? {
+        val body = response.body ?: return ByteArray(0)
+        if (body.contentLength() > limit) return null
+        val collected = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        body.byteStream().use { input ->
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                if (collected.size().toLong() + read > limit) return null
+                collected.write(buffer, 0, read)
+            }
+        }
+        return collected.toByteArray()
     }
 
-    fun getDownloadUrl(filename: String): String = "$DOWNLOAD_BASE_URL$filename"
+    private fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
 }
