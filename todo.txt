@@ -149,7 +149,7 @@ describe a document nobody serves, which is the one thing a fixture is for.  The
 bundled emu_avw.rom WAS refreshed to the generation-2 bytes (19b3563, 4b11402a),
 so the asset and the fixtures beside it now disagree.
 
-- [ANY] tools/check-disk-pins.sh has diverged in this repo: the cpmdroid row is
+- [ANY] tools/check-shipped-disks.sh has diverged in this repo: the cpmdroid row is
 now kind "index-v0" and asks a different question, because grepping for a
 release tag that no longer exists made it print NO PIN FOUND and exit 1 for a
 port that was working.  Three copies - cpmemu, romwbw_emu and z80cpmw - still
