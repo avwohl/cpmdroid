@@ -57,8 +57,10 @@ in history yet - by design, and still worth a person's opinion.
 BEFORE ANYONE ADDS DISK-IMAGE HASH VERIFICATION, READ THIS
 -------------------------------------------------------------------------------
 
-- [ANY] this port verifies the CATALOG document's sha256 and nothing else - no
-disk image is ever hashed, and isDiskDownloaded() decides by filename.  That is
+- [ANY] no disk image already on the device is ever hashed.  The catalog
+document's sha256 is verified, and a download's bytes are verified as they
+arrive, but nothing re-reads an installed file: isDiskDownloaded() decides by
+filename.  That is
 why the v0 migration needed no freshness work here, and it is also a trap for
 whoever adds image verification later.
   hd1k_combo is the one image of twenty whose bytes differ between the pre-v0
@@ -99,8 +101,16 @@ androidx, okhttp and coroutines classes with only R, BuildConfig and
 ActivitySettingsBinding stubbed, and every JVM suite runs and passes.
 CHANGELOG.md's 1.28 preamble has the exact recipe; it needs no SDK.  What none
 of it reaches is a device.  MANUAL_CHECKS.md section 7 has the six that need
-one, and its check 2 is the one to do first: three JNI bindings added in 1.27
-have no build-time guard of any kind, so a Kotlin/C++ name mismatch shows up as
+one, and its check 2 is the one to do first.  A Kotlin/C++ NAME mismatch in the
+three JNI bindings added in 1.27 does now have a guard - JniNameParityTest reads
+both source files as text and compares the lists in each direction, 35 names on
+each side, 3 tests, recorded as run and passing in CHANGELOG.md's 1.27 entry -
+but it is opt-in: it runs under `./gradlew :app:test`, README's build steps say
+assembleDebug, and there is no CI, so an ordinary build of this tree still
+catches nothing.  Past the name, nothing is guarded at all: per CHANGELOG.md's
+1.27 entry the JNI translation unit has only been -fsyntax-only type-checked -
+no object file, no .so, and no linker has ever looked for these symbols - so a
+descriptor/signature mismatch, or a symbol the NDK never emitted, is still an
 UnsatisfiedLinkError the first time Settings is opened and nowhere earlier.
 
 - [ANDROID] DISK_NAMES_MIGRATION_PASS is 2 because release A shipped a flag
@@ -129,20 +139,28 @@ The cost is an unused 512 KB file per withdrawn release, which nothing reclaims.
 That is the deliberate side of the trade; if it ever becomes a complaint, the
 answer is a user-initiated cleanup, not an automatic one.
 
+- [ANY] the JVM fixtures are generation 1 and the server is generation 2.
+app/src/test/resources/index-v0.json says generation 1 for both releases with
+catalog_sha256 7a5411b3 and 3907ba2f, where the published index says 2,
+942803d1 and 4b4de296; the two catalog fixtures say generation 1 and name the
+pre-BNKCALL ROM hashes, and CatalogParsingTest asserts 2f4a6252 as a literal.
+Nothing in those four suites opens a socket, so they still pass - but they now
+describe a document nobody serves, which is the one thing a fixture is for.  The
+bundled emu_avw.rom WAS refreshed to the generation-2 bytes (19b3563, 4b11402a),
+so the asset and the fixtures beside it now disagree.
+
 - [ANY] tools/check-disk-pins.sh has diverged in this repo: the cpmdroid row is
 now kind "index-v0" and asks a different question, because grepping for a
 release tag that no longer exists made it print NO PIN FOUND and exit 1 for a
-port that was working.  The other four copies - cpmemu, romwbw_emu, ioscpm,
-z80cpmw - still hold the old version, and its own header says to edit one and
-copy to the rest.  Copy it, and move the ioscpm and z80cpmw rows over as those
-ports migrate.
-
-- [ANY] romwbw_disks' published index-v0.json still carries a 3.6.0 note saying
-no released client can load a v3.6.0 ROM because emu_validate_rom_hcb refuses
-anything but the compile-time pin.  That was true before romwbw_emu v1.39 and is
-not true now.  Nothing here branches on note text - the compatibility rules
-forbid it - but a reader of the picker will find that note and conclude the
-version list cannot work.  It needs fixing in the publishing repo.
+port that was working.  Three copies - cpmemu, romwbw_emu and z80cpmw - still
+hold the old version, and ioscpm's has diverged a third way: it detects a
+migrated port and reports CANNOT VERIFY (exit 2) rather than learning the v0
+index.  Its own header says to edit one and copy to the rest, so there is one
+merge to do and not two.  Both siblings have now migrated - ioscpm ffbe12c,
+z80cpmw f91c3a3 - and neither releaseTag in EmulatorViewModel.swift nor
+RELEASE_TAG in DiskCatalog.cpp survives, so running this copy from here today
+prints NO PIN FOUND for both of them.  That is the failure the cpmdroid row was
+changed to avoid, now happening to the other two.  Move those rows over.
 
 
 THE PACKAGE IS BEHIND THE TREE
@@ -153,7 +171,8 @@ only thing between this port and a release.  RELEASE_TAG is gone from
 data/DiskCatalogRepository.kt entirely - the file names index-v0.json and takes
 every URL from the documents it fetches - but that is a property of the tree,
 not of any installed copy.  No release tag sits on or after 642b3b0; the newest
-published one is v1.14 from 2026-01-16, from before that file existed.  So every
+published one is v1.24 (e7ce4bd, 2026-08-31), and that commit still compiles
+RELEASE_TAG = "v1.4.5".  So every
 installed copy still fetches ioscpm v1.4.5 and still serves the pre-98eb6a1
 w8.com and the R8 that hands an unfiltered host basename to F_DELETE.  What is
 left is a build and a Play Store rollout.
@@ -209,6 +228,20 @@ was, and stays, a release action in ioscpm.
   SettingsRepository.noteCatalogGeneration for why acting on it is the iOS bug
   this port must not acquire.  A ROM is 512 KB rather than 49 MB, so re-fetching
   one on a generation change is a far smaller decision than re-fetching disks.
+
+  That stopped being hypothetical on 2026-09-06.  romwbw_disks published
+  generation 2 for both releases (72c25c7): HB_BNKCALL was fixed in bank 0, so
+  every ROM was rebuilt in place - emu_avw 3.5.1 c7abc580 -> 4b11402a, emu_rcz80
+  3.5.1 ee3adea5 -> 03e64691, emu_avw 3.6.0 2f4a6252 -> 01d1ca6d, emu_rcz80
+  3.6.0 70196de9 -> 9b204cd7 - while all 44 disk images stayed byte-identical
+  and were not re-uploaded.  That is the publishing model now, and
+  romwbw_disks docs/RELEASING.md section 5 says why: a correction overwrites the
+  asset under the name it already has and bumps the generation, and never gets a
+  -r2 name, because all three clients key saved state on the filename.  It also
+  says it was safe exactly once, because no installed client could see it.  So
+  this is a decision to take BEFORE the first release that fetches a ROM, not
+  after: the only device holding a superseded ROM today is one nobody has, and
+  the moment a build ships that stops being true.
 
 - [ANDROID] the refreshed images are the only way to reach two paths this port
 implements and has never executed: HBF_HOST_CAPS and HBF_HOST_GETNAME.  The
@@ -351,7 +384,8 @@ went from the row where this port was furthest behind to one where it is level
 on everything the row measures.  What that edit could NOT do is advance the
 sibling-readings block, and the reason is the document's own rule: that line
 certifies a reading of the WHOLE column, and rows 4, 6 and 13 are three of
-thirteen.  Whoever next reads rows 1, 2, 3, 5, 7, 8, 9, 10, 11 and 12 against
+thirteen.  Row 2 was re-read from this tree on 2026-09-02 and rewritten, so what
+is left is rows 1, 3, 5, 7, 8, 9, 10, 11 and 12; whoever reads those against
 this tree can advance it; until then check-sibling-drift.sh will keep reporting
 this column as drifted, which is correct.
 
@@ -362,15 +396,3 @@ intent-filter - were folded into row 4 rather than given a fourteenth row.  Row
 every "item 13" and "(#4)" cross-reference in a document that has dozens of
 them.  If a future capability needs a row of its own, that is the cost to price.
 
-- [PARITY] row 2's "Verified Android behaviour" block in z80cpmw's
-FEATURE_PARITY.md cites five symbols that have never existed in this tree:
-userScrollUp++, resetTerminal, historyIsContiguous, visibleHistorySize and
-snapToLive.  grep finds none of them in app/src/main/java, and git log -S finds
-no commit that ever removed them.  The paragraphs built on them assert the
-opposite of what this port does - that the view stays anchored as output
-arrives, and that history is cleared on a cold boot - which is how row 2 came to
-be scored level while the three defects above were live.  Correcting it is an
-edit in z80cpmw, and the useful correction is not just the five names: row 2 was
-flipped from a paraphrase of ioscpm's commit message twelve minutes after that
-commit landed, without either sibling's source being opened.  That is the thing
-worth not repeating.

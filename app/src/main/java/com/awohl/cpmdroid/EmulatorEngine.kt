@@ -69,7 +69,8 @@ class EmulatorEngine {
     // the only natives here that answer before nativeInit() - which is what
     // lets Settings decide which releases to offer without owning an engine.
     // Their names must match the JNI exports in emu_io_android.cpp exactly:
-    // minification is off, there is no test that compares the two lists, and a
+    // minification is off, JniNameParityTest compares the two lists but only
+    // under `./gradlew :app:test`, which an ordinary build does not run, and a
     // mismatch surfaces as UnsatisfiedLinkError at the first call on a device.
     private external fun nativeRomwbwReleaseSupported(verByte: Int, updByte: Int): Boolean
     private external fun nativeRomwbwSupportedList(): String
