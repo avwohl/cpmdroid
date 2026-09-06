@@ -39,7 +39,13 @@
 # the one path with no catalog in reach.  That is still a failure worth exiting
 # 1 for, and the message says which one it is.
 #
-# ioscpm and z80cpmw move to that row as they migrate.
+# ioscpm and z80cpmw HAVE now migrated and moved to that row, on 2026-09-06.
+# Both were still listed as `tag` here, so both printed NO PIN FOUND and this
+# script exited 1 for three ports that were all working correctly - the whole
+# family failing a gate for doing the right thing, which is worse than the gate
+# not existing. Note z80cpmw's file: the v0 index URL is in CatalogV0.cpp, NOT
+# in DiskCatalog.cpp, which is where the old pin lived and where this table
+# still pointed.
 #
 #   sh check-shipped-disks.sh              tree pins + any artifacts found
 #   sh check-shipped-disks.sh --tree-only  skip artifact scanning
@@ -109,9 +115,9 @@ highest_version() { # tags on stdin
 # kind "index-v0" - migrated to romwbw_disks' two-level catalog; there is no tag
 #                   in its source to compare, and looking for one is how this
 #                   script would silently stop covering it.
-ports='ioscpm|iOSCPM/Views/EmulatorViewModel.swift|releaseTag[[:space:]]*=|tag
+ports='ioscpm|iOSCPM/Views/EmulatorViewModel.swift|indexURL[[:space:]]*=|index-v0
 cpmdroid|app/src/main/java/com/awohl/cpmdroid/data/DiskCatalogRepository.kt|INDEX_URL[[:space:]]*=|index-v0
-z80cpmw|z80cpmw/DiskCatalog.cpp|RELEASE_TAG[[:space:]]*=|tag'
+z80cpmw|z80cpmw/CatalogV0.cpp|INDEX_URL[[:space:]]*=|index-v0'
 
 pin_of() { # $1 = port dir, $2 = file, $3 = pattern -> prints vX.Y.Z
     f="$1/$2"
