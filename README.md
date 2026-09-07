@@ -14,7 +14,9 @@ A Z80/CP/M emulator for Android phones and tablets, built on the [RomWBW](https:
   because nobody has measured that - the parser is now wide enough that it is a
   reasonable thing to go and try, which is a different statement.
 - **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
-- **Download disk images** from the [ioscpm](https://github.com/avwohl/ioscpm) releases - no bundled copyrighted content
+- **Nothing bundled** - the ROM and every disk image come from the interface-v0
+  catalog in [romwbw_disks](https://github.com/avwohl/romwbw_disks), and each
+  download is checked against the size and SHA-256 that catalog publishes
 - **Hardware keyboard support** - Bluetooth and USB keyboards
 - **Control strip** - Ctrl, Esc, Tab, Copy, Paste buttons for touch input
 - **Help system** - seven topics bundled in the app, refreshed from GitHub when
@@ -25,7 +27,10 @@ A Z80/CP/M emulator for Android phones and tablets, built on the [RomWBW](https:
 
 ## Getting Started
 
-1. **First launch** automatically downloads a default boot disk
+1. **First launch** needs a network connection: it fetches the ROM for the
+   selected RomWBW release, then a default boot disk. Later launches work
+   offline - the catalog's claim about the ROM is stored beside the file and
+   re-checked against it
 2. **Open Settings** (the wrench, in the toolbar) to configure disks and
    options. Stop the emulator first - Settings refuses to open while it runs
 3. **Download additional disk images** from the disk catalog
@@ -73,9 +78,37 @@ To export a file from CP/M:
 Staging a file into `Imports/` by hand with a third-party file manager still
 works, and is no longer the only way.
 
-## Disk Images
+## ROMs and Disk Images
 
-Disk images are downloaded from the [avwohl/ioscpm](https://github.com/avwohl/ioscpm) GitHub release, pinned at tag v1.4.5:
+**Nothing is bundled.** The APK carries the emulator core and the help topics; it
+carries no ROM and no disk image. Both come from the interface-v0 catalog in
+[romwbw_disks](https://github.com/avwohl/romwbw_disks), and the only content
+address compiled into the app is the index that catalog starts from (`INDEX_URL`
+in `data/DiskCatalogRepository.kt`; the in-app help has its own). There is no
+pinned release tag any more: the index names every published RomWBW release and
+points at that release's own catalog, that catalog publishes a `base_url`, and
+every asset is that `base_url` plus a filename - nothing is assembled here from a
+version number. Everything fetched is measured against the size and SHA-256 the
+catalog publishes, and bytes that do not match are not kept.
+
+Two things are yours to choose, both in Settings and both filled from the catalog
+rather than from this build:
+
+- **RomWBW Release** - the index, filtered to the releases the emulator core says
+  it can boot. An install that has not settled on a release yet - a fresh one, or
+  one upgrading from a build that carried its own ROM - takes the index's own
+  default the first time it reads it. After that it stays where it is, and this
+  row is what moves it. A RomWBW release published later will not switch a
+  machine by itself, because that would change its disk set and its NVRAM
+  namespace under it; new ROMs and new disks *within* the selected release still
+  arrive with no app update. Each release keeps its own disk slots, NVRAM and
+  ROM, so switching is a round trip that loses nothing
+- **ROM** - the ROMs the selected release publishes (`emu_avw` and `emu_rcz80`
+  today). What is stored is the catalog's ID rather than a filename, because the
+  filename carries the release
+
+Some of what the catalog carries - the list is the selected release's, and it
+changes from one release to the next:
 
 | Disk | Description | License |
 |------|-------------|---------|
@@ -84,9 +117,13 @@ Disk images are downloaded from the [avwohl/ioscpm](https://github.com/avwohl/io
 | NZCOM | ZCPR3 command processor | Free |
 | CP/M 3 (Plus) | Banked memory support | Free |
 | ZPM3 | Z-System CP/M 3 | Free |
-| WordStar 4 | Word processor | Abandonware |
+| Word processing | WordStar 4 in RomWBW 3.5.1, the Word Processing image that replaced it in 3.6.0 | Abandonware |
 
-Downloaded images are stored in app-specific storage and work offline.
+Downloaded ROMs and images are stored in app-specific storage and work offline.
+The exception is a fresh install: there is no ROM in the package, and a ROM
+cannot be verified without the catalog that publishes its size and hash, so the
+first launch needs one successful fetch. The app says so, with a Download button,
+rather than starting a machine on bytes it cannot check.
 
 ## Technical Details
 
@@ -176,8 +213,8 @@ than from the CHANGELOG or the release notes. So a change made here goes stale
 there, and the person making it is the last one who could notice and the first
 one who does not. The rows this repository backs are the terminal parser and
 its escape sequences, key handling and the control strip, the fixed `Imports/`
-and `Exports/` transfer folders, the pinned disk-catalog release tag, help
-fetching, NVRAM autoboot, the font-size and scrollback settings, and the
+and `Exports/` transfer folders, the disk-catalog client and the RomWBW release it
+follows, help fetching, NVRAM autoboot, the font-size and scrollback settings, and the
 Dazzler/DSKY stubs. Touch any of those and that column needs re-reading.
 
 The commits each column was read at are recorded in that file's

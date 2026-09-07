@@ -107,4 +107,13 @@ ADB="C:/Users/amwoh/AppData/Local/Android/Sdk/platform-tools/adb.exe"
   MSIX, uploaded to Partner Center); CHANGELOG done; committed + pushed (`69ec835`).
 - **ioscpm**: published the missing **`v1.4.5`** prerelease (mirror of v1.4.11, v3.5.1 disks,
   w8-fixed combo) — this fixed the disk-catalog **404 on BOTH z80cpmw and cpmdroid** (both
-  pin `v1.4.5`); added `docs/DISK_CATALOG_PINNING.md` (pin the iOS app too). Pushed.
+  pinned `v1.4.5` at the time); added `docs/DISK_CATALOG_PINNING.md` (pin the iOS app too).
+  Pushed.
+
+  **Correction, 2026-09-07:** none of that pinning is still true, and this bullet is the
+  only place in this file that reads as though it were. All three ports fetch
+  `romwbw_disks`' `index-v0.json` now and take every URL out of the documents it names;
+  `RELEASE_TAG` is gone from `data/DiskCatalogRepository.kt`. Since this round the ROM
+  comes from the same catalog too — `app/src/main/assets/emu_avw.rom` is deleted and the
+  package carries no ROM at all — so an ioscpm release no longer reaches this app by any
+  route. `todo.txt` has the current statement of what is published and from where.

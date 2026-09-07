@@ -33,25 +33,25 @@ import java.io.File
  */
 
 /**
- * The RomWBW release this build runs, and so the only `<ver>` a pre-v0 name can
- * migrate to.
+ * The only `<ver>` a pre-v0 name can migrate to.
  *
- * It is what the bundled `app/src/main/assets/emu_avw.rom` declares in its HBIOS
- * configuration block - bytes 0x105/0x106 read 0x35 0x10, which is 3.5.1 - and
- * the two have to agree, because a 3.5.1 disk under a 3.6.0 ROM makes the guest
- * print `*** WARNING: HBIOS/CBIOS Version Mismatch ***`.
+ * A HISTORICAL FACT, and nothing else. It is the release every pre-v0 disk name
+ * was renamed TO and the one the per-release preference keys were seeded under,
+ * back when this app shipped a 3.5.1 ROM in assets/ and could boot nothing else.
+ * Both of those writes have already happened on every device that ran those
+ * builds, so this value can never move: changing it would strand the slots,
+ * NVRAM and images that are on disk under `.v0.3.5.1` today, and they would read
+ * as empty rather than as an error.
  *
- * That agreement is now checked rather than assumed: MainActivity reads the
- * ROM's first 264 bytes through emu_romwbw_release_of_image() on every launch
- * and logs an error if it disagrees with this line. It is checked and not
- * corrected, deliberately. This constant is a historical fact as much as a
- * current one - it is the release every pre-v0 name was renamed TO, and the one
- * the per-release preference keys were seeded under - so silently following a
- * swapped ROM would strand state that has already been written under the old
- * value. Moving this needs a code change and a migration together; the log line
- * is what asks for both.
+ * It is deliberately NOT "the release this build runs" any more, which is what
+ * the name V0_BUNDLED_ROMWBW used to claim. There is no bundled ROM to derive it
+ * from, and the release the app actually boots is whichever one the catalog
+ * index marks `default: true` - or whichever one the user pinned in Settings.
+ * See SettingsRepository.preferredRomwbwVersion(). A build that confused the two
+ * would pin every install to 3.5.1 forever, which is exactly what this rename
+ * exists to make impossible to write by accident.
  */
-const val V0_BUNDLED_ROMWBW = "3.5.1"
+const val V0_LEGACY_ROMWBW = "3.5.1"
 
 /** The infix every v0 asset name carries between its stem and its extension. */
 private const val V0_INFIX = "-v0-"
@@ -71,13 +71,13 @@ private const val DISK_EXTENSION = ".img"
  * Two absences are deliberate:
  *
  * `emu_avw` is not here, although the v0 catalog really does publish
- * `roms[] id emu_avw` as `emu_avw-v0-3.5.1.rom`. `rom_name` sits in the same
- * preferences file as `disk_slot_0..3` and holds a bare filename of exactly the
- * same shape, so "rename every stored bare filename" is the natural reading and
- * the wrong one: MainActivity opens that name with `assets.open()`, against a
- * file inside the APK, so a renamed `rom_name` throws IOException and the app
- * shows "ROM not found" on every launch, for every user, with no way back - the
- * Settings row that displays it is read-only text.
+ * `roms[] id emu_avw` as `emu_avw-v0-3.5.1.rom`. This pass renames DISK names
+ * only. A ROM is not addressed by a stored filename at all any more: the
+ * selected ROM is remembered as a catalog id under a per-release key, and the
+ * filename it resolves to is whatever that release's catalog publishes today.
+ * Sweeping a ROM into a disk rename would therefore corrupt one identity into
+ * the other - the id/filename confusion that shipped in the sibling port and
+ * had to be backed out - and there is nothing here for it to fix.
  *
  * The five ids that exist only under 3.6.0 - `hd1k_infocom`, `hd1k_cobol`,
  * `hd1k_wp`, `hd1k_dos65`, `hd1k_msx` - are not here either. No catalog this app
@@ -130,7 +130,7 @@ fun v0NameOf(storedName: String): String? {
     if (stem.contains(V0_INFIX)) return null
     if (stem !in CATALOG_DISK_STEMS) return null
 
-    return stem + V0_INFIX + V0_BUNDLED_ROMWBW + DISK_EXTENSION
+    return stem + V0_INFIX + V0_LEGACY_ROMWBW + DISK_EXTENSION
 }
 
 /**

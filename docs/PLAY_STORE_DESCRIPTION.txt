@@ -17,7 +17,7 @@ Features
 • Multiple disk support with up to 4 disk units (64MB each)
 • Hardware keyboard support for Bluetooth and USB keyboards
 • Touch-friendly control strip with Ctrl, Esc, Tab, Copy, and Paste
-• Download disk images directly from the RomWBW project
+• ROM and disk images downloaded from the RomWBW disk catalog and checked against the size and SHA-256 it publishes - nothing is bundled in the app
 • Built-in help system with searchable documentation
 • File transfer between Android and CP/M using R8/W8 utilities
 
@@ -31,7 +31,7 @@ Run Classic Software
 
 Easy to Use
 
-Getting started is simple. On first launch, CPMDroid automatically downloads a boot disk so you can start exploring immediately. Want more? Open Settings to browse and download additional disk images including CP/M 2.2, ZSDOS, WordStar, and game collections.
+Getting started is simple. On first launch, CPMDroid downloads the emulator ROM and a boot disk so you can start exploring immediately - so that first launch needs a network connection, and later ones do not. Want more? Open Settings to browse and download additional disk images including CP/M 2.2, ZSDOS, word processing, and game collections, or to pick a different ROM or RomWBW release.
 
 Control Strip
 
@@ -68,11 +68,12 @@ CPMDroid is open source software. Visit the GitHub repository to view the code, 
 
 No Ads, No Tracking
 
-CPMDroid respects your privacy. The app contains no advertisements and collects no personal information. Network access is used only to download disk images and help files from GitHub.
+CPMDroid respects your privacy. The app contains no advertisements and collects no personal information. Network access is used only to download the emulator ROM, disk images and help files from GitHub.
 
 Requirements
 
 • Android 7.0 or later
+• A network connection for the first launch, which downloads the ROM and a boot disk
 • Works on phones and tablets
 • Bluetooth or USB keyboard recommended for extended use
 

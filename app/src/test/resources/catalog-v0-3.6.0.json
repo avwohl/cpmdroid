@@ -3,8 +3,8 @@
   "schema_version": 1,
   "interface": "v0",
   "romwbw_version": "3.6.0",
-  "generation": 1,
-  "status": "preview",
+  "generation": 2,
+  "status": "stable",
   "release_tag": "v0-romwbw-3.6.0",
   "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.6.0/",
   "hbios": {
@@ -22,10 +22,10 @@
     "package_sha256": "bdf847d52cf6b4dd522fa81acf32e24c044ecb26f2d9ff8af72def9d6c41ffc2"
   },
   "notes": [
-    "PREVIEW. No released client can load a v3.6.0 ROM yet: romwbw_emu's emu_validate_rom_hcb (src/emu_init.cc:52-60) refuses any ROM whose HCB version bytes differ from the compile-time ROMWBW_PIN_STR. See docs/CLIENT_MIGRATION.md.",
+    "Promoted out of preview 2026-09-05. romwbw_emu v1.39 reads the RomWBW version out of the loaded ROM instead of a compile-time pin, so one binary boots this release and 3.5.1 alike; romwbw_disks tools/boot_test.sh asserts the boot, the CBIOS v3.6.0 [WBW] banner, no version-mismatch warning on a matched pair, and an R8/W8 round trip. NOTE: no client in any app store carries that core yet, so a SHIPPED client still cannot load a v3.6.0 ROM - it filters this entry out by hbios.ver_byte, which is what those bytes are in the index for.",
     "hd1k_ws4.img does not exist in v3.6.0; upstream combo.def slice 5 is 'wp' (WordStar / word processing) where v3.5.1 had 'ws4'.",
     "NVRAM checksums do not validate across a version change: RomWBW's NVSW_CHECKSUM XORs the version bytes into the seed, so a blob saved under 3.5.1 silently resets under a 3.6.0 ROM. Clients must namespace their NVRAM store per RomWBW version.",
-    "Do NOT build from archive/romwbw-v3.6.0/SBC_simh_std_v360.rom in romwbw_emu: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
+    "Do NOT build from a v3.6.0-dev snapshot. romwbw_emu's archive/romwbw-v3.6.0/SBC_simh_std_v360.rom was deleted 2026-09-05 for this reason: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
   ],
   "roms": [
     {
@@ -34,7 +34,7 @@
       "name": "EMU AVW",
       "description": "Standard emulator ROM. Our HBIOS proxy in bank 0 over the RomWBW SBC_simh_std ROM disk in banks 1-15. This is the ROM every shipped client bundles today.",
       "size": 524288,
-      "sha256": "2f4a6252400276e2306d180704d33f70c92651d11a3e0780cd8a58e9921e8c4e",
+      "sha256": "01d1ca6d142e9b757d4fd98c2229f2e506dd8c3253839391c8f5d4f6263c6557",
       "default": true,
       "hcb": {
         "marker": "57 A8",
@@ -53,7 +53,7 @@
       "name": "EMU RCZ80",
       "description": "Alternate emulator ROM. Same HBIOS proxy in bank 0, but banks 1-15 come from the RomWBW RCZ80_std ROM disk, so the ROM-resident applications match an RC2014 Z80 build.",
       "size": 524288,
-      "sha256": "70196de9aef2b499ce579d5da7e709f713cbca01fc0d3234a2f39a1c89310f48",
+      "sha256": "9b204cd71d1064d7f4a46d4403f106250e0e53f2239931a6f81aa7bc7dba5fc5",
       "default": false,
       "hcb": {
         "marker": "57 A8",

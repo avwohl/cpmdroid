@@ -120,16 +120,22 @@ should never be a pass 3: after this release the catalog publishes only v0
 names.  If one is ever needed, that is evidence something started writing
 pre-v0 names again, and the reason matters more than the sweep.
 
-- [ANDROID DEVICE or EMULATOR] the ROM now comes from the catalog and nothing
-about that has been watched on a screen.  What was run is in CHANGELOG.md's 1.28
-preamble: every Kotlin source type-checks, and four JVM suites pass - 24 catalog
-parser tests, 11 ROM selection ones, 14 migration ones and 3 JNI name-parity
-ones.  None of them reads a file, opens a socket or boots a guest.
-MANUAL_CHECKS.md section 8 has the nine that need a device, and two are worth
-doing before the others: check 1, that a first launch with no network still
-boots on the bundled ROM, and check 6, that a corrupted ROM stops the machine
-instead of quietly falling back to the bundled one.  A silent fallback would
-look like success everywhere except one warning line inside CP/M.
+- [ANDROID DEVICE or EMULATOR] the ROM now comes from the catalog, the user
+picks which one, and nothing about either has been watched on a screen.  What
+was run is in CHANGELOG.md: every Kotlin source type-checks, and the four JVM
+suites - catalog parsing, ROM selection, the v0 migration and JNI name parity -
+pass.  None of them reads a file, opens a socket or boots a guest.
+MANUAL_CHECKS.md section 8 has twelve that need a device, and three are worth
+doing before the others.  Check 1, that Start is pressable on an install with no
+ROM: z80cpmw shipped exactly that bug - updateMenuState still required hasROM()
+after its ROMs were deleted, so Start was greyed on every fresh install and
+Start is the only thing that fetches a ROM - and a person installing the package
+found it, because the scripted driver posted the command straight to the window
+and never looked at the gating.  Check 2, that a first launch with no network
+names the release and the reason instead of hanging, which is the cost this
+change deliberately accepts.  And check 9, that a corrupt ROM stops the machine:
+there is no bundled ROM left for it to fall back to, so what that check now
+watches for is not a silent fallback but a silent boot on anything at all.
 
 - [ANDROID] a ROM is never deleted, including a bad one.  A file that fails
 verification is re-downloaded once, and the fetch renames a fully verified
@@ -138,29 +144,6 @@ nothing, and a ROM a user put in that directory themselves is never removed.
 The cost is an unused 512 KB file per withdrawn release, which nothing reclaims.
 That is the deliberate side of the trade; if it ever becomes a complaint, the
 answer is a user-initiated cleanup, not an automatic one.
-
-- [ANY] the JVM fixtures are generation 1 and the server is generation 2.
-app/src/test/resources/index-v0.json says generation 1 for both releases with
-catalog_sha256 7a5411b3 and 3907ba2f, where the published index says 2,
-942803d1 and 4b4de296; the two catalog fixtures say generation 1 and name the
-pre-BNKCALL ROM hashes, and CatalogParsingTest asserts 2f4a6252 as a literal.
-Nothing in those four suites opens a socket, so they still pass - but they now
-describe a document nobody serves, which is the one thing a fixture is for.  The
-bundled emu_avw.rom WAS refreshed to the generation-2 bytes (19b3563, 4b11402a),
-so the asset and the fixtures beside it now disagree.
-
-- [ANY] tools/check-shipped-disks.sh has diverged in this repo: the cpmdroid row is
-now kind "index-v0" and asks a different question, because grepping for a
-release tag that no longer exists made it print NO PIN FOUND and exit 1 for a
-port that was working.  Three copies - cpmemu, romwbw_emu and z80cpmw - still
-hold the old version, and ioscpm's has diverged a third way: it detects a
-migrated port and reports CANNOT VERIFY (exit 2) rather than learning the v0
-index.  Its own header says to edit one and copy to the rest, so there is one
-merge to do and not two.  Both siblings have now migrated - ioscpm ffbe12c,
-z80cpmw f91c3a3 - and neither releaseTag in EmulatorViewModel.swift nor
-RELEASE_TAG in DiskCatalog.cpp survives, so running this copy from here today
-prints NO PIN FOUND for both of them.  That is the failure the cpmdroid row was
-changed to avoid, now happening to the other two.  Move those rows over.
 
 
 THE PACKAGE IS BEHIND THE TREE
@@ -177,10 +160,11 @@ installed copy still fetches ioscpm v1.4.5 and still serves the pre-98eb6a1
 w8.com and the R8 that hands an unfiltered host basename to F_DELETE.  What is
 left is a build and a Play Store rollout.
 
-  versionCode has moved 27 -> 30 and versionName 1.25 -> 1.28, which unblocks
+  versionCode has moved 27 -> 31 and versionName 1.25 -> 1.29, which unblocks
   the upload.  28 / "1.26" names the disk-name migration alone, 29 / "1.27" the
-  catalog repoint and the release picker, and 30 / "1.28" the ROM fetched from
-  the catalog; whether they go out as one upload or three, no number is reused.
+  catalog repoint and the release picker, 30 / "1.28" the ROM fetched from the
+  catalog, and 31 / "1.29" the ROM the user picks with none left in the package;
+  whether they go out as one upload or four, no number is reused.
   The history is worth keeping because it is
   how the block happened: both versionCode = 27 and versionName = "1.25" were
   already set at 35873d0, and at that commit DiskCatalogRepository.kt still read
@@ -190,9 +174,11 @@ left is a build and a Play Store rollout.
   uploaded under it - check the App bundle explorer, not this file, before
   reusing one.
 romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md owns the order and the reasons; read
-it before publishing anything.  This app bundles no disk image -
-app/src/main/assets holds emu_avw.rom and the help topics - so the image half
-was, and stays, a release action in ioscpm.
+it before publishing anything.  This app now bundles neither a disk image nor a
+ROM - app/src/main/assets holds the help topics and nothing else - so both
+halves are release actions in romwbw_disks, which is where the disks and the
+ROMs are published and where a correction reaches users with no build of this
+application.
 
   One thing the rollout does NOT fix, and the v0 rename makes it easier to
   miss rather than harder.  Nothing has ever invalidated an image already on the

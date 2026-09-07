@@ -85,8 +85,11 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // ROM display (read-only)
-        binding.romNameText.text = currentSettings.romName
+        // ROM: chosen from the selected release's catalog roms[].
+        updateRomDisplay()
+        binding.changeRomButton.setOnClickListener {
+            showRomDialog()
+        }
 
         // RomWBW release
         updateRomwbwVersionDisplay()
@@ -300,38 +303,166 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
+     * The ROM row: which of the release's published ROMs this machine boots.
+     *
+     * Drawn from what is already known rather than from a fetch, because this
+     * runs in onCreate and on every return to the screen. Before any catalog has
+     * been read the honest answer is the stored pick, or the release's default -
+     * which is what the note says rather than pretending to name a file.
+     */
+    private fun updateRomDisplay() {
+        val version = settingsRepo.selectedRomwbwVersion()
+        val pickedId = settingsRepo.selectedRomId(version)
+        val roms = cachedSelection?.takeIf { it.selected.romwbwVersion == version }?.catalog?.roms
+        val rom = roms?.let { selectRom(it, pickedId) }
+
+        binding.romNameText.text = when {
+            rom != null -> rom.name
+            pickedId != null -> pickedId
+            else -> "Default for this release"
+        }
+
+        val claim = settingsRepo.romClaim(version)
+        binding.romNote.text = when {
+            rom != null && claim?.romId == rom.id ->
+                "${rom.filename}, downloaded and verified against the catalog on every start."
+            rom != null ->
+                "${rom.filename}. Not on this device yet; CPMDroid fetches it before it starts."
+            claim != null ->
+                "${claim.filename}, downloaded and verified against the catalog on every start."
+            else ->
+                "Chosen from what RomWBW $version publishes. Tap Change to see the list."
+        }
+    }
+
+    /**
+     * Offer the ROMs the selected release publishes.
+     *
+     * A release's catalog is needed for this - the index does not carry roms[] -
+     * so it goes through the same loadSelectedCatalog() the disk list uses and
+     * reuses its cached answer when there is one.
+     */
+    private fun showRomDialog() {
+        val version = settingsRepo.selectedRomwbwVersion()
+        val cached = cachedSelection?.takeIf { it.selected.romwbwVersion == version }
+        if (cached != null) {
+            showRomChoices(version, cached.catalog.roms)
+            return
+        }
+
+        val progress = AlertDialog.Builder(this)
+            .setTitle("ROM")
+            .setMessage("Reading the RomWBW $version catalog...")
+            .setCancelable(false)
+            .create()
+        progress.show()
+
+        lifecycleScope.launch {
+            // finally, for the same reason showRomwbwVersionDialog() has one:
+            // leaving this screen mid-fetch cancels the coroutine, and a
+            // setCancelable(false) dialog the user cannot dismiss would be torn
+            // down by the framework with a WindowLeaked in the log.
+            val result = try {
+                loadSelectedCatalog(downloadManager, settingsRepo).onSuccess {
+                    cachedSelection = it
+                    knownVersions = it.runnable
+                }
+            } finally {
+                if (progress.isShowing) progress.dismiss()
+            }
+            result.fold(
+                onSuccess = { selection ->
+                    updateRomwbwVersionDisplay()
+                    updateRomDisplay()
+                    showRomChoices(selection.selected.romwbwVersion, selection.catalog.roms)
+                },
+                onFailure = {
+                    AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("ROM")
+                        .setMessage(catalogErrorMessage(it))
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            )
+        }
+    }
+
+    /**
+     * The list itself.
+     *
+     * What is stored is the catalog ID, never the filename shown beside it. The
+     * two are the same type and look alike, and seeding a filename into the
+     * field that holds an ID is precisely the bug that shipped in the sibling
+     * port and corrupted the preference on OK.
+     */
+    private fun showRomChoices(version: String, roms: List<RomInfo>) {
+        if (roms.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("ROM")
+                .setMessage("The RomWBW $version catalog publishes no ROM, so there is nothing to choose.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        val current = selectRom(roms, settingsRepo.selectedRomId(version))
+        var chosen = roms.indexOfFirst { it.id == current?.id }.coerceAtLeast(0)
+        val labels = roms.map { rom ->
+            val marks = buildList {
+                if (rom.isDefault) add("default")
+                if (settingsRepo.romClaim(version)?.romId == rom.id) add("downloaded")
+            }
+            if (marks.isEmpty()) rom.name else "${rom.name}\n${marks.joinToString(" - ")}"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("ROM for RomWBW $version")
+            .setSingleChoiceItems(labels, chosen) { _, which -> chosen = which }
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Select") { _, _ ->
+                val rom = roms.getOrNull(chosen) ?: return@setPositiveButton
+                if (rom.id == current?.id) return@setPositiveButton
+                // The ID. Never rom.filename - see the KDoc above.
+                settingsRepo.setSelectedRomId(version, rom.id)
+                updateRomDisplay()
+                // Fetched here, not left for the next launch to discover.
+                // Recording the pick and stopping would send the user back to a
+                // machine that starts on the old ROM until it is restarted, and
+                // then meets a dialog asking permission for the download their
+                // choice already implied - the same "ordinary consequence
+                // presented as a fault" the release switch was fixed for.
+                downloadRomThenApply(version, rom)
+            }
+            .show()
+    }
+
+    /**
      * The RomWBW release row above the disk slots.
      *
      * The note underneath used to warn that a release the bundled ROM was not
      * built for would boot with `*** WARNING: HBIOS/CBIOS Version Mismatch ***`,
      * because this app had no way to get any ROM but the one in its own
-     * package. It has one now, so the note says which ROM the release actually
-     * uses and whether it is here - the mismatch is no longer a state the app
-     * can be left in.
+     * package. There is no package ROM now: every release fetches its own and
+     * verifies it, so the note says whether this release's ROM is here, and the
+     * mismatch is no longer a state the app can be left in.
      */
     private fun updateRomwbwVersionDisplay() {
         val version = settingsRepo.selectedRomwbwVersion()
         val entry = knownVersions.firstOrNull { it.romwbwVersion == version }
         binding.romwbwVersionText.text = entry?.label ?: "RomWBW $version"
 
-        val bundled = RomwbwSupport.bundledRomRelease(this, currentSettings.romName)
         val lines = mutableListOf<String>()
         if (entry?.isPreview == true) {
             lines.add("PREVIEW: published as not yet recommended.")
         }
         lines.add(
-            when {
-                bundled == null ->
-                    "The bundled ROM's RomWBW release could not be read."
-                bundled == version ->
-                    "Boots the ROM bundled in the app, with no download. Disk slots " +
-                        "and boot config are kept separately for each release."
-                romLooksPresent(version) ->
-                    "Boots ${settingsRepo.romClaim(version)?.filename}, downloaded from " +
-                        "the catalog and verified on every start."
-                else ->
-                    "This release needs its own ROM from the catalog, and it is not on " +
-                        "this device. CPMDroid will offer to fetch it before it starts."
+            if (romLooksPresent(version)) {
+                "Boots ${settingsRepo.romClaim(version)?.filename}, downloaded from " +
+                    "the catalog and verified on every start. Disk slots and boot config " +
+                    "are kept separately for each release."
+            } else {
+                "This release needs its own ROM from the catalog, and it is not on " +
+                    "this device. CPMDroid will offer to fetch it before it starts."
             }
         )
         binding.romwbwVersionNote.text = lines.joinToString("\n")
@@ -418,8 +549,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun showRomwbwChoices(runnable: List<RomwbwVersion>) {
         val current = settingsRepo.selectedRomwbwVersion()
-        val bundled = RomwbwSupport.bundledRomRelease(this, currentSettings.romName)
-        val labels = runnable.map { romwbwChoiceLabel(it, bundled) }.toTypedArray()
+        val labels = runnable.map { romwbwChoiceLabel(it) }.toTypedArray()
 
         // The stored release may not be in the list at all - it can be
         // withdrawn upstream, or stop being runnable when the core changes - and
@@ -433,9 +563,6 @@ class SettingsActivity : AppCompatActivity() {
                 val entry = runnable.getOrNull(chosen) ?: return@setPositiveButton
                 if (entry.romwbwVersion == current) return@setPositiveButton
                 when {
-                    // The bundled release needs no ROM at all.
-                    entry.romwbwVersion == bundled -> applyRomwbwVersion(entry)
-
                     // A ROM that looks present is still verified before the
                     // switch, and re-fetched if it does not hold up - but that
                     // costs nothing when it does, and needs no network, so it
@@ -459,10 +586,10 @@ class SettingsActivity : AppCompatActivity() {
      * ready and the user is entitled to see it before choosing.
      *
      * The ROM half of the row used to read "no ROM in this build", which was
-     * true and is not any more: a release this build has no bundled ROM for is
-     * now one download away, not out of reach.
+     * true and is not any more: every release's ROM is one download away, and
+     * none of them is in the package.
      */
-    private fun romwbwChoiceLabel(entry: RomwbwVersion, bundled: String?): CharSequence {
+    private fun romwbwChoiceLabel(entry: RomwbwVersion): CharSequence {
         val marks = mutableListOf<String>()
         if (entry.isPreview) {
             marks.add("PREVIEW - not yet recommended")
@@ -470,11 +597,7 @@ class SettingsActivity : AppCompatActivity() {
             marks.add(entry.status)
         }
         marks.add(
-            when {
-                entry.romwbwVersion == bundled -> "ROM bundled in the app"
-                romLooksPresent(entry.romwbwVersion) -> "ROM downloaded"
-                else -> "ROM will be downloaded"
-            }
+            if (romLooksPresent(entry.romwbwVersion)) "ROM downloaded" else "ROM will be downloaded"
         )
         return entry.label + "\n" + marks.joinToString(" - ")
     }
@@ -520,6 +643,71 @@ class SettingsActivity : AppCompatActivity() {
      * The switch happens in the success arm and nowhere else: this is the "gate
      * on a completion callback" half of the contract, not a timer.
      */
+    /**
+     * Fetch a newly picked ROM now, and put the choice back if it cannot be got.
+     *
+     * The pick is written before the fetch so that fetchRomForRelease() resolves
+     * the ID that was just chosen; it is reverted on failure, because a stored
+     * pick whose bytes never arrived would leave the machine unable to start on
+     * a release that was working a moment ago.
+     */
+    private fun downloadRomThenApply(version: String, rom: RomInfo) {
+        val previousId = settingsRepo.romClaim(version)?.romId
+
+        @Suppress("DEPRECATION")
+        val progressDialog = ProgressDialog(this).apply {
+            setTitle("Preparing ${rom.name}")
+            setMessage("Checking its ROM...")
+            isIndeterminate = false
+            max = 100
+            setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
+            setCancelable(false)
+            show()
+        }
+
+        downloadGate?.close()
+        val gate = DownloadProgressGate()
+        gate.attach(progressDialog)
+        downloadGate = gate
+
+        lifecycleScope.launch {
+            var lastPercent = -1
+            val result = fetchRomForRelease(
+                downloadManager, settingsRepo, version
+            ) { bytesRead, totalBytes ->
+                val percent = if (totalBytes > 0) (bytesRead * 100 / totalBytes).toInt() else 0
+                if (percent != lastPercent) {
+                    lastPercent = percent
+                    gate.postProgress(percent, bytesRead)
+                }
+            }
+
+            gate.close()
+            if (downloadGate === gate) downloadGate = null
+
+            result.fold(
+                onSuccess = {
+                    updateRomDisplay()
+                    updateRomwbwVersionDisplay()
+                    Toast.makeText(
+                        this@SettingsActivity,
+                        "${rom.name} is ready. The machine will use it when it next starts.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                },
+                onFailure = { error ->
+                    settingsRepo.setSelectedRomId(version, previousId)
+                    updateRomDisplay()
+                    AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("${rom.name} was not used")
+                        .setMessage(catalogErrorMessage(error))
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            )
+        }
+    }
+
     private fun downloadRomThenSwitch(entry: RomwbwVersion) {
         @Suppress("DEPRECATION")
         val progressDialog = ProgressDialog(this).apply {
@@ -585,14 +773,16 @@ class SettingsActivity : AppCompatActivity() {
      * saying so is better than silently booting nothing.
      */
     private fun applyRomwbwVersion(entry: RomwbwVersion) {
-        // Only ever reached with a ROM behind it: the bundled release, a
-        // release whose downloaded ROM verified just now, or one whose ROM was
-        // fetched and verified by downloadRomThenSwitch immediately above.
+        // Only ever reached with a ROM behind it: a release whose downloaded
+        // ROM verified just now, or one whose ROM was fetched and verified by
+        // downloadRomThenSwitch immediately above.
+        //
         settingsRepo.setSelectedRomwbwVersion(entry.romwbwVersion)
         cachedSelection = null
         currentSettings = settingsRepo.getSettings()
         updateDiskSlotDisplays()
         updateRomwbwVersionDisplay()
+        updateRomDisplay()
 
         val assigned = currentSettings.diskSlots.count { it != null }
         val message = if (assigned == 0) {

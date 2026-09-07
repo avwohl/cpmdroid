@@ -51,19 +51,35 @@ suspend fun loadSelectedCatalog(
 ): Result<CatalogSelection> {
     val runnable = fetchRunnableVersions(downloadManager).getOrElse { return Result.failure(it) }
 
-    val stored = settingsRepo.selectedRomwbwVersion()
-    val selected = selectRomwbwVersion(runnable, stored)
+    // Null until something has settled on a release, and then the index's own
+    // `default: true` entry wins. That is what carries a fresh install - and an
+    // install upgrading from a build whose release was implied by the ROM in its
+    // own APK - onto whatever the catalog currently marks current, instead of
+    // onto whichever release this app happened to ship a ROM for.
+    val preferred = settingsRepo.preferredRomwbwVersion()
+    val previous = settingsRepo.selectedRomwbwVersion()
+    val selected = selectRomwbwVersion(runnable, preferred)
         ?: return Result.failure(CatalogFailure.NoRunnableVersion(RomwbwSupport.supportedList()))
 
-    // A stored selection that is no longer on offer is written back, not just
-    // worked around. Disk slots and NVRAM are keyed on the selected release, so
-    // leaving the pointer at a release that cannot be fetched would show one
-    // release's catalog against another release's slots. Writing it back loses
-    // nothing: the old release's slots stay under their own keys and come back
-    // untouched if it reappears.
-    if (selected.romwbwVersion != stored) {
-        Log.w(TAG, "Selected RomWBW $stored is not on offer; falling back to " +
-            "${selected.romwbwVersion}. Its slots and NVRAM are kept.")
+    // The resolved answer is written back, not just worked around. Disk slots
+    // and NVRAM are keyed on the selected release, so leaving the pointer where
+    // it was would show one release's catalog against another release's slots.
+    // Writing it back loses nothing: the old release's slots stay under their
+    // own keys and come back untouched if it is selected again.
+    //
+    // Writing it here is what makes the catalog-following a ONE-TIME move rather
+    // than a standing one: after this, the release is settled and a RomWBW
+    // version published later will not shift a machine off the disks and NVRAM
+    // it has been using. New ROMs and disks within this release still arrive on
+    // every fetch, which is the part that needed no app release.
+    if (selected.romwbwVersion != previous) {
+        if (preferred != null) {
+            Log.w(TAG, "Selected RomWBW $preferred is not on offer; falling back to " +
+                "${selected.romwbwVersion}. Its slots and NVRAM are kept.")
+        } else {
+            Log.i(TAG, "Following the catalog: RomWBW ${selected.romwbwVersion} " +
+                "(was $previous). Each release's slots and NVRAM are kept separately.")
+        }
         settingsRepo.setSelectedRomwbwVersion(selected.romwbwVersion)
     }
 
@@ -144,11 +160,22 @@ suspend fun fetchRomForRelease(
     // fetched last month work on a train - and it is a verify, not a shortcut
     // past one: the size and sha256 recorded when it was fetched are checked
     // against the bytes right now.
+    //
+    // Only when it is also the ROM that is wanted. A pick made on the Settings
+    // screen is a preference, and a verified file already on disk would answer
+    // this question before the catalog was ever opened - so choosing emu_rcz80
+    // would be stored, ignored on every launch, and look like the setting did
+    // nothing. A claim with no recorded id predates this and is accepted when
+    // nothing has been picked.
+    val wantedRomId = settingsRepo.selectedRomId(romwbwVersion)
     val stored = settingsRepo.romClaim(romwbwVersion)
-    if (stored != null) {
+    if (stored != null && (wantedRomId == null || stored.romId == wantedRomId)) {
         withContext(Dispatchers.IO) { downloadManager.readVerifiedRom(romwbwVersion, stored) }
             .onSuccess { return Result.success(it) }
             .onFailure { Log.i(TAG, "RomWBW $romwbwVersion ROM needs fetching: ${it.message}") }
+    } else if (stored != null) {
+        Log.i(TAG, "RomWBW $romwbwVersion ROM on disk is ${stored.romId ?: "(unrecorded)"}, " +
+            "but $wantedRomId is selected; fetching it")
     }
 
     val runnable = fetchRunnableVersions(downloadManager).getOrElse { return Result.failure(it) }
@@ -158,10 +185,10 @@ suspend fun fetchRomForRelease(
     val catalog = fetchAndNote(downloadManager, settingsRepo, entry)
         .getOrElse { return Result.failure(it) }
 
-    // The entry flagged default, else the first - never by position, never by
-    // looking for "emu_avw", and an empty array is a release with no ROM rather
-    // than a document to reject.
-    val rom = selectRom(catalog.roms)
+    // The ID the user picked, else the entry flagged default, else the first -
+    // never by position, never by looking for "emu_avw", and an empty array is a
+    // release with no ROM rather than a document to reject.
+    val rom = selectRom(catalog.roms, wantedRomId)
         ?: return Result.failure(RomFailure.NoRomPublished(romwbwVersion))
 
     Log.i(TAG, "RomWBW $romwbwVersion ROM is ${rom.name} (${rom.id}, ${rom.filename}, " +

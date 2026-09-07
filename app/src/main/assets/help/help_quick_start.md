@@ -2,13 +2,20 @@
 
 ## First Launch
 
-When you first launch CPMDroid, the Combo disk image (`hd1k_combo.img`) is
-downloaded and assigned to disk slot 0. You'll see the RomWBW boot loader
-screen.
+**The first launch needs a network connection.** CPMDroid carries no ROM: it
+fetches the one the selected RomWBW release publishes and checks it against the
+size and SHA-256 that release's catalog gives for it, and only then starts. With
+no network it says so and offers a Download button rather than booting bytes it
+cannot check. Every launch after that works offline - the catalog's claim is
+stored beside the ROM and re-checked against it.
+
+Once the ROM is in hand, the Combo disk image is downloaded and assigned to disk
+slot 0. Its name carries the release it belongs to, so on RomWBW 3.6.0 it is
+`hd1k_combo-v0-3.6.0.img`. You'll see the RomWBW boot loader screen.
 
 ## Toolbar
 
-Five buttons and a status label, left to right. There is no gear icon and no
+Six buttons and a status label, left to right. There is no gear icon and no
 overflow menu - this is the whole toolbar.
 
 | Control | Function |
@@ -16,13 +23,26 @@ overflow menu - this is the whole toolbar.
 | Start/Stop | Start the emulator, or stop it |
 | Boot/Reboot | Reset the machine and reboot, after a confirmation |
 | Running / Stopped | Not a button - the emulator's current state |
+| File transfer | The app's own view of the Imports and Exports folders |
 | ? | Help topics (this screen) |
-| Settings | ROM, disk slots, font size, scrollback and display options |
+| Settings | ROM, RomWBW release, disk slots, font size, scrollback and display options |
 | About | Version and credits |
 
 **Settings only opens while the emulator is stopped.** Tapping it during a
 session raises "Stop emulator before changing settings" and does nothing else,
 so stop first, change what you came for, then start and reboot.
+
+The two rows at the top of Settings come from the catalog rather than from the
+app, so what they offer can change without a new version of CPMDroid:
+
+- **ROM** - the ROMs the selected release publishes, listed by **Change**. The
+  one you pick is fetched, if it is not already here, and checked against the
+  catalog before the machine starts
+- **RomWBW Release** - the release everything else follows, listed by its own
+  **Change**. A new install takes the catalog's current release the first time it
+  reads it, and then stays there; this is what moves it afterwards. Each release
+  keeps its own disk slots, NVRAM and ROM, so switching and switching back loses
+  nothing
 
 ## Control Strip
 

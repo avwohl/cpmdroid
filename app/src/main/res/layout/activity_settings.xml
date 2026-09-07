@@ -12,26 +12,51 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- The BUNDLED ROM, which is what a fresh install boots and what the
-             app falls back on when the selected release is the one it declares.
-             Read-only, and deliberately still saying "Bundled": the ROM the
-             machine actually boots is the selected release's, which the RomWBW
-             Release row below names. -->
+        <!-- The ROM, chosen from the selected release's catalog roms[]. No
+             longer a read-only "Bundled ROM" row: this app ships no ROM, so
+             there is nothing to display that is not the catalog's, and a
+             release can publish more than one (emu_avw and emu_rcz80 today).
+             The text is filled in from the catalog at run time, so the literal
+             here is only what shows before the first fetch. -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Bundled ROM"
+            android:text="ROM"
             android:textColor="#00FF00"
             android:textSize="18sp"
             android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/romNameText"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="emu_avw.rom"
-            android:textColor="#AAFFAA"
-            android:padding="8dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:id="@+id/romNameText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text=""
+                android:textColor="#AAFFAA"
+                android:padding="8dp" />
+
+            <Button
+                android:id="@+id/changeRomButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Change"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/romNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#666666"
+            android:textSize="12sp"
             android:layout_marginTop="4dp" />
 
         <!-- RomWBW release: which catalog the disk slots and the boot config

@@ -28,10 +28,7 @@ import androidx.lifecycle.lifecycleScope
 import com.awohl.cpmdroid.data.DiskDownloadManager
 import com.awohl.cpmdroid.data.EmulatorSettings
 import com.awohl.cpmdroid.data.RomFailure
-import com.awohl.cpmdroid.data.RomRequirement
 import com.awohl.cpmdroid.data.SettingsRepository
-import com.awohl.cpmdroid.data.V0_BUNDLED_ROMWBW
-import com.awohl.cpmdroid.data.romRequirement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -100,6 +97,15 @@ class MainActivity : AppCompatActivity() {
     // whole path exists to make impossible.
     private var lastRomwbwVersion: String? = null
 
+    // The ROM pick the running machine was started under, snapshotted the same
+    // way lastRomwbwVersion is. A release change is not the only way the ROM can
+    // change now that the user picks one: choosing emu_rcz80 for the release
+    // already selected changes the bytes without changing the release, and
+    // without this the machine would keep running the ROM it started on while
+    // Settings said otherwise. Null means "the release default", which is a
+    // distinct value from any id and compares correctly.
+    private var lastRomId: String? = null
+
     // True once a machine has been started in this process. A second
     // loadRomAndDisks() - which only a release change causes - is a reboot onto
     // a different ROM, not a first boot, so it goes through the same reset the
@@ -124,6 +130,12 @@ class MainActivity : AppCompatActivity() {
     // another release's ROM - the pairing every other line of this path exists
     // to prevent.
     private var resolvingRomFor: String? = null
+
+    // True while the first-run index fetch is in flight. Separate from
+    // resolvingRomFor, which is keyed on a release: before the index arrives
+    // there is no release to key on, and using the anchor as one would let a
+    // second tap start a second fetch under a name that means nothing.
+    private var resolvingRelease = false
 
     private var runLoopCount = 0
     // Elapsed-time based (iteration counts stretched ~6x whenever the guest
@@ -309,7 +321,7 @@ class MainActivity : AppCompatActivity() {
             Log.i(TAG, "v0 disk-name migration: renamed=${nameMigration.renamed}, " +
                 "complete=${nameMigration.complete}, slots=${nameMigration.slots}")
         }
-        checkBundledRomAgainstMigrationConstant()
+        logRomwbwSelection()
 
         terminalView = findViewById(R.id.terminalView)
         playPauseButton = findViewById(R.id.playPauseButton)
@@ -476,7 +488,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         bootButton.setOnClickListener {
-            showRestartConfirmDialog()
+            // With no ROM there is no machine to restart, and resetting the
+            // core would destroy and recreate a state that never held anything
+            // - clearing the screen and the "ROM needed" status with it, so the
+            // one thing telling the user what to do next disappears and nothing
+            // starts. Ask for the ROM again instead, which is what the play
+            // button does from the same state.
+            if (!romLoaded) {
+                startMachine()
+            } else {
+                showRestartConfirmDialog()
+            }
         }
 
         settingsButton.setOnClickListener {
@@ -628,15 +650,14 @@ class MainActivity : AppCompatActivity() {
         val versionCode = getVersionCode()
         val apkBuilt = getApkBuildTime()
 
-        // Three RomWBW facts, because they answer different questions and can
-        // disagree: which release's catalog the disk slots belong to, which one
-        // the ROM in the package boots, and which ones this build's emulator
-        // core has been checked against. A mismatch between the first two is
-        // what makes the guest print a HBIOS/CBIOS version warning.
+        // Two RomWBW facts, because they answer different questions and can
+        // disagree: which release's catalog the disk slots and the fetched ROM
+        // belong to, and which releases this build's emulator core has been
+        // checked against. A release the core cannot run is never offered, so
+        // the pair can only disagree if a pinned release outlived core support.
         val selectedRomwbw = settingsRepo.selectedRomwbwVersion()
-        val bundledRomwbw = RomwbwSupport.bundledRomRelease(this, settingsRepo.getSettings().romName)
-        val romwbwLine = "$selectedRomwbw selected, bundled ROM " +
-            "${bundledRomwbw ?: "unreadable"}, core supports ${RomwbwSupport.supportedList()}"
+        val romwbwLine = "$selectedRomwbw selected, core supports " +
+            RomwbwSupport.supportedList()
 
         // Three separate identities, because they answer different questions.
         // "Built" is the installed file's own timestamp and settles whether an
@@ -706,32 +727,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Does the bundled ROM still declare the release the storage migration maps
-     * names to?
+     * What release this machine is on, and what the core can run.
      *
-     * V0_BUNDLED_ROMWBW is what `hd1k_combo.img` was renamed to
-     * (`hd1k_combo-v0-3.5.1.img`), what the seeded per-release preference keys
-     * are scoped by, and what a fresh install selects. The ROM in assets/ is
-     * what this build can actually boot. Nothing links the two except this
-     * check: replacing the ROM without moving the constant leaves every user's
-     * disks filed under a release the app no longer runs, and the symptom is
-     * the guest printing a version mismatch rather than anything in the log.
-     *
-     * Reported, not repaired. Changing the constant here would strand state
-     * that has already been written under the old one; the fix is a code change
-     * plus a migration, which is what this message is asking for.
+     * Two facts rather than three, because there is no ROM in the package to be
+     * the third. [V0_LEGACY_ROMWBW] is not among them: it is a historical
+     * namespace anchor, not a release this build prefers, so there is nothing
+     * left for it to disagree with.
      */
-    private fun checkBundledRomAgainstMigrationConstant() {
-        val romName = settingsRepo.getSettings().romName
-        val declared = RomwbwSupport.bundledRomRelease(this, romName)
-        if (declared != null && declared != V0_BUNDLED_ROMWBW) {
-            Log.e(TAG, "assets/$romName declares RomWBW $declared but V0_BUNDLED_ROMWBW is " +
-                "$V0_BUNDLED_ROMWBW. Stored disk names and per-release preference keys are " +
-                "scoped by the constant, so the two must move together, with a migration.")
-        }
-        Log.i(TAG, "Selected RomWBW ${settingsRepo.selectedRomwbwVersion()}; bundled ROM " +
-            "declares ${declared ?: "(unreadable)"}; core supports " +
-            RomwbwSupport.supportedList())
+    private fun logRomwbwSelection() {
+        Log.i(TAG, "Selected RomWBW ${settingsRepo.selectedRomwbwVersion()}" +
+            (if (settingsRepo.hasResolvedRelease()) "" else " (not resolved yet)") +
+            "; core supports " + RomwbwSupport.supportedList())
     }
 
     private fun checkFirstLaunchAndLoad() {
@@ -763,16 +769,32 @@ class MainActivity : AppCompatActivity() {
      * `*** WARNING: HBIOS/CBIOS Version Mismatch ***` and then misbehaves, and
      * the whole reason this app fetches the ROM from the catalog at all is to
      * stop that pairing existing. So there is no path here that starts a
-     * machine on the bundled ROM because the selected release's ROM was
-     * awkward to get: falling back would recreate the exact mismatch, and would
-     * do it invisibly.
+     * machine on some other release's ROM because the selected one was awkward
+     * to get: falling back would recreate the exact mismatch, and would do it
+     * invisibly.
      *
-     * The bundled ROM is still what makes a fresh install boot with no network:
-     * a new install selects the release the bundled ROM declares, and this
-     * takes the Bundled branch, opens the asset, and never touches the index.
+     * The cost, named rather than discovered: a first launch with no network
+     * cannot start. This app carries no ROM, and a ROM cannot be verified
+     * without the catalog that publishes its size and hash, so there is nothing
+     * to boot until one fetch has succeeded. Every later launch is offline -
+     * the claim is stored with the file and re-checked against it - and the
+     * no-ROM state is reported through romUnavailable() with a Download button
+     * rather than left as a machine that does nothing.
      */
     private fun startMachine() {
         val settings = settingsRepo.getSettings()
+
+        // An install that has never resolved a release against a published
+        // index has no business asking whether THAT release's ROM is here.
+        // selectedRomwbwVersion() answers the legacy namespace anchor until an
+        // index arrives, so going on from here would report "RomWBW 3.5.1 has
+        // no ROM on this device yet" and offer to fetch 3.5.1's ROM on a device
+        // the catalog would have put on 3.6.0. Resolve first, then start.
+        if (!settingsRepo.hasResolvedRelease()) {
+            resolveReleaseThenStart(settings)
+            return
+        }
+
         val selected = settingsRepo.selectedRomwbwVersion()
 
         if (resolvingRomFor == selected) {
@@ -781,58 +803,136 @@ class MainActivity : AppCompatActivity() {
         }
         resolvingRomFor = selected
 
-        val bundled = RomwbwSupport.bundledRomRelease(this, settings.romName)
         lastRomwbwVersion = selected
 
-        when (val requirement = romRequirement(selected, bundled)) {
-            is RomRequirement.Bundled -> romResolved(settings, selected, null)
-
-            is RomRequirement.FromCatalog -> {
-                val version = requirement.romwbwVersion
-
-                // What the catalog promised about this release's ROM when it
-                // was fetched. Without a claim there is nothing to check the
-                // file against, and a 512 KB file of unknown provenance is
-                // exactly what must not be handed to the emulator. Nothing is
-                // fetched here without being asked: the network belongs to the
-                // dialog's Download button, not to a launch.
-                val claim = settingsRepo.romClaim(version)
-                if (claim == null) {
-                    romUnavailable(settings, version, bundled, RomFailure.NeverFetched(version))
-                    return
-                }
-                // Off the main thread: 512 KB read plus a SHA-256 over it, on
-                // the launch path, on whatever storage the device has.
-                lifecycleScope.launch {
-                    val bytes = withContext(Dispatchers.IO) {
-                        downloadManager.readVerifiedRom(version, claim)
-                    }
-                    // Overtaken while it was hashing: these are the bytes of a
-                    // release nothing is selecting any more.
-                    if (resolvingRomFor != version) return@launch
-                    bytes.fold(
-                        onSuccess = { romResolved(settings, version, it) },
-                        onFailure = { romUnavailable(settings, version, bundled, it) }
-                    )
-                }
+        // What the catalog promised about this release's ROM when it was
+        // fetched. Without a claim there is nothing to check the file against,
+        // and a 512 KB file of unknown provenance is exactly what must not be
+        // handed to the emulator. Nothing is fetched here without being asked:
+        // the network belongs to the dialog's Download button, not to a launch.
+        //
+        // A claim for a ROM that is no longer the selected one is not a claim
+        // about what to boot, so it is treated as no claim at all and
+        // fetchRomForRelease() is left to get the right one.
+        val wantedRomId = settingsRepo.selectedRomId(selected)
+        lastRomId = wantedRomId
+        val stored = settingsRepo.romClaim(selected)
+        val claim = stored?.takeIf { wantedRomId == null || it.romId == wantedRomId }
+        if (claim == null) {
+            // Which of the two it is matters to the person reading it: nothing
+            // fetched for this release at all, or a ROM that is here and is not
+            // the one they chose.
+            val why = if (stored != null && wantedRomId != null) {
+                RomFailure.PickedRomNotFetched(selected, wantedRomId)
+            } else {
+                RomFailure.NeverFetched(selected)
             }
+            romUnavailable(settings, selected, why)
+            return
         }
+        // Off the main thread: 512 KB read plus a SHA-256 over it, on the
+        // launch path, on whatever storage the device has.
+        lifecycleScope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                downloadManager.readVerifiedRom(selected, claim)
+            }
+            // Overtaken while it was hashing: these are the bytes of a release
+            // nothing is selecting any more.
+            if (resolvingRomFor != selected) return@launch
+            bytes.fold(
+                onSuccess = { romResolved(settings, selected, it) },
+                onFailure = { romUnavailable(settings, selected, it) }
+            )
+        }
+    }
+
+    /**
+     * First launch: find out which release this machine should be on, then go.
+     *
+     * The index is what decides. An install that has never picked a release by
+     * hand follows the entry the index marks `default: true`, which is the
+     * mechanism that lets a newly published RomWBW release reach users with no
+     * app release - and the reason this app no longer starts life pinned to
+     * whichever release it happened to ship a ROM for.
+     *
+     * Nothing is asked before downloading. A first launch already fetches a
+     * 49 MB starter disk unprompted, so stopping to ask permission for a 512 KB
+     * ROM would present the ordinary cost of setting the app up as though it
+     * were a fault - the mistake the sibling port made and backed out. A dialog
+     * appears only when the fetch cannot be done at all.
+     */
+    private fun resolveReleaseThenStart(settings: EmulatorSettings) {
+        if (resolvingRelease) {
+            Log.i(TAG, "The release is already being resolved; not asking twice")
+            return
+        }
+        resolvingRelease = true
+
+        showDownloadProgress("Setting up CPMDroid", "Reading the catalog...")
+        lifecycleScope.launch {
+            val result = try {
+                loadSelectedCatalog(downloadManager, settingsRepo)
+            } finally {
+                resolvingRelease = false
+                hideDownloadProgress()
+            }
+            result.fold(
+                onSuccess = { selection ->
+                    val version = selection.selected.romwbwVersion
+                    Log.i(TAG, "First run resolved to RomWBW $version " +
+                        "(${selection.catalog.disks.size} disks, " +
+                        "${selection.catalog.roms.size} ROMs published)")
+                    // Straight to the fetch. There is no claim yet by
+                    // definition, so going back through startMachine() would
+                    // only reach romUnavailable() and put a dialog in front of
+                    // a user who has asked for nothing but a working machine.
+                    fetchRomThenStart(settingsRepo.getSettings(), version)
+                },
+                onFailure = { releaseUnresolved(settings, it) }
+            )
+        }
+    }
+
+    /**
+     * The first fetch did not happen, so there is not even a release to name.
+     *
+     * Deliberately a different message from romUnavailable(): that one knows
+     * which release needs which file, and this one knows neither. This is the
+     * cost of carrying no ROM, stated plainly rather than left as an app that
+     * appears to do nothing.
+     */
+    private fun releaseUnresolved(settings: EmulatorSettings, error: Throwable) {
+        Log.e(TAG, "Could not resolve a RomWBW release: ${error.message}", error)
+        statusText.text = "Setup needed"
+        statusText.setTextColor(0xFFFF8800.toInt())
+
+        AlertDialog.Builder(this)
+            .setTitle("CPMDroid needs to set up once")
+            .setMessage(
+                "${error.message}\n\n" +
+                    "CPMDroid does not carry a ROM. The first start downloads the ROM and a " +
+                    "starter disk for the current RomWBW release and checks them against the " +
+                    "catalog. After that it works offline. Nothing else is needed."
+            )
+            .setPositiveButton("Try again") { _, _ -> startMachine() }
+            .setCancelable(true)
+            .show()
     }
 
     /**
      * The ROM is in hand: fetch the starter disk if this is that kind of
      * launch, then start.
      *
-     * [romBytes] is null for the bundled asset, which loadRomAndDisks opens for
-     * itself. Anything else has already been verified against the catalog's
-     * size and sha256. [romwbwVersion] is the release those bytes are for, and
-     * is carried rather than re-read because the starter-disk fetch below can
-     * change what is selected while it runs.
+     * [romBytes] has already been verified against the catalog's size and
+     * sha256 - there is no other way for a ROM to reach this app.
+     * [romwbwVersion] is the release those bytes are for, and is carried rather
+     * than re-read because the starter-disk fetch below can change what is
+     * selected while it runs.
      */
     private fun romResolved(
         settings: EmulatorSettings,
         romwbwVersion: String,
-        romBytes: ByteArray?
+        romBytes: ByteArray
     ) {
         if (needsDefaultDisk) {
             needsDefaultDisk = false
@@ -843,20 +943,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * The selected release has no usable ROM: name it, and offer the two
-     * honest choices.
+     * The selected release has no usable ROM: name it, and offer to fetch it.
      *
-     * Fetch it now, or go back to the release the bundled ROM actually
-     * provides. There is deliberately no third button that starts anyway. The
-     * message names the release, the file and the reason, because "it did not
-     * start" with no further detail is indistinguishable from a crash, and the
-     * three causes - never fetched, deleted since, or on disk and not what the
-     * catalog describes - want different responses.
+     * There is deliberately no button that starts anyway. The message names the
+     * release, the file and the reason, because "it did not start" with no
+     * further detail is indistinguishable from a crash, and the causes - never
+     * fetched, deleted since, or on disk and not what the catalog describes -
+     * want different responses.
+     *
+     * There is also no "use the release this app came with" button any more,
+     * because there is no ROM in the package for it to mean. On a first launch
+     * with no network this dialog IS the app: Download is the only way forward,
+     * and saying so plainly is better than a machine that appears to do nothing.
      */
     private fun romUnavailable(
         settings: EmulatorSettings,
         romwbwVersion: String,
-        bundled: String?,
         error: Throwable
     ) {
         Log.e(TAG, "No usable ROM for RomWBW $romwbwVersion: ${error.message}", error)
@@ -864,41 +966,25 @@ class MainActivity : AppCompatActivity() {
         statusText.text = "ROM needed"
         statusText.setTextColor(0xFFFF8800.toInt())
 
-        val builder = AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle("RomWBW $romwbwVersion needs its ROM")
             .setMessage(
                 "${error.message}\n\n" +
-                    "CPMDroid will not boot a machine on one release's disks with another " +
-                    "release's ROM: CP/M prints *** WARNING: HBIOS/CBIOS Version Mismatch *** " +
-                    "and behaves unpredictably. Nothing already downloaded is affected."
+                    "CPMDroid downloads the ROM for the release it is set to, and checks it " +
+                    "against the catalog's hash before booting it. It will not start a machine " +
+                    "on one release's disks with another release's ROM: CP/M prints " +
+                    "*** WARNING: HBIOS/CBIOS Version Mismatch *** and behaves unpredictably. " +
+                    "Nothing already downloaded is affected."
             )
             .setPositiveButton("Download ROM") { _, _ ->
-                fetchRomThenStart(settings, romwbwVersion, bundled)
+                fetchRomThenStart(settings, romwbwVersion)
             }
-            // Dismissable, because with an unreadable bundled asset the "use
-            // the bundled release" button is absent and a modal with one button
-            // that can keep failing is a trap. Dismissing starts nothing: the
-            // status strip stays on "ROM needed", and the play button brings
-            // this back rather than doing nothing.
+            // Dismissable, because a modal with one button that can keep failing
+            // - on a plane, behind a captive portal - is a trap. Dismissing
+            // starts nothing: the status strip stays on "ROM needed", and the
+            // play button brings this back rather than doing nothing.
             .setCancelable(true)
-
-        // Only offered when there is something to go back to. A bundled asset
-        // whose HBIOS block cannot be read gives this button nowhere to send
-        // the user, and a button that silently did nothing would be worse than
-        // its absence.
-        if (bundled != null) {
-            builder.setNegativeButton("Use RomWBW $bundled") { _, _ ->
-                Log.i(TAG, "Switching back to the bundled release $bundled")
-                settingsRepo.setSelectedRomwbwVersion(bundled)
-                Toast.makeText(
-                    this,
-                    "Switched to RomWBW $bundled. Your RomWBW $romwbwVersion disks are kept.",
-                    Toast.LENGTH_LONG
-                ).show()
-                startMachine()
-            }
-        }
-        builder.show()
+            .show()
     }
 
     /**
@@ -912,8 +998,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun fetchRomThenStart(
         settings: EmulatorSettings,
-        romwbwVersion: String,
-        bundled: String?
+        romwbwVersion: String
     ) {
         // The file's own name is not known until the catalog has been read, and
         // the index and the catalog are two round trips before a byte of ROM
@@ -934,7 +1019,7 @@ class MainActivity : AppCompatActivity() {
             if (resolvingRomFor != romwbwVersion) return@launch
             result.fold(
                 onSuccess = { romResolved(settings, romwbwVersion, it) },
-                onFailure = { romUnavailable(settings, romwbwVersion, bundled, it) }
+                onFailure = { romUnavailable(settings, romwbwVersion, it) }
             )
         }
     }
@@ -950,7 +1035,7 @@ class MainActivity : AppCompatActivity() {
      * would pair one release's disks with another release's ROM, which is the
      * one outcome none of this is allowed to produce.
      */
-    private fun downloadDefaultDisk(romwbwVersion: String, romBytes: ByteArray?) {
+    private fun downloadDefaultDisk(romwbwVersion: String, romBytes: ByteArray) {
         statusText.text = "First launch setup..."
         Log.i(TAG, "First launch - fetching disk catalog...")
 
@@ -1068,14 +1153,13 @@ class MainActivity : AppCompatActivity() {
     /**
      * Start the machine on a ROM that has already been resolved.
      *
-     * [romBytes] is null only for the bundled asset, which is read here rather
-     * than by the caller so the "ROM not found in assets" report stays where it
-     * has always been. Anything non-null has already been verified against the
-     * catalog's size and sha256 - see DiskDownloadManager.readVerifiedRom - and
-     * arrives as bytes rather than a File so nothing can swap the file between
-     * the check and the load.
+     * [romBytes] has already been verified against the catalog's size and
+     * sha256 - see DiskDownloadManager.readVerifiedRom - and arrives as bytes
+     * rather than a File so nothing can swap the file between the check and the
+     * load. There is no other source: this app carries no ROM, so a machine
+     * either starts on catalog bytes or does not start.
      */
-    private fun loadRomAndDisks(settings: EmulatorSettings, romBytes: ByteArray?) {
+    private fun loadRomAndDisks(settings: EmulatorSettings, romBytes: ByteArray) {
         // The resolution ends here and not at romResolved(), so that the
         // starter-disk fetch between the two is covered by it as well: for as
         // long as this is set, a play-button tap is a no-op rather than a
@@ -1089,21 +1173,17 @@ class MainActivity : AppCompatActivity() {
         terminalView.scrollbackLines = settings.scrollbackLines
 
         // Log current settings for debugging
-        Log.i(TAG, "Settings: ROM=${settings.romName}")
+        Log.i(TAG, "Settings: RomWBW=${settingsRepo.selectedRomwbwVersion()}, " +
+            "ROM=${settingsRepo.selectedRomId(settingsRepo.selectedRomwbwVersion()) ?: "(catalog default)"}")
         settings.diskSlots.forEachIndexed { index, filename ->
             Log.i(TAG, "Disk slot $index: ${filename ?: "(empty)"}")
         }
 
         executor.execute {
             try {
-                val romName = settings.romName
-                val romData = romBytes ?: assets.open(romName).use { it.readBytes() }
-                if (romBytes == null) {
-                    Log.i(TAG, "ROM loaded from assets: $romName (${romData.size} bytes)")
-                } else {
-                    Log.i(TAG, "ROM loaded from the catalog download for RomWBW " +
-                        "${settingsRepo.selectedRomwbwVersion()} (${romData.size} bytes)")
-                }
+                val romData = romBytes
+                Log.i(TAG, "ROM loaded from the catalog download for RomWBW " +
+                    "${settingsRepo.selectedRomwbwVersion()} (${romData.size} bytes)")
 
                 if (emulator.loadRom(romData)) {
                     loadDisksAndConfigureSlices(settings)
@@ -1160,12 +1240,13 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             } catch (e: IOException) {
-                // Only the bundled branch can reach this: a catalog ROM is
-                // already bytes in memory by the time it gets here.
-                Log.e(TAG, "ROM not found in assets: ${settings.romName}", e)
+                // A catalog ROM is already bytes in memory by the time it gets
+                // here, so this is the disk side: an image that could not be
+                // read off external storage.
+                Log.e(TAG, "Could not read a disk image while starting", e)
                 mainHandler.post {
-                    statusText.text = "ROM not found"
-                    Toast.makeText(this, "Place ${settings.romName} in assets", Toast.LENGTH_LONG).show()
+                    statusText.text = "Disk read failed"
+                    Toast.makeText(this, "A disk image could not be read", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -1461,9 +1542,21 @@ class MainActivity : AppCompatActivity() {
         // outcome that must stay impossible is 3.6.0 disks mounted under the
         // ROM that 3.5.1 was started with.
         val selectedNow = settingsRepo.selectedRomwbwVersion()
-        if (lastRomwbwVersion != null && selectedNow != lastRomwbwVersion) {
-            Log.i(TAG, "RomWBW release changed $lastRomwbwVersion -> $selectedNow; " +
-                "reloading the ROM as well as the disks")
+        val romIdNow = settingsRepo.selectedRomId(selectedNow)
+        val releaseChanged = lastRomwbwVersion != null && selectedNow != lastRomwbwVersion
+        // A ROM change within one release takes the same path. The disks stay
+        // valid - they belong to the release, not to the ROM - but the bytes the
+        // CPU is executing do not, and leaving them would run emu_avw while
+        // Settings said emu_rcz80 with nothing to show the difference.
+        val romChanged = lastRomwbwVersion != null && !releaseChanged && romIdNow != lastRomId
+        if (releaseChanged || romChanged) {
+            if (releaseChanged) {
+                Log.i(TAG, "RomWBW release changed $lastRomwbwVersion -> $selectedNow; " +
+                    "reloading the ROM as well as the disks")
+            } else {
+                Log.i(TAG, "ROM changed ${lastRomId ?: "(default)"} -> " +
+                    "${romIdNow ?: "(default)"} for RomWBW $selectedNow; reloading it")
+            }
             if (romLoaded) {
                 // stopEmulation() queues a flush of anything dirty under the
                 // OUTGOING mapping - loadedDiskFilenames still names those

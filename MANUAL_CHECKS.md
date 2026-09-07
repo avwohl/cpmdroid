@@ -27,6 +27,25 @@ of them at that rate. It is the harness, not the app - the native queue behind
 characters, and read back what actually landed on screen before believing a
 command ran.
 
+**And one standing rule for anything scripted, because its absence shipped a bug
+in the sibling port: a driver must not bypass the UI gating it is meant to be
+checking.** z80cpmw 1.0.26-beta greyed out its Start menu item on every install
+that had no ROM - a deadlock, since Start is the only thing that fetches a ROM -
+and its whole driven run passed anyway, because the driver posted `WM_COMMAND`
+straight to the window and never looked at the menu state. A person installing
+the package found it. The Android shape of the same mistake is `performClick()`,
+from an instrumentation thread or a debug hook: it calls the click listener
+whether or not the view is enabled, exactly as a posted `WM_COMMAND` does. A
+real touch does not - a disabled `View` drops it in `dispatchTouchEvent` - so
+`adb shell input tap` is honest where `performClick()` is not. When a check says
+the user CAN do something, read the state as well as sending the event:
+
+    adb shell uiautomator dump /sdcard/window_dump.xml
+    adb shell cat /sdcard/window_dump.xml   # node with content-desc="Start/Stop"
+
+and look at that node's `enabled` attribute rather than at what the app did
+afterwards.
+
 ---
 
 ## 1. The tablet, and the third-party IME
@@ -240,38 +259,76 @@ links to their C++ side.
 **Do section 6 first if you are doing both.** These checks assume the disks on
 the device are already on `-v0-3.5.1` names.
 
+**And know where the release will move by itself, because 3.5.1 is no longer
+where a device settles.** The migration renames into the `V0_LEGACY_ROMWBW`
+namespace, still `"3.5.1"`, while the index marks **3.6.0** `default: true` - and
+an install that has never picked a release by hand follows that default rather
+than a constant compiled into the app. `selectedRomwbwVersion()` answers 3.5.1
+only until an index has been fetched, and nothing fetches one at launch: the move
+happens the first time a catalog is read, which is browsing the disk catalog,
+opening the ROM list, or a first launch's starter-disk step. So a migrated device
+comes up on 3.5.1 with its migrated slots and then finds itself on 3.6.0 with
+four empty slots the first time somebody opens the disk catalog. That is the
+design working - each release keeps its own slots and nothing is deleted - but it
+is not what the 1.27 wording of these checks expected, and a checker who does not
+know it will report it as a loss.
+
 1. **The first fetch, and that it is the v0 one.** Fresh install, then
-   `adb logcat -d | grep -E 'RomwbwSupport|CatalogLoader|catalog fetched'`.
-   Expect the bundled ROM to read `3.5.1`, the core to report `3.5.1, 3.6.0`,
-   and the catalog line to name a generation. Then confirm no ioscpm URL is
-   requested at all - the point of the change is that nothing interpolates a
-   tag any more:
+   `adb logcat -d | grep -E 'MainActivity|CatalogLoader'`. Nothing logs a
+   bundled ROM any more, because there is not one. Expect
+   `Selected RomWBW 3.5.1 (following the catalog); core supports 3.5.1, 3.6.0`
+   before anything is fetched - that 3.5.1 is `V0_LEGACY_ROMWBW`, the namespace
+   an upgrading user's slots were written under, and not a release this build
+   prefers - then `Following the catalog: RomWBW 3.6.0 (was 3.5.1)` once the
+   index has been read, and a `catalog fetched` line naming a generation. Then
+   confirm no ioscpm URL is requested at all - the point of the change is that
+   nothing interpolates a tag any more:
 
        adb shell ping -c1 github.com >/dev/null; adb logcat -c
        # browse the catalog, then:
        adb logcat -d | grep -i ioscpm     # must find nothing from this app
 
-2. **The three natives are actually bound.** `JniNameParityTest` compares the
-   two *source* name lists and would fail the build on a typo, but it cannot see
+2. **The natives are actually bound.** `JniNameParityTest` compares the two
+   *source* name lists and would fail the build on a typo, but it cannot see
    what the NDK put in the built `.so`, and minification being off means R8 will
    not either - so a binding that is wrong for any other reason is still an
-   `UnsatisfiedLinkError` at the first call and nowhere earlier. Open Settings
-   once (the RomWBW row calls all three) and confirm no `UnsatisfiedLinkError`
-   in logcat and that the row reads a version rather than being blank.
+   `UnsatisfiedLinkError` at the first call and nowhere earlier.
+
+   Where that first call happens has moved. `logRomwbwSelection()` runs in
+   `onCreate` and asks for `romwbwSupportedList()`, so an unbound symbol now
+   takes the app down at launch instead of waiting for somebody to open
+   Settings, and `romwbwReleaseSupported()` is asked about every index entry on
+   the first fetch. Launch, confirm the `Selected RomWBW ... core supports ...`
+   line is in logcat with no `UnsatisfiedLinkError` beside it, then open the
+   release picker, which is the cheapest thing that fetches an index.
+
+   The third, `romwbwReleaseOfImage()`, has no Kotlin caller left - it read the
+   release out of the bundled ROM - so nothing exercises it and this check can
+   say nothing about it. The name parity test still compares it in both
+   directions, and that is now all there is guarding it.
 
 3. **The version picker, and what each row says.** Settings -> RomWBW Release
-   -> Change. Both releases must be listed, 3.5.1 must be marked
-   `ROM bundled in the app`, 3.6.0 must be marked `ROM will be downloaded`
-   before it has been fetched and `ROM downloaded` after, each release's
-   published `status` must be shown, and the currently selected one must be
-   pre-checked. (3.6.0 was published `preview` when this check was written and
-   is `stable` now, so the `PREVIEW` marking may legitimately be absent - what
-   must not happen is a row claiming a status the index does not publish.)
+   -> Change. Both releases must be listed. Each row reads the release's label,
+   then its published `status` - or `PREVIEW - not yet recommended` where the
+   index says so - then `ROM will be downloaded` before that release's ROM has
+   been fetched and `ROM downloaded` after. **No row may say anything about a
+   ROM in the app.** The `ROM bundled in the app` marking went with the file it
+   described, and a row claiming it back is the regression this section watches
+   for. The currently selected release must be pre-checked, and on a machine
+   that has never picked one by hand that is the index's `default: true` entry -
+   3.6.0 today, not 3.5.1. (3.6.0 was published `preview` when this check was
+   written and is `stable` now, so the `PREVIEW` marking may legitimately be
+   absent - what must not happen is a row claiming a status the index does not
+   publish.)
 
-4. **A release switch loses nothing.** With all four slots assigned under 3.5.1,
-   switch to 3.6.0 (see section 8 check 3 for the ROM download that switch now
-   asks for) and confirm the four slots read `(empty)` and the toast says no
-   disks are assigned yet. Leave Settings, come back, switch back to 3.5.1, and
+   Read the note under the row before opening the dialog, too. It says whether
+   this release's ROM is on the device and which file it boots.
+
+4. **A release switch loses nothing.** With all four slots assigned under the
+   release the device is on, switch to the other one - 3.6.0 to 3.5.1, on a
+   machine following the catalog; section 8 check 5 is the ROM download that
+   switch now asks for - and confirm the four slots read `(empty)` and the toast
+   says no disks are assigned yet. Leave Settings, come back, switch back, and
    confirm **all four slots are exactly what they were**, with the same
    filenames. Then check that nothing was deleted:
 
@@ -282,6 +339,17 @@ the device are already on `-v0-3.5.1` names.
    both releases' `.rom` files, which live in `Disks/` beside the images. This
    is the check that would have caught the iOS behaviour this app is
    deliberately not copying, where a switch deleted the library.
+
+   One thing this costs that it did not in 1.27, and it is deliberate: the switch
+   fetches the new release's ROM before it happens, so the first switch in each
+   direction needs the network.
+
+   What it does NOT cost, and used to: there is no pin. `selected_romwbw.v0` is
+   one key and it is the whole preference, so a device left on 3.5.1 by this
+   check is simply on 3.5.1, and this same row puts it back. An earlier draft of
+   1.29 had a separate `romwbw_pinned_by_user.v0` flag that only this dialog
+   could set and that nothing could clear - a device used for this check would
+   have been stuck off the catalog until its data was wiped. It is gone.
 
 5. **Downloading under 3.6.0.** Still on 3.6.0, download one small disk (not the
    51 MB combo). It must land beside the 3.5.1 files as `-v0-3.6.0.img`, with
@@ -303,70 +371,226 @@ the device are already on `-v0-3.5.1` names.
 
 ---
 
-## 8. The ROM fetched from the catalog
+## 8. The ROM, which now comes only from the catalog
 
-The app no longer boots only the ROM inside its own package. `roms[]` is read,
-the selected release's ROM is downloaded into `Disks/` beside the images, and
-its `size` and `sha256` are checked before every load. `RomSelectionTest` (11
-tests) and `CatalogParsingTest` (24) cover which entry is chosen and what the
+There is no ROM in this package. `app/src/main/assets/` holds the help topics and
+nothing else; `emu_avw.rom` was deleted, and `EmulatorSettings.romName`,
+`RomRequirement` and `RomwbwSupport.bundledRomRelease()` went with it. Every ROM
+is downloaded from the selected release's catalog `roms[]` and checked against
+the `size` and `sha256` that catalog publishes - on the way in, and again from
+the bytes handed to the emulator on every load afterwards. `RomSelectionTest`
+(12 tests) and `CatalogParsingTest` (24) cover which entry is chosen and what the
 published documents say, on a host JVM. None of what follows can be settled that
 way: it needs the network, the device's storage, and a guest that boots.
 
+The rule all of this is checking is one sentence: **starting a machine on RomWBW
+X requires X's ROM, fetched from X's catalog and verified against what that
+catalog publishes.** There is nothing left to fall back to, and nothing must be
+added back: pairing one release's disks with another release's ROM is what makes
+CP/M print `*** WARNING: HBIOS/CBIOS Version Mismatch ***` and then misbehave,
+and removing that pairing is the whole reason the ROM is fetched at all. So a
+check below that ends in a boot the app cannot account for is a failure even when
+the guest looks perfectly happy.
+
+The cost is named rather than discovered, and check 2 is where somebody finally
+looks at it: a first launch with no network cannot start.
+
 **Do sections 6 and 7 first if you are doing all three.**
 
-1. **A first launch still needs no network.** Fresh install, aeroplane mode on
-   before first launch. The machine must boot to a RomWBW prompt on the bundled
-   ROM with no dialog about a ROM at all, and logcat must show
-   `ROM loaded from assets` - not a catalog fetch. This is the check that the
-   bundled ROM is still a fallback and not decoration.
+1. **Start must be pressable on an install that has no ROM.** First in this
+   section, because it is the check that was missing and the sibling port
+   shipped the bug it would have caught: z80cpmw 1.0.26-beta greyed Start out
+   whenever it had no ROM, which is a deadlock rather than a disabled control,
+   since pressing Start is the only thing that fetches one. Fresh install,
+   launch, dismiss the ROM dialog, and look at the play button. It must be
+   **enabled**, and pressing it must bring the dialog back rather than doing
+   nothing.
 
-2. **The bundled release boots with no download, online too.** Network back on,
-   still on RomWBW 3.5.1. Relaunch and confirm logcat still says
-   `ROM loaded from assets`, no `.rom` file appears in `Disks/`, and Settings'
-   RomWBW row reads "Boots the ROM bundled in the app, with no download."
+   What makes that work today is the `!romLoaded -> startMachine()` arm of the
+   click listener in `setupToolbar()`. Nothing in `MainActivity` assigns
+   `playPauseButton.isEnabled` at all, and `updateStatus()` changes only the
+   icon - so the regression to watch for is any new code that ties the button's
+   enabled state, its visibility or its listener to `romLoaded`, to a stored ROM
+   claim, or to a ROM file being on disk.
 
-3. **Switching release fetches the ROM first.** Settings -> RomWBW Release ->
-   Change -> 3.6.0 -> Select. Expect a dialog saying the release has its own ROM
-   that has not been downloaded, then a progress dialog that reaches 100%, then
-   the switch. Confirm:
+   **Do not settle for the scripted answer**; see the driver rule at the top of
+   this file. Firing the listener directly is exactly how the sibling's driven
+   run passed on the broken build.
+
+2. **A first launch with no network says why, and does not hang.** This is the
+   cost this change deliberately accepts, so it gets checked rather than
+   discovered by somebody on a plane. Fresh install, aeroplane mode on before
+   the first launch, then launch.
+
+   Expect the status strip to read `ROM needed` in orange and a dialog titled
+   **RomWBW 3.5.1 needs its ROM**, whose message opens "RomWBW 3.5.1 has no ROM
+   on this device yet" and then says that CPMDroid downloads the ROM for the
+   release it is set to and checks it against the catalog's hash before booting
+   it. One button, **Download ROM**, and the dialog can be dismissed. What must
+   not happen is a hang, a blank terminal with nothing said, or a boot.
+
+   The release named there is 3.5.1 and that is not a fault: `V0_LEGACY_ROMWBW`
+   is what `selectedRomwbwVersion()` answers until an index has been fetched, and
+   offline no index arrives. It is the namespace an upgrading user's disk slots
+   live in, not a claim about which release this build prefers.
+
+   Then press **Download ROM** while still offline. Expect the download overlay
+   to appear reading "Downloading the RomWBW 3.5.1 ROM" over "Reading the
+   catalog...", the overlay to go away, and the same dialog to come back with the
+   index failure in it - "Could not read the catalog index: ..." - with the
+   status strip still on `ROM needed`. Do it twice more and confirm it is still
+   that, and not a crash, an overlay left on screen, or silence.
+
+3. **A first launch with the network up asks twice, and that is the design
+   working.** Same fresh install, aeroplane mode off. Expect, in order: the
+   `RomWBW 3.5.1 needs its ROM` dialog; **Download ROM** fetching
+   `emu_avw-v0-3.5.1.rom`; the starter-disk step, which is where an index is read
+   for the first time and which logs `Following the catalog: RomWBW 3.6.0 (was
+   3.5.1)`; the 3.6.0 combo image downloading; and then a **second** dialog,
+   `RomWBW 3.6.0 needs its ROM`, whose Download fetches `emu_avw-v0-3.6.0.rom`
+   and boots.
+
+   Two ROM downloads is 1 MB, and it is what the code does rather than a fault:
+   the release is only resolved against the index once a catalog has been
+   fetched, and the starter-disk step is the first thing that fetches one. What
+   matters is the guard at the end of it, which logcat must show:
+
+       The catalog fetch moved the selection 3.5.1 -> 3.6.0;
+       resolving its ROM rather than starting on the old one
+
+   Without that, the machine would boot 3.6.0's disks on 3.5.1's ROM and the only
+   symptom would be the mismatch banner inside CP/M. Afterwards:
 
        adb shell ls -l /sdcard/Android/data/com.awohl.cpmdroid/files/Disks/*.rom
-       # emu_avw-v0-3.6.0.rom, 524288 bytes
+       # emu_avw-v0-3.5.1.rom and emu_avw-v0-3.6.0.rom, 524288 bytes each
+
+   Report rather than tick if the first dialog does not appear, or if only one
+   ROM is fetched: either would mean the release is being resolved somewhere this
+   reading of the code does not have it.
+
+4. **Every later launch is offline.** With the machine booting, turn aeroplane
+   mode on, kill the app and relaunch. It must boot with no dialog and no
+   network: the catalog's claims about the ROM are stored beside the file when it
+   is fetched, and `readVerifiedRom` re-checks the file against them from the
+   bytes it is about to hand the emulator. logcat must read `ROM loaded from the
+   catalog download for RomWBW 3.6.0 (524288 bytes)` with no fetch before it.
+   This is the other half of check 2, and it is the half that makes the cost
+   there a one-off rather than a standing requirement.
+
+5. **Switching release fetches the ROM first.** Settings -> RomWBW Release ->
+   Change -> the release you are not on (3.5.1, on a machine following the
+   catalog) -> Select. Expect a dialog headed "Switch to RomWBW 3.5.1?" saying
+   that release has its own ROM which has not been downloaded, that it is about
+   half a megabyte and is checked against the catalog's hash before it is ever
+   used, and that nothing is deleted; then **Download and switch**; then a
+   "Preparing RomWBW 3.5.1" progress dialog that reaches 100%; then a toast
+   reading `Downloaded the RomWBW 3.5.1 ROM`, and the switch. Confirm:
+
+       adb shell ls -l /sdcard/Android/data/com.awohl.cpmdroid/files/Disks/*.rom
+       # emu_avw-v0-3.5.1.rom, 524288 bytes
 
    Then leave Settings and confirm the machine reboots onto it: logcat must say
-   `ROM loaded from the catalog download for RomWBW 3.6.0` and
-   `Rebooting onto the newly loaded ROM`, and the guest must print a 3.6.0
+   `RomWBW release changed 3.6.0 -> 3.5.1; reloading the ROM as well as the
+   disks`, then `ROM loaded from the catalog download for RomWBW 3.5.1` and
+   `Rebooting onto the newly loaded ROM`, and the guest must print a 3.5.1
    banner. The three ways this can be wrong all look like success from the
    Settings screen alone: the ROM downloaded but not loaded, loaded but not
    rebooted onto, or the switch applied with the download having failed.
 
-4. **A failed fetch does not switch.** From a fresh install, open
-   Settings -> RomWBW Release -> Change **with the network up** - the picker
-   fetches the index, so it cannot be opened in aeroplane mode at all - then
-   turn aeroplane mode on and only then choose 3.6.0 and Select. The switch must
-   NOT happen: the dialog must name the index as unreachable, and the RomWBW row
-   must still read 3.5.1 afterwards. The app pointed at a release it cannot
-   start on is the state this ordering exists to avoid.
+   Switch back afterwards and watch the cheap case once: the ROM is already
+   there, so the toast says `Verified the RomWBW 3.6.0 ROM` rather than
+   `Downloaded`, and nothing crosses the network.
+
+6. **A failed fetch does not switch.** Open Settings -> RomWBW Release -> Change
+   **with the network up** - the picker fetches the index, so it cannot be opened
+   in aeroplane mode at all - then turn aeroplane mode on and only then choose
+   the other release and Select. The switch must NOT happen: the dialog must name
+   the index as unreachable, and the RomWBW row must still read the release you
+   started on. The app pointed at a release it cannot start on is the state this
+   ordering exists to avoid.
 
    Do it again with the connection dropped mid-transfer (aeroplane mode on while
    the progress dialog is moving). The message must say the ROM **could not be
    downloaded** and name what went wrong; it must not say it did not verify,
    which is a different fault with a different fix.
 
-5. **A missing ROM stops the machine and offers two ways out.** With 3.6.0
+7. **The ROM picker, and that the pick is obeyed rather than merely stored.**
+   Settings has a **ROM** row at the top with its own Change button. It replaces
+   a read-only "Bundled ROM: emu_avw.rom" label, and it is the only thing that
+   has ever made `emu_rcz80` reachable: both releases have published it since the
+   migration and no build could select it.
+
+   - Change. If no catalog has been read on this screen yet, a "Reading the
+     RomWBW 3.6.0 catalog..." dialog comes first. The list must be that release's
+     published `roms[]` - two entries today, **EMU AVW** marked `default` and
+     **EMU RCZ80** - with `downloaded` beside whichever one is on the device. Two
+     hardcoded rows, or a row naming a file this release does not publish, is the
+     regression.
+   - Pick **EMU RCZ80** and Select. The toast names it, the row changes to
+     `EMU RCZ80`, and the note under it reads `emu_rcz80-v0-3.6.0.rom. Not on
+     this device yet; CPMDroid fetches it before it starts.`
+   - Leave Settings. The running machine keeps the ROM it started on, because
+     only a RELEASE change re-resolves the ROM in `onResume`. That is correct
+     rather than the pick being lost, and it is worth knowing before reporting
+     the next step as a delay.
+   - Kill the app and relaunch. Expect `RomWBW 3.6.0 needs its ROM` and, on
+     Download, `emu_rcz80-v0-3.6.0.rom` fetched and booted. The message reads
+     "has no ROM on this device yet" even though `emu_avw-v0-3.6.0.rom` is
+     sitting right there, because the claim on file is for the other ROM;
+     that wording is expected here. logcat must carry `RomWBW 3.6.0 ROM on disk
+     is emu_avw, but emu_rcz80 is selected; fetching it` and then `RomWBW 3.6.0
+     ROM is EMU RCZ80 (emu_rcz80, emu_rcz80-v0-3.6.0.rom, 524288 bytes), chosen
+     from 2 published`.
+   - Relaunch once more and confirm it comes up on emu_rcz80 with no dialog and
+     no download.
+
+   **The trap this guards, and what losing it looks like.** A verified ROM
+   already on disk used to answer the "which ROM" question before the catalog was
+   ever opened - that fast path is what makes an offline launch possible - so a
+   pick could be stored in preferences and then silently ignored on every launch.
+   The guard is `RomClaim.romId` and the two `it.romId == wantedRomId` tests that
+   read it, in `startMachine()` and in `fetchRomForRelease()`. Losing it does not
+   produce an error: the picker goes on saying EMU RCZ80, no dialog appears,
+   `Disks/` never gains `emu_rcz80-v0-3.6.0.rom`, and the machine boots emu_avw
+   as though nothing had been chosen. So check the file list and the log line,
+   not the setting.
+
+   One more thing while the dialog is open: what gets stored is the catalog
+   **id**, never the filename shown beside it. The two are the same type and look
+   alike, and seeding a filename into the field that holds an id is the bug that
+   shipped in the sibling port and corrupted the preference on OK. Round-trip it
+   - pick EMU RCZ80, leave Settings, come back, Change - and the list must reopen
+   with the EMU RCZ80 row checked, not with a row reading
+   `emu_rcz80-v0-3.6.0.rom`.
+
+8. **A deleted ROM stops the machine and names what is missing.** With 3.6.0
    selected and working, kill the app and delete its ROM:
 
        adb shell rm /sdcard/Android/data/com.awohl.cpmdroid/files/Disks/emu_avw-v0-3.6.0.rom
 
-   Relaunch. Expect a dialog titled "RomWBW 3.6.0 needs its ROM" naming the file
-   and saying it is not on the device, with **Download ROM** and
-   **Use RomWBW 3.5.1**. The status strip must read `ROM needed` in orange and
-   the machine must not be running behind the dialog. Take **Use RomWBW 3.5.1**
-   and confirm it boots on the bundled ROM with the 3.5.1 slots restored and the
-   3.6.0 disks untouched on disk. Then switch back to 3.6.0 and take
-   **Download ROM** the second time round, and confirm it boots.
+   Relaunch. Expect a dialog titled **RomWBW 3.6.0 needs its ROM** whose message
+   names the file - "RomWBW 3.6.0 needs its ROM, emu_avw-v0-3.6.0.rom, which is
+   not on the device" - the status strip reading `ROM needed` in orange, and the
+   machine NOT running behind the dialog.
 
-6. **A corrupt ROM is refused rather than run.** With 3.6.0 selected and its ROM
+   **There is one button, Download ROM, and there must not be a second.** The
+   1.28 version of this check expected a `Use RomWBW 3.5.1` button beside it and
+   a boot on the ROM inside the app. Neither exists now and neither is to be
+   re-added under any name: there is no ROM in the package, and a fallback would
+   put 3.6.0's disks under 3.5.1's ROM with a warning line inside CP/M as its
+   only symptom. Booting anything at all here is the failure.
+
+   Dismiss the dialog rather than answering it, and confirm the status strip
+   stays on `ROM needed` and nothing starts. Then press the play button and
+   confirm the same dialog comes back - that is the recovery, and it is the same
+   path check 1 is about. Finally take **Download ROM** and confirm the file is
+   fetched again and the machine boots.
+
+   Switching release is the other way out of this state and is worth confirming
+   once from here: Settings -> RomWBW Release -> Change, pick 3.5.1, and the
+   machine must come up on it without the play button being touched.
+
+9. **A corrupt ROM is refused rather than run.** With 3.6.0 selected and its ROM
    present, corrupt it and relaunch:
 
        adb shell "dd if=/dev/zero \
@@ -374,21 +598,23 @@ way: it needs the network, the device's storage, and a guest that boots.
          bs=1 seek=1000 count=16 conv=notrunc"
 
    Expect the same dialog, this time saying the ROM did not verify and naming
-   the hash it found. Take **Download ROM**: the fetch must replace the file and
-   the machine must boot. Nothing must ever start on the bundled 3.5.1 ROM while
-   3.6.0 is selected - if it does, the whole point of this release is gone and
-   the only visible symptom would have been a warning line inside CP/M.
+   both hashes - "sha256 <what was read>, the catalog says <what was published>".
+   Take **Download ROM**: the fetch must replace the file and the machine must
+   boot. Nothing may start on any other ROM in the meantime; if something does,
+   the whole point of this release is gone and the only visible symptom would
+   have been a warning line inside CP/M.
 
-7. **Truncation is caught too, and by size before hash.** Same again with
-   `dd ... bs=1024 count=8 > file` to leave a short file. The message must say
-   the byte count, not a hash.
+10. **Truncation is caught too, and by size before hash.** Same again with
+    `dd ... bs=1024 count=8 > file` to leave a short file. The message must say
+    the byte count - "8192 bytes, the catalog says 524288" - and not a hash.
 
-8. **The ROM does not pollute the disk list.** With both releases' ROMs
-   downloaded, open the catalog dialog under each release. No `.rom` file may
-   appear as a row, and the downloaded ticks on the images must be unchanged -
-   `getDownloadedDisks()` filters on `.img`, and this is the check that it still
-   does.
+11. **The ROM does not pollute the disk list.** With both releases' ROMs
+    downloaded, open the catalog dialog under each release. No `.rom` file may
+    appear as a row, and the downloaded ticks on the images must be unchanged -
+    `getDownloadedDisks()` filters on `.img`, and this is the check that it still
+    does.
 
-9. **Storage unavailable.** With the device's external storage unmounted or
-   otherwise unavailable, launch on 3.6.0. It must report a ROM it cannot find
-   rather than crash or start on the bundled one.
+12. **Storage unavailable.** With the device's external storage unmounted or
+    otherwise unavailable, launch on 3.6.0. It must report a ROM it cannot find
+    rather than crash, and - since there is nowhere else a ROM can come from - it
+    must not start at all.

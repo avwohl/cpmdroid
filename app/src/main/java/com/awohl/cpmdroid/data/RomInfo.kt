@@ -50,72 +50,64 @@ data class RomInfo(
 data class RomClaim(
     val filename: String,
     val size: Long,
-    val sha256: String
+    val sha256: String,
+    /**
+     * The catalog ID these bytes were fetched for, or null for a claim written
+     * by a build that stored no ID.
+     *
+     * Here so that the offline fast path can tell "the ROM I have is the ROM I
+     * want" from "the ROM I have is the one I wanted last time". Without it,
+     * changing the ROM in Settings would be recorded in preferences and then
+     * ignored on every launch, because a verified file already sitting on disk
+     * answers the question before the catalog is ever opened. Null is treated as
+     * "not the one you asked for" whenever a pick exists, which costs one fetch
+     * on the first launch after upgrading and nothing afterwards.
+     */
+    val romId: String? = null
 )
 
 /** The catalog's claims about [rom], in the shape that outlives the document. */
-fun RomInfo.claim(): RomClaim = RomClaim(filename, size, sha256)
+fun RomInfo.claim(): RomClaim = RomClaim(filename, size, sha256, id)
 
 /**
- * Which of a release's ROMs to use: the one flagged default, else the first.
+ * Which of a release's ROMs to use: the one the user picked, else the one
+ * flagged default, else the first.
  *
- * Both halves are required by CATALOG_SCHEMA 6.1, and so is what this does NOT
- * do. It never indexes by position, never looks for "emu_avw" by name, and
- * never assumes the array has two entries or any entries at all - a future
- * release may publish a different ROM set, and 3.5.1 and 3.6.0 already publish
- * different disk sets. No entry flagged `default` is normal rather than an
- * error: the generator enforces one default per catalog today, and a client
- * that crashed on zero or two would be broken by a catalog the schema still
- * permits.
+ * [preferredId] is a catalog ID and never a filename - see
+ * SettingsRepository.selectedRomId(). An ID that this release does not publish
+ * falls through to the default rather than failing: roms[] is per-release, so
+ * picking emu_rcz80 under 3.6.0 and then switching to a release that publishes
+ * only emu_avw is an ordinary thing to do, and it must land on a bootable ROM
+ * rather than on nothing. The pick is kept in preferences either way, so
+ * switching back restores it.
+ *
+ * The rest is required by CATALOG_SCHEMA 6.1, and so is what this does NOT do.
+ * It never indexes by position, never looks for "emu_avw" by name, and never
+ * assumes the array has two entries or any entries at all - a future release may
+ * publish a different ROM set, and 3.5.1 and 3.6.0 already publish different
+ * disk sets. No entry flagged `default` is normal rather than an error: the
+ * generator enforces one default per catalog today, and a client that crashed on
+ * zero or two would be broken by a catalog the schema still permits.
  *
  * Null means the catalog publishes no ROM for this release, which is a real
- * answer - see RomFailure.NoRomPublished. It is only survivable when the
- * selected release is the bundled one, which needs no catalog ROM at all.
+ * answer - see RomFailure.NoRomPublished. Since this app bundles no ROM, null is
+ * fatal to booting that release rather than merely inconvenient.
  */
-fun selectRom(roms: List<RomInfo>): RomInfo? =
-    roms.firstOrNull { it.isDefault } ?: roms.firstOrNull()
-
-/**
- * Where the ROM for a release must come from.
- *
- * The bundled asset is a first-launch fallback, not the mechanism: it is what
- * makes the app boot offline out of the box and, for the iOS sibling, a
- * reviewed store asset. It is used when - and only when - the release it
- * declares is the release that is selected. Anything else has to come from the
- * catalog, because booting a 3.6.0 disk set against the 3.5.1 ROM in the
- * package is precisely the pairing that makes the guest print
- * `*** WARNING: HBIOS/CBIOS Version Mismatch ***`.
- *
- * [bundledRelease] is what `emu_romwbw_release_of_image()` read out of the
- * bundled bytes, not a constant: the asset can be replaced without anyone
- * remembering to edit a string, and a stale constant here would send the app
- * down the wrong branch with nothing to notice it. Null means those bytes could
- * not be read at all, and then the bundled ROM cannot be claimed to match
- * anything.
- */
-sealed class RomRequirement {
-
-    /** assets/<rom_name> is the ROM for the selected release. No network. */
-    object Bundled : RomRequirement()
-
-    /** The selected release's own ROM, from its catalog's `roms[]`. */
-    data class FromCatalog(val romwbwVersion: String) : RomRequirement()
-}
-
-fun romRequirement(selectedVersion: String, bundledRelease: String?): RomRequirement =
-    if (bundledRelease != null && bundledRelease == selectedVersion) {
-        RomRequirement.Bundled
-    } else {
-        RomRequirement.FromCatalog(selectedVersion)
+fun selectRom(roms: List<RomInfo>, preferredId: String? = null): RomInfo? {
+    if (preferredId != null) {
+        roms.firstOrNull { it.id == preferredId }?.let { return it }
     }
+    return roms.firstOrNull { it.isDefault } ?: roms.firstOrNull()
+}
 
 /**
  * Why a machine cannot start on the release it is set to.
  *
- * Every one of these is reported and none of them falls back to the bundled
- * ROM. Substituting it would pair one release's ROM with another release's
- * disks silently, which is the exact failure fetching the ROM from the catalog
- * exists to remove - and it would do it invisibly, where the only symptom is a
+ * Every one of these is reported, and none of them is answered by booting some
+ * other release's ROM. There is no longer one in the package to substitute, but
+ * the rule would hold anyway: it would pair one release's ROM with another
+ * release's disks silently, which is the exact failure fetching the ROM from the
+ * catalog exists to remove - and it would do it invisibly, where the only symptom is a
  * warning line inside the guest.
  */
 sealed class RomFailure(message: String) : Exception(message) {
@@ -129,12 +121,25 @@ sealed class RomFailure(message: String) : Exception(message) {
      * filename to check.
      *
      * Distinct from NotDownloaded, which knows the file and cannot find it.
-     * This is the state a fresh selection of a non-bundled release leaves
-     * behind if the fetch never happened - or that a restore from backup
-     * produces, since the preferences travel and 512 KB of ROM may not.
+     * This is the state every fresh install begins in, and the one a newly
+     * selected release leaves behind if the fetch never happened - or that a
+     * restore from backup produces, since the preferences travel and 512 KB of
+     * ROM may not.
      */
     class NeverFetched(val romwbwVersion: String) :
         RomFailure("RomWBW $romwbwVersion has no ROM on this device yet")
+
+    /**
+     * A ROM for this release is here, but not the one that is selected.
+     *
+     * Distinct from NeverFetched, and the distinction is the whole reason it
+     * exists: telling somebody who has just chosen emu_rcz80 that "RomWBW 3.6.0
+     * has no ROM on this device yet" is false on its face - there is one, they
+     * can see it named on the Settings screen - and it hides the actual cause,
+     * which is that the ROM they picked has not been fetched.
+     */
+    class PickedRomNotFetched(val romwbwVersion: String, val romId: String) :
+        RomFailure("The $romId ROM for RomWBW $romwbwVersion has not been downloaded yet")
 
     /** The release's ROM was fetched once and is no longer on disk. */
     class NotDownloaded(val romwbwVersion: String, val filename: String) :

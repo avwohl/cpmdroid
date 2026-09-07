@@ -3,7 +3,7 @@
   "schema_version": 1,
   "interface": "v0",
   "romwbw_version": "3.5.1",
-  "generation": 1,
+  "generation": 2,
   "status": "stable",
   "release_tag": "v0-romwbw-3.5.1",
   "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/",
@@ -32,7 +32,7 @@
       "name": "EMU AVW",
       "description": "Standard emulator ROM. Our HBIOS proxy in bank 0 over the RomWBW SBC_simh_std ROM disk in banks 1-15. This is the ROM every shipped client bundles today.",
       "size": 524288,
-      "sha256": "c7abc580b3285a33e439c0d6724a9d64dd3e93733a4fc2c1b80b0bfd91f9c580",
+      "sha256": "4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258",
       "default": true,
       "hcb": {
         "marker": "57 A8",
@@ -51,7 +51,7 @@
       "name": "EMU RCZ80",
       "description": "Alternate emulator ROM. Same HBIOS proxy in bank 0, but banks 1-15 come from the RomWBW RCZ80_std ROM disk, so the ROM-resident applications match an RC2014 Z80 build.",
       "size": 524288,
-      "sha256": "ee3adea5caa9b3da4005e6a3d627e3eaf4ebd56f5795a5c41f6a90492850c4a7",
+      "sha256": "03e646914628aea507eb8db560497292c728d26a127965b5b3cff6270af5feee",
       "default": false,
       "hcb": {
         "marker": "57 A8",

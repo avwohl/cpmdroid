@@ -109,9 +109,17 @@ android {
         // folding this in would leave that entry describing a build that does
         // the opposite; and MANUAL_CHECKS.md files its checks per release, so a
         // build that fetches ROMs is a different thing to point at a device.
+        // 31 / "1.29" is the release that carries no ROM at all. It gets its
+        // own number rather than folding into 1.28 for the reason above: 1.28's
+        // entry says the app still bundles a 3.5.1 ROM and falls back to it,
+        // and this build does the opposite - assets/emu_avw.rom is gone, every
+        // ROM comes from the catalog, the user picks which one, and a fresh or
+        // upgrading install follows the index's own default release instead of
+        // being pinned to whatever the package happened to carry.
+        //
         // A versionCode costs nothing. A record that says the wrong thing does.
-        versionCode = 30
-        versionName = "1.28"
+        versionCode = 31
+        versionName = "1.29"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the

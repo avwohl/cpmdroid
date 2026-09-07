@@ -15,37 +15,68 @@
 # note that has to be read at the right moment is not a gate.  So this checks the
 # BUILT ARTIFACT as well as the tree, because that is the gap that won.
 #
-# Copy: this script is identical in cpmemu, romwbw_emu, cpmdroid, ioscpm and
-# z80cpmw and answers the same question in all five.  It checks every port, not
-# just the one it is sitting in, so no repository can report "fixed" while its
-# neighbour's users are on an old pin.  Edit one, copy to the rest.
+# Copy: this script checks every port, not just the one it is sitting in, so no
+# repository can report "fixed" while its neighbour's users are on an old pin.
+# Edit one, copy to the rest.
 #
-# THIS COPY HAS DIVERGED and the other four need the same edit.  cpmdroid no
-# longer pins an ioscpm release tag: it fetches romwbw_disks' index-v0.json and
-# takes every URL out of the documents it names.  So `pin_of` finds no vX.Y.Z
-# in its source, and until this change the cpmdroid row printed NO PIN FOUND and
-# exited 1 for a port that was working correctly - a gate that cries wolf is a
-# gate that stops being read, which is the exact failure this script was written
-# after.  Migrated ports are now checked differently (kind "index-v0" in the
-# table below), and the question changes with them: not "does the pin name the
-# newest tag" but "does the source still name the v0 index, is the legacy pin
-# really gone, and does that index still publish the RomWBW release this build's
-# bundled ROM declares".
+# WHERE THE COPIES ACTUALLY ARE, listed because the line that used to sit here
+# said this file was "identical in cpmemu, romwbw_emu, cpmdroid, ioscpm and
+# z80cpmw" and that was wrong three ways at once, none of them visible from
+# inside any single checkout.  Measured on 2026-09-07 with sha256sum: cpmdroid,
+# cpmemu and romwbw_emu carry tools/check-shipped-disks.sh and were
+# byte-for-byte the same file until this edit; z80cpmw carries its own copy
+# under that name, diverged on 2026-09-07 when it deleted its roms/ directory;
+# ioscpm has no file by this name at all, only the pre-rename
+# tools/check-disk-pins.sh, 255 lines that predate every note below; and
+# romwbw_disks, which publishes the catalog this whole script is about, has no
+# copy.  So "copy to the rest" is a merge and not a cp, and after this edit
+# cpmemu and romwbw_emu are the two that are behind.
 #
-# That last one still matters after cpmdroid started fetching ROMs from the
-# catalog (1.28), but it means something narrower than it did.  A user can now
-# select a published release and download its ROM, so an unpublished bundled
-# release no longer strands them - it strands the OFFLINE first launch, which is
-# the one path with no catalog in reach.  That is still a failure worth exiting
-# 1 for, and the message says which one it is.
+# WHY MIGRATED PORTS ARE ASKED A DIFFERENT QUESTION.  cpmdroid no longer pins an
+# ioscpm release tag: it fetches romwbw_disks' index-v0.json and takes every URL
+# out of the documents it names.  So `pin_of` finds no vX.Y.Z in its source, and
+# before that was accounted for the cpmdroid row printed NO PIN FOUND and exited
+# 1 for a port that was working correctly - a gate that cries wolf is a gate
+# that stops being read, which is the exact failure this script was written
+# after.
+# Migrated ports carry kind "index-v0" in the table below, and the question
+# changes with them: not "does the pin name the newest tag" but "does the source
+# still name the v0 index, does that index answer, and is the legacy pin gone".
 #
-# ioscpm and z80cpmw HAVE now migrated and moved to that row, on 2026-09-06.
-# Both were still listed as `tag` here, so both printed NO PIN FOUND and this
-# script exited 1 for three ports that were all working correctly - the whole
-# family failing a gate for doing the right thing, which is worse than the gate
-# not existing. Note z80cpmw's file: the v0 index URL is in CatalogV0.cpp, NOT
-# in DiskCatalog.cpp, which is where the old pin lived and where this table
-# still pointed.
+# z80cpmw HAS migrated and belongs in that row; ioscpm has NOT, and was moved
+# into it by mistake on 2026-09-06.  That move was made to stop this script
+# printing NO PIN FOUND at ports that were working correctly, and for z80cpmw it
+# was right - note its file, the v0 index URL is in CatalogV0.cpp and NOT in
+# DiskCatalog.cpp, where the old pin lived and where this table used to point.
+# ioscpm was swept along with it without being read: as of 2026-09-07
+# iOSCPM/Views/EmulatorViewModel.swift still says releaseTag = "v1.4.12" and
+# still builds every URL as .../releases/download/<releaseTag>/disks.xml, and
+# there is no index-v0.json anywhere in its Swift.  So the fix printed NO v0
+# INDEX URL at ioscpm instead of NO PIN FOUND - the same false alarm at the same
+# port in a different message.
+#
+# So ioscpm's row no longer states an answer: it says `auto`, and detect_kind()
+# reads the checkout.  Twice in two days a hand-edited kind described the port
+# wrongly and the gate cried wolf, and ioscpm's migration is expected within the
+# day, so a third hand-edit was going to be wrong in whichever direction it was
+# made.  The rule the two mistakes share is the same one: the row is a claim
+# about the port, so either read the port before writing the row, or have the
+# script read it for you.
+#
+# THE BUNDLED-ROM CHECK IS GONE, and this says what it was and was not covering
+# so that removing it is not mistaken for coverage quietly dropped.  Until
+# 2026-09-07 the index-v0 arm below also read the RomWBW release out of the
+# port's bundled ROM - marker and version bytes, straight from the binary - and
+# failed the port when the v0 index no longer published that release, because an
+# offline first launch boots the bundled ROM and can then download nothing that
+# matches it.  Then both ports that reach that arm stopped bundling a ROM on the
+# same day: cpmdroid deleted app/src/main/assets/emu_avw.rom and z80cpmw deleted
+# its roms/ directory, 2026-09-07.  The check had no file to read for either, so
+# it printed CANNOT READ and exited 1 for two ports that were correct, and no
+# port could pass it.  A check no port can pass is not a check.  ioscpm does
+# still ship iOSCPM/Resources/emu_avw.rom, but it is a `tag` port and never
+# reached this arm, so nothing that was being checked has been given up.  If a
+# migrated port bundles a ROM again, this belongs back.
 #
 #   sh check-shipped-disks.sh              tree pins + any artifacts found
 #   sh check-shipped-disks.sh --tree-only  skip artifact scanning
@@ -115,9 +146,35 @@ highest_version() { # tags on stdin
 # kind "index-v0" - migrated to romwbw_disks' two-level catalog; there is no tag
 #                   in its source to compare, and looking for one is how this
 #                   script would silently stop covering it.
-ports='ioscpm|iOSCPM/Views/EmulatorViewModel.swift|indexURL[[:space:]]*=|index-v0
+#
+# kind "auto"     - decide by reading the checkout, for a port that is mid-move.
+#                   ioscpm is on the tag arrangement today and is expected to
+#                   migrate imminently, and a hardcoded kind reports whichever
+#                   side of that move it is not on as broken - the same cry-wolf
+#                   failure this table has now produced twice at the same port,
+#                   in two different messages. Deciding at run time costs one
+#                   grep and needs no edit on the day it lands.
+ports='ioscpm|iOSCPM/Views/EmulatorViewModel.swift|releaseTag[[:space:]]*=|auto
 cpmdroid|app/src/main/java/com/awohl/cpmdroid/data/DiskCatalogRepository.kt|INDEX_URL[[:space:]]*=|index-v0
 z80cpmw|z80cpmw/CatalogV0.cpp|INDEX_URL[[:space:]]*=|index-v0'
+
+# Which arrangement a checkout is actually on. Answered from the source rather
+# than from the table, and only for kind "auto". A port counts as migrated once
+# any of its sources names romwbw_disks' index: the constant may be called
+# anything and may sit in a file this table does not name, so the search is the
+# whole checkout minus the noise. Prose is excluded deliberately - every one of
+# these repos has a README or a CHANGELOG describing the migration, and matching
+# those would call a port migrated for talking about it.
+detect_kind() { # $1 = port dir -> prints tag | index-v0
+    if grep -rlE 'romwbw_disks/releases/download/catalog-v0|index-v0[.]json' "$1" \
+         --exclude-dir=.git --exclude-dir=build --exclude-dir=DerivedData \
+         --exclude='*.md' --exclude='*.txt' >/dev/null 2>&1
+    then
+        echo index-v0
+    else
+        echo tag
+    fi
+}
 
 pin_of() { # $1 = port dir, $2 = file, $3 = pattern -> prints vX.Y.Z
     f="$1/$2"
@@ -145,41 +202,6 @@ legacy_pin_in() { # $1 = port dir, $2 = file -> prints a vX.Y.Z still in the sou
     [ -f "$f" ] || return 1
     grep -v '^[[:space:]]*[/*#]' "$f" 2>/dev/null |
         sed -n 's/.*"\(v[0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}\)".*/\1/p' | head -1
-}
-
-# The RomWBW release a bundled ROM declares, read the way the emulator reads it:
-# marker 'W' 0xA8 at 0x103/0x104, then ver and upd at 0x105/0x106, where
-# ver = major<<4|minor and upd = update<<4|patch.  Asking the binary is the
-# point - a build whose ROM was swapped without its catalog selection moving is
-# exactly the drift this script exists to catch, and no constant in the source
-# can report it.
-rom_release_of() { # $1 = rom file -> prints e.g. 3.5.1
-    [ -f "$1" ] || return 1
-    command -v od >/dev/null 2>&1 || return 1
-    marker=$(od -An -tx1 -j 259 -N 2 "$1" 2>/dev/null | tr -d ' \n')
-    [ "$marker" = "57a8" ] || return 1
-    # hex() by hand rather than strtonum(): that is a gawk extension and this
-    # runs under whatever awk the machine has, mawk and BSD awk included.
-    od -An -tx1 -j 261 -N 2 "$1" 2>/dev/null | tr -d '\n' |
-        awk 'function hex(h,   i, r) { r = 0
-                 for (i = 1; i <= length(h); i++)
-                     r = r * 16 + index("0123456789abcdef", tolower(substr(h, i, 1))) - 1
-                 return r }
-             { v = hex($1); u = hex($2)
-               major = int(v / 16); minor = v % 16
-               update = int(u / 16); patch = u % 16
-               if (patch == 0) printf "%d.%d.%d\n", major, minor, update
-               else printf "%d.%d.%d.%d\n", major, minor, update, patch }'
-}
-
-# Which ROM a migrated port bundles.  One line per port so that adding the next
-# one is an edit here rather than a new function.
-bundled_rom_of() { # $1 = port name, $2 = checkout -> prints a path
-    case "$1" in
-        cpmdroid) echo "$2/app/src/main/assets/emu_avw.rom" ;;
-        ioscpm)   echo "$2/iOSCPM/Resources/emu_avw.rom" ;;
-        z80cpmw)  echo "$2/roms/emu_avw.rom" ;;
-    esac
 }
 
 # --- artifacts: what users actually got ---------------------------------------
@@ -302,6 +324,10 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
         continue
     fi
 
+    if [ "$kind" = "auto" ]; then
+        kind=$(detect_kind "$dir")
+    fi
+
     # --- migrated ports ---------------------------------------------------------
     # A different question, asked because the old one has no answer here.  All
     # four checks fail loudly; none of them can pass by finding nothing, which is
@@ -321,31 +347,25 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
             continue
         fi
 
-        rom=$(bundled_rom_of "$port" "$dir")
-        romver=$(rom_release_of "$rom")
-        if [ -z "$romver" ]; then
-            printf '%-10s CANNOT READ the RomWBW release out of %s\n' "$port" "$rom"
-            echo 1 > "$tmp/fail"
-            continue
-        fi
-
         if ! get "$idx" "$tmp/$port-index.json"; then
             printf '%-10s v0 INDEX UNREACHABLE: %s\n' "$port" "$idx"
             echo 1 > "$tmp/fail"
             continue
         fi
 
-        # Whitespace stripped first so this does not depend on how the generator
-        # happens to indent.  One field, not a pair, so it does not depend on
-        # field order either.
+        # Reachable is not the same as right, and this is the one assertion the
+        # deleted bundled-ROM check was making for free: it grepped this document
+        # for a romwbw_version, which incidentally proved the URL served a
+        # catalog index and not something a server was merely willing to hand
+        # back with a 200.  Asked directly now, so that removing that check did
+        # not quietly downgrade this row to "the host answered".  Whitespace is
+        # stripped first, so it does not depend on how the generator indents.
         if tr -d ' \n' < "$tmp/$port-index.json" |
-                grep -q "\"romwbw_version\":\"$romver\""; then
-            printf '%-10s v0 index, bundled ROM RomWBW %s is published\n' "$port" "$romver"
+                grep -q '"romwbw_versions":\['; then
+            printf '%-10s v0 index answers and names its releases, no legacy pin\n' "$port"
         else
-            printf '%-10s BUNDLED ROM IS RomWBW %s, WHICH THE v0 INDEX NO LONGER PUBLISHES\n' \
-                   "$port" "$romver"
-            printf '%-10s   a first launch with no network boots that ROM and can then\n' ""
-            printf '%-10s   download nothing that matches it\n' ""
+            printf '%-10s v0 INDEX IS NOT A CATALOG INDEX: %s\n' "$port" "$idx"
+            printf '%-10s   it fetched, but carries no romwbw_versions[] in it\n' ""
             echo 1 > "$tmp/fail"
             continue
         fi

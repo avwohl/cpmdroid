@@ -9,15 +9,12 @@ class SettingsRepository(context: Context) {
 
     companion object {
         private const val PREFS_NAME = "cpmdroid_prefs"
-        // The BUNDLED ROM's asset name, and nothing else. It names a file
-        // inside the APK, opened with assets.open(), which is why the v0 rename
-        // pass refuses it: a v0 name here shows "ROM not found" on every launch
-        // with no way back, the Settings row being read-only. Fetching a
-        // release's ROM from the catalog does not change what this key means -
-        // a downloaded ROM is named by the catalog and remembered under the
-        // per-release keys below, so this one still says what the package
-        // carries, and no migration is needed for it.
-        private const val KEY_ROM_NAME = "rom_name"
+        // "rom_name" used to hold the bundled asset's filename. There is no
+        // bundled asset, so nothing reads it any more. It is deliberately NOT
+        // deleted in a migration: a downgrade to an older build has to find it
+        // where it left it, which is the same policy the disk-slot keys follow.
+        // The replacement is romIdKey() below, which stores a catalog ID and
+        // never a filename.
         private const val KEY_DISK_SLOT_PREFIX = "disk_slot_"
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_WRAP_LINES = "wrap_lines"
@@ -76,15 +73,18 @@ class SettingsRepository(context: Context) {
         private const val KEY_NAMESPACE_SEEDED_PREFIX = "per_version_seeded.v0."
 
         /**
-         * The RomWBW release whose disks and NVRAM this app is showing.
+         * The RomWBW release this app is on. One key, and it is the preference.
          *
          * Not per-release itself - it is the pointer, and there is one of it.
-         * Defaults to the release the bundled ROM was built for, which is the
-         * only one a fresh install can boot.
+         * Unset means nothing has settled on a release yet and the index's own
+         * default wins; once set, by a resolution or by the user, it is what the
+         * app uses. There is deliberately no second flag recording which of
+         * those two wrote it: a "was this a real choice" bit is a thing that can
+         * be set and then never cleared, and the version of this that had one
+         * shipped with no way to clear it.
          */
         private const val KEY_SELECTED_ROMWBW = "selected_romwbw.v0"
 
-        private const val DEFAULT_ROM = "emu_avw.rom"
         private const val DEFAULT_FONT_SIZE = 14
         private const val DEFAULT_SCROLLBACK_LINES = 1000
         // The seek bar cannot offer every value, so it offers these. 0 is
@@ -120,13 +120,59 @@ class SettingsRepository(context: Context) {
         private fun romSizeKey(romwbwVersion: String) = "rom_size" + scope(romwbwVersion)
 
         private fun romSha256Key(romwbwVersion: String) = "rom_sha256" + scope(romwbwVersion)
+
+        /**
+         * Which of a release's published ROMs the user chose, as a catalog ID.
+         *
+         * An ID - "emu_avw", "emu_rcz80" - and never a filename. The two look
+         * alike enough that the sibling port shipped a Settings dialog which
+         * seeded a filename into this field and corrupted the preference on OK;
+         * the type is the same, so only the discipline of one name for one
+         * concept keeps them apart. The filename is derived from the ID against
+         * whichever catalog is current, which is also what lets a republished
+         * ROM change its bytes without stranding the selection.
+         *
+         * Per-release because roms[] is per-release: 3.5.1 and 3.6.0 each
+         * publish their own emu_avw, and a release may publish a set that does
+         * not include the ID picked under another one.
+         *
+         * Unset means "whatever this release marks default", which is what
+         * every install answers until somebody opens the ROM dialog.
+         */
+        private fun romIdKey(romwbwVersion: String) = "rom_id" + scope(romwbwVersion)
+
+        /**
+         * The catalog ID the ROM currently on disk was fetched for.
+         *
+         * Distinct from romIdKey, and the distinction is the point: that one is
+         * what the user asked for, this one is what was actually fetched. They
+         * differ for exactly as long as it takes to notice and re-fetch, which
+         * is what makes a ROM change in Settings take effect on a launch that
+         * never reaches the network.
+         */
+        private fun romClaimIdKey(romwbwVersion: String) = "rom_claim_id" + scope(romwbwVersion)
     }
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     /**
-     * The RomWBW release currently selected, defaulting to the bundled one.
+     * The RomWBW release whose slots and NVRAM to read RIGHT NOW.
+     *
+     * Always answerable, because the keys it scopes are read on the launch path
+     * before any network call can have finished. Before the first index fetch on
+     * a device that has never had one, that answer is [V0_LEGACY_ROMWBW] - not
+     * because this build prefers 3.5.1, but because it is the namespace every
+     * existing install's state was written under, and reading an upgrading
+     * user's slots out of the wrong namespace would show them an empty machine.
+     * A fresh install has nothing under either namespace, so the same answer
+     * costs it nothing.
+     *
+     * It stops being 3.5.1 as soon as an index arrives: loadSelectedCatalog()
+     * resolves the release and writes the result here, after which this and
+     * [preferredRomwbwVersion] are the same stored string - one answering with a
+     * fallback for the keys that must always have one, the other answering null
+     * so the index default can win while nothing has been settled.
      *
      * Read on every slot and NVRAM access rather than cached, so that a change
      * made on the Settings screen is visible to the next read from anywhere -
@@ -134,7 +180,66 @@ class SettingsRepository(context: Context) {
      * slots are not what they were when it paused.
      */
     fun selectedRomwbwVersion(): String =
-        prefs.getString(KEY_SELECTED_ROMWBW, null) ?: V0_BUNDLED_ROMWBW
+        prefs.getString(KEY_SELECTED_ROMWBW, null) ?: V0_LEGACY_ROMWBW
+
+    /**
+     * The release to resolve the index against, or null to take its default.
+     *
+     * The stored string IS the preference - there is no second flag saying
+     * whether it counts. Unset means nothing on this device has ever settled on
+     * a release, and the index's own `default: true` entry wins; set means use
+     * that one while the index still offers it, and fall back rather than fail
+     * when it does not (see selectRomwbwVersion()).
+     *
+     * The consequence is deliberate and is the reason there is no pin: an
+     * install follows the catalog exactly once, when it first resolves, and
+     * `CatalogLoader` writes that answer here. A fresh install and an install
+     * upgrading from a build whose release came from the ROM in its own APK both
+     * land on whatever the catalog currently marks current. A RomWBW release
+     * published after that does NOT move them.
+     *
+     * That last part is a feature rather than a shortfall. Moving a machine
+     * between RomWBW releases changes its disk set and its NVRAM namespace, and
+     * costs a fresh ~49 MB download; doing it once to escape a bundled ROM is
+     * worth it, doing it silently on every future publication is not. New ROMs
+     * and new disks WITHIN the selected release still arrive with no app
+     * release, because the catalog is re-read on every fetch - which is the part
+     * romwbw_disks exists for.
+     *
+     * The sibling z80cpmw stores one release string with exactly these
+     * semantics. It needs no per-release keys at all because it stores whole v0
+     * filenames, which carry their own release; this app still scopes its keys,
+     * because NVRAM is a blob with no filename to carry anything.
+     */
+    fun preferredRomwbwVersion(): String? = prefs.getString(KEY_SELECTED_ROMWBW, null)
+
+    /**
+     * Has a release ever been resolved against a published index on this device?
+     *
+     * False on a fresh install, and on an install upgrading from a build that
+     * took its release from the ROM in its own package. While it is false,
+     * selectedRomwbwVersion()'s answer is the legacy namespace anchor and NOT a
+     * statement about what to boot - so anything that would report a failure or
+     * fetch a file for that release has to resolve one first, or it will name
+     * the wrong release to the user. That is a bug this app shipped: a fresh
+     * install reported "RomWBW 3.5.1 has no ROM on this device yet" and offered
+     * to download 3.5.1's, while the index marked 3.6.0 current.
+     */
+    fun hasResolvedRelease(): Boolean = prefs.contains(KEY_SELECTED_ROMWBW)
+
+    /**
+     * Which ROM to boot for [romwbwVersion], as a catalog ID, or null for the
+     * release's own default.
+     */
+    fun selectedRomId(romwbwVersion: String): String? =
+        prefs.getString(romIdKey(romwbwVersion), null)
+
+    /** Remember a ROM choice for one release. [romId] is a catalog ID, never a filename. */
+    fun setSelectedRomId(romwbwVersion: String, romId: String?) {
+        prefs.edit {
+            if (romId == null) remove(romIdKey(romwbwVersion)) else putString(romIdKey(romwbwVersion), romId)
+        }
+    }
 
     /**
      * Select a RomWBW release.
@@ -156,7 +261,6 @@ class SettingsRepository(context: Context) {
 
     fun getSettings(): EmulatorSettings {
         return EmulatorSettings(
-            romName = prefs.getString(KEY_ROM_NAME, DEFAULT_ROM) ?: DEFAULT_ROM,
             diskSlots = diskSlotsFor(selectedRomwbwVersion()),
             fontSize = prefs.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE),
             wrapLines = prefs.getBoolean(KEY_WRAP_LINES, false),
@@ -174,7 +278,6 @@ class SettingsRepository(context: Context) {
         // guest would boot a 3.5.1 disk against a 3.6.0 ROM.
         val version = selectedRomwbwVersion()
         prefs.edit {
-            putString(KEY_ROM_NAME, settings.romName)
             settings.diskSlots.forEachIndexed { index, filename ->
                 if (filename != null) {
                     putString(diskSlotKey(index, version), filename)
@@ -267,7 +370,8 @@ class SettingsRepository(context: Context) {
         return RomClaim(
             filename = filename,
             size = prefs.getLong(romSizeKey(romwbwVersion), 0L),
-            sha256 = prefs.getString(romSha256Key(romwbwVersion), "") ?: ""
+            sha256 = prefs.getString(romSha256Key(romwbwVersion), "") ?: "",
+            romId = prefs.getString(romClaimIdKey(romwbwVersion), null)
         )
     }
 
@@ -285,6 +389,11 @@ class SettingsRepository(context: Context) {
             putString(romFileKey(romwbwVersion), claim.filename)
             putLong(romSizeKey(romwbwVersion), claim.size)
             putString(romSha256Key(romwbwVersion), claim.sha256)
+            if (claim.romId == null) {
+                remove(romClaimIdKey(romwbwVersion))
+            } else {
+                putString(romClaimIdKey(romwbwVersion), claim.romId)
+            }
         }
     }
 
@@ -340,21 +449,21 @@ class SettingsRepository(context: Context) {
      * on the next launch.
      */
     private fun seedBundledNamespace(): List<String?> {
-        val seededKey = KEY_NAMESPACE_SEEDED_PREFIX + V0_BUNDLED_ROMWBW
-        if (prefs.getBoolean(seededKey, false)) return diskSlotsFor(V0_BUNDLED_ROMWBW)
+        val seededKey = KEY_NAMESPACE_SEEDED_PREFIX + V0_LEGACY_ROMWBW
+        if (prefs.getBoolean(seededKey, false)) return diskSlotsFor(V0_LEGACY_ROMWBW)
 
         val legacySlots = (0..3).map { prefs.getString("$KEY_DISK_SLOT_PREFIX$it", null) }
         val seeded = (0..3).map { index ->
-            val key = diskSlotKey(index, V0_BUNDLED_ROMWBW)
+            val key = diskSlotKey(index, V0_LEGACY_ROMWBW)
             if (prefs.contains(key)) prefs.getString(key, null) else legacySlots[index]
         }
         val legacyNvram = prefs.getString(KEY_NVRAM, null)
 
         prefs.edit {
             seeded.forEachIndexed { index, filename ->
-                if (filename != null) putString(diskSlotKey(index, V0_BUNDLED_ROMWBW), filename)
+                if (filename != null) putString(diskSlotKey(index, V0_LEGACY_ROMWBW), filename)
             }
-            val bundledNvramKey = nvramKey(V0_BUNDLED_ROMWBW)
+            val bundledNvramKey = nvramKey(V0_LEGACY_ROMWBW)
             if (legacyNvram != null && !prefs.contains(bundledNvramKey)) {
                 putString(bundledNvramKey, legacyNvram)
             }
@@ -378,7 +487,7 @@ class SettingsRepository(context: Context) {
      *
      * [slots] is the bundled release's four slot values as
      * [seedBundledNamespace] settled them, and the bundled release is the only
-     * one this pass touches: v0NameOf() maps a pre-v0 name to V0_BUNDLED_ROMWBW
+     * one this pass touches: v0NameOf() maps a pre-v0 name to V0_LEGACY_ROMWBW
      * and nothing else, and no other release's namespace can contain a pre-v0
      * name in the first place, because no build that could write one had any
      * other release to write it under.
@@ -388,7 +497,7 @@ class SettingsRepository(context: Context) {
         persistedDisksDir: File?,
         slots: List<String?>
     ): V0MigrationResult? {
-        val migratedKey = KEY_DISK_NAMES_MIGRATED_PREFIX + V0_BUNDLED_ROMWBW +
+        val migratedKey = KEY_DISK_NAMES_MIGRATED_PREFIX + V0_LEGACY_ROMWBW +
             ".pass" + DISK_NAMES_MIGRATION_PASS
         if (prefs.getBoolean(migratedKey, false)) return null
 
@@ -397,7 +506,7 @@ class SettingsRepository(context: Context) {
         prefs.edit {
             result.slots.forEachIndexed { index, filename ->
                 if (filename != null && filename != slots[index]) {
-                    putString(diskSlotKey(index, V0_BUNDLED_ROMWBW), filename)
+                    putString(diskSlotKey(index, V0_LEGACY_ROMWBW), filename)
                 }
             }
             if (result.complete) putBoolean(migratedKey, true)

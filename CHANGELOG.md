@@ -1,5 +1,199 @@
 # Changelog
 
+## Version 1.29 (versionCode 31)
+
+No ROM in this repository. `app/src/main/assets/emu_avw.rom` is deleted, nothing
+in the tree ships an image of any kind, and every ROM comes from the
+`romwbw_disks` interface-v0 catalog for the release that is selected. The user
+picks which ROM, and a machine that has never been told otherwise follows the
+release the catalog itself marks current.
+
+**BUILT AND RUN ON A DEVICE - THE FIRST TIME IN THIS REPOSITORY.** Every entry
+above this one says NOT BUILT, NOT COMPILED or NOT RUN. This one was built with
+the real toolchain (AGP/Gradle 8.13, JDK 21, NDK 28, all four ABIs), installed on
+an Android 16 emulator, and driven by hand. That is why the list of defects below
+is longer than the change: three of them could not have been found by reading,
+and one of them shipped in the sibling port and was caught by a person installing
+it rather than by anything automated.
+
+    ./gradlew :app:test          # 56 tests, 0 failures  (was 52)
+    ./gradlew :app:assembleDebug # 12.8 MB APK, 512 KB smaller than 1.28
+
+### The release now follows the catalog
+
+`selectRomwbwVersion()` already fell back to the index entry flagged
+`default: true`. It had never once fired. `selectedRomwbwVersion()` answered a
+compile-time constant - `V0_BUNDLED_ROMWBW = "3.5.1"`, the release the bundled
+ROM declared - so the "preferred" release was always 3.5.1, 3.5.1 was always on
+offer, and the index's own default was unreachable code. A fresh install
+downloaded the older release for as long as that constant stood, which is the
+cost `romwbw_disks` exists to remove, still being paid one level below where
+anybody was looking.
+
+`selected_romwbw.v0` is now one key and it IS the preference, exactly as
+z80cpmw's `romwbwVersion` is. Unset means nothing has settled on a release and
+the index's own default wins; set means use that one while the index still offers
+it. `CatalogLoader` writes the resolved answer there, so:
+
+- a fresh install, and an install upgrading from a build whose release was
+  implied by the ROM in its own APK, both land on whatever the catalog currently
+  marks current - which is the move this release exists to make;
+- after that the machine stays where it is. A RomWBW release published later does
+  not shift it.
+
+That last point is deliberate rather than a shortfall. Moving a machine between
+RomWBW releases changes its disk set and its NVRAM namespace and costs a fresh
+~49 MB download; doing it once to escape a bundled ROM is worth it, doing it
+silently on every future publication is not. New ROMs and new disks *within* the
+selected release still arrive with no app release, because the catalog is re-read
+on every fetch - and that is the part `romwbw_disks` exists for.
+
+There is deliberately no pin flag. A draft of this release had one: a second
+preference recording whether a human had chosen the release, so that the app
+could keep following the catalog forever otherwise. It shipped in no build,
+because it was wrong twice over. It was a bit that only the Settings dialog could
+set and that **nothing could clear** - `clearRomwbwPin()` was written and never
+called, so one visit to the release picker would have taken a device off the
+catalog until its data was wiped. And it bought nothing the single key does not:
+z80cpmw has run this arrangement with one string and no flag throughout.
+
+`V0_BUNDLED_ROMWBW` is renamed `V0_LEGACY_ROMWBW` and still reads "3.5.1". It is
+a historical fact and nothing else: the release every pre-v0 disk name was
+renamed to, and the one the per-release preference keys were seeded under. It can
+never move without stranding what is on disk under `.v0.3.5.1`. The rename is the
+point - under the old name the next reader would have "fixed" it to 3.6.0.
+
+### The user picks the ROM
+
+Settings had a read-only `Bundled ROM: emu_avw.rom` label. `emu_rcz80` has been
+published since the migration and was unreachable in every build ever shipped.
+
+There is now a **ROM** row with a Change button listing the selected release's
+`roms[]`, marked with which is the catalog's default and which is on the device.
+What is stored is the catalog **ID**, never the filename shown beside it - the
+two are the same type and look alike, and seeding a filename into the field that
+holds an ID is exactly the bug that shipped in the sibling port and corrupted the
+preference on OK.
+
+Picking one fetches it there and then, with the progress bar a disk download
+gets, and puts the previous choice back if it cannot be got. Recording the pick
+and stopping would have sent the user back to a machine still running the old ROM
+until it was restarted, and then to a dialog asking permission for the download
+their choice already implied.
+
+### Four defects that only running it could find
+
+**The wrong release was named on a fresh install.** `startMachine()` runs from
+`onCreate` before any index has been fetched, where `selectedRomwbwVersion()`
+still answers the legacy anchor. The first launch therefore reported *"RomWBW
+3.5.1 has no ROM on this device yet"* and offered to download 3.5.1's ROM, on a
+device the catalog would have put on 3.6.0. `hasResolvedRelease()` now gates it:
+an install that has never resolved a release against a published index resolves
+one first, then fetches. Nothing is asked before downloading - a first launch
+already fetches a 49 MB starter disk unprompted, so stopping to ask for 512 KB
+would present the ordinary cost of setting the app up as though it were a fault.
+
+**Reboot, with no ROM, reset the core and started nothing.** It confirmed
+("Restart Emulator"), destroyed and recreated the emulator state, cleared the
+screen and the `ROM needed` status with it, and said nothing - so the one thing
+telling the user what to do next disappeared. It routes to `startMachine()` now,
+which is what the play button does from the same state.
+
+**A ROM change was invisible to a running machine.** `onResume` compared the
+selected *release* and the disk slots, which was enough when the ROM was a
+property of the release. It compares the ROM pick too now: choosing `emu_rcz80`
+for the release already selected changes the bytes the CPU executes without
+changing the release, and without this the machine kept running `emu_avw` while
+Settings said otherwise.
+
+**"Has no ROM" was said when a ROM was present.** A device holding `emu_avw` with
+`emu_rcz80` selected was told the release had no ROM at all - false on its face,
+since Settings names the file. `RomFailure.PickedRomNotFetched` says which ROM is
+missing.
+
+### The ROM is no longer frozen at first fetch
+
+The offline fast path - "a verified file is already here, use it" - answered
+before the catalog was ever opened, so a ROM pick could be stored and then
+ignored on every launch. `RomClaim` carries the catalog ID the bytes were fetched
+for, and the fast path is taken only when that is the ID that is wanted. A claim
+written by an older build carries no ID and is accepted while nothing has been
+picked, which costs one fetch after upgrading and nothing afterwards.
+
+### The cost, named rather than discovered
+
+**A first launch with no network cannot start.** There is no ROM in the package
+and a ROM cannot be verified without the catalog that publishes its size and
+hash. It is reported, not left as an app that appears to do nothing: a dialog
+titled *"CPMDroid needs to set up once"* names the failure, says what the first
+start downloads and that later starts are offline, and offers Try again. The
+status strip reads `Setup needed`.
+
+Start, Reboot and Settings all stay enabled in that state. This is checked rather
+than assumed, because the sibling port shipped the opposite in its 1.0.26-beta -
+Start greyed out on an install with no ROM, which is a deadlock, since Start is
+what fetches the ROM - and its scripted driver bypassed the menu state entirely,
+so only a person installing it noticed. `MANUAL_CHECKS.md` now carries that rule
+and the two checks.
+
+### What was verified on the device
+
+- Fresh install, online: resolved to RomWBW 3.6.0 (`default: true` in the index,
+  where 3.5.1 is `default: false`), fetched `emu_avw-v0-3.6.0.rom`, fetched the
+  24-disk 3.6.0 catalog and `hd1k_combo-v0-3.6.0.img`, and booted on the 3.6.0
+  boot loader.
+- ROM picker: lists EMU AVW (default - downloaded) and EMU RCZ80. Selecting RCZ80
+  wrote `rom_id.v0.3.6.0=emu_rcz80` - the ID - fetched `emu_rcz80-v0-3.6.0.rom`,
+  and booted to `RCBus [RCZ80_std] Boot Loader` instead of
+  `RetroBrew SBC [SBC_simh_std]`. That is the first time either of the two
+  published ROMs other than the default has run in this app.
+- Fresh install, airplane mode: the setup dialog above, `Setup needed`, and
+  Start/Reboot/Settings all reported `enabled="true"` by `uiautomator`.
+- Deleting the fetched ROM and restarting: `RomWBW 3.6.0 needs its ROM,
+  emu_avw-v0-3.6.0.rom, which is not on the device`, with Download ROM.
+- The atomic download is real: the 49 MB image is written as `.tmp` and renamed.
+
+### The tests could not have caught the drift they were written to catch
+
+Nothing in the suite read a file outside this repository, so no change to
+`romwbw_disks` could ever turn it red - which is how six assertions came to
+describe a generation-1 document. `theFixturesStillMatchThePublishedDocuments`
+compares `src/test/resources` byte for byte against the sibling checkout and says
+where they first differ. It skips, loudly and by name, when there is no sibling
+(CI, or a lone clone), and an explicit `-Dromwbw.disks.dir` that names nothing
+fails rather than skipping. Proved by perturbing one SHA-256 in a fixture and
+watching it go red.
+
+The three fixtures are refreshed to the published documents - 3,310 / 11,826 /
+15,062 bytes, the last two being the sizes the index itself states.
+
+### Tooling and documentation
+
+- `tools/check-shipped-disks.sh`: the bundled-ROM check is gone. It asserted that
+  every port ships a ROM in its own repository, which is now false for this repo
+  and for `z80cpmw`, so it failed ports that were correct. Its header claimed the
+  file was "identical in five repositories"; measured, it is identical in three,
+  diverged in `z80cpmw`, and absent from `ioscpm` and `romwbw_disks`.
+- `.gitignore` now refuses `*.rom` and `*.img`. The deleted asset hashed to
+  `4b11402a...`, exactly what the catalog publishes for `emu_avw-v0-3.5.1.rom` -
+  a byte-identical second copy that cost 512 KB in every clone and every APK to
+  be right by luck, with nothing in the tree able to say which day it stopped
+  being right.
+- README, PRIVACY_POLICY, the in-app help and the Play description no longer say
+  disks come from the `ioscpm` release area pinned at `v1.4.5`. That host and that
+  pin were both wrong, and the privacy policy is the document that tells a user
+  what leaves their device.
+
+### Still open
+
+`ioscpm` has NOT migrated: `EmulatorViewModel.swift` still pins
+`releaseTag = "v1.4.12"` against the `ioscpm` release area, and
+`iOSCPM/Resources/emu_avw.rom` is still tracked. It is the last of the four ports
+on the old arrangement.
+
+The release AAB in `app/build/outputs/` predates this change and must be rebuilt
+before anything is uploaded.
+
 ## Version 1.28 (versionCode 30)
 
 The ROM comes from the catalog. It is the last version-coupled thing in this

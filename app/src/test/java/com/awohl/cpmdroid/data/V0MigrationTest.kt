@@ -29,7 +29,12 @@ import java.nio.file.Files
  * The name pairs below are written out rather than derived from
  * CATALOG_DISK_STEMS. Deriving them would test the code against itself: the
  * point of the literal list is that an edit to the stem set has to be made here
- * too, against the twenty filenames the published catalogs actually carry.
+ * too, against the twenty filenames the published catalogs actually carry. What
+ * says they still are the published twenty is
+ * CatalogParsingTest.theThreeFiveOneDiskIdsAreTheStemsTheRenamePassKnows, which
+ * reads the ids out of the catalog fixture - and that fixture is now compared
+ * against the sibling romwbw_disks checkout, so a disk added upstream turns
+ * something red instead of nothing.
  */
 class V0MigrationTest {
 
@@ -103,9 +108,14 @@ class V0MigrationTest {
     }
 
     @Test
-    fun theBundledRomNameIsRefused() {
-        // The one rename that stops the app booting at all: MainActivity opens
-        // rom_name with assets.open(), against a file inside the APK.
+    fun aRomNameIsNotADiskNameAndIsNeverMigrated() {
+        // emu_avw really is published as emu_avw-v0-3.5.1.rom, so the name has a
+        // v0 form and this pass still must not produce it. A ROM is not
+        // addressed by a stored filename at all: Settings remembers a catalog id
+        // under a per-release key, and the filename it resolves to is whatever
+        // that release's catalog publishes today. Renaming one here would write
+        // a filename into the one preference that holds ids - the confusion the
+        // sibling port shipped and had to back out.
         assertNull(v0NameOf("emu_avw.rom"))
         assertNull(v0NameOf("emu_rcz80.rom"))
         assertNull(v0NameOf("emu_avw-v0-3.5.1.rom"))

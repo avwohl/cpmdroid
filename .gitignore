@@ -18,6 +18,43 @@ Thumbs.db
 *.apk
 *.aab
 
+# ROMs and disk images: no copy of a catalog asset belongs in this repository.
+#
+# app/src/main/assets/emu_avw.rom was tracked here until 2026-09-07 - 524,288
+# bytes of it, in every clone and inside every APK - and it was the one file
+# this app shipped that had a published, hashed counterpart and was never once
+# compared against it.  Every ROM and every disk image now comes from the
+# romwbw_disks interface-v0 catalog, reached through the one URL compiled in
+# (INDEX_URL in data/DiskCatalogRepository.kt), and is checked against the size
+# and the sha256 that only that catalog publishes before it is used -
+# DiskDownloadManager.readVerifiedRom() re-hashes the ROM on every load and not
+# only after the download.  A copy committed here gets none of that.  It has no
+# catalog entry to be checked against, so it is not a faster copy of a published
+# asset; it is an image with no claim attached, and the only way to learn that
+# it is wrong is for a guest to boot to nothing.
+#
+# What it actually was, measured rather than assumed:
+# `git show HEAD:app/src/main/assets/emu_avw.rom | sha256sum` gives
+# 4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258, which is
+# exactly the sha256 romwbw_disks publishes for emu_avw-v0-3.5.1.rom.  So it had
+# NOT drifted: it was a second, byte-identical copy of a file the catalog
+# already serves and already hashes.  That is the ordinary case and it is still
+# the reason to refuse it.  A duplicate is only correct until the day it is not,
+# it costs 512 KB in every clone and every APK to be right by luck, and nothing
+# in the tree could ever have told anyone which day that was - the copy carried
+# no claim, so there was nothing to check it against.  The sibling z80cpmw
+# deleted the same file for the same reason in its commit 6496fd4.
+# Measured 2026-09-07 against romwbw_disks catalog/v0/3.5.1/catalog.json.
+#
+# *.img is preventive rather than corrective: no disk image has ever been
+# tracked in this repository, and the catalog serves its disks as .img.  Both
+# patterns are unanchored, unlike the paths above, because no directory in this
+# tree is the right home for one and naming a directory would only move the
+# problem.  Nothing the build needs matches either: at the time these were added
+# git ls-files listed no tracked file with either extension.
+*.rom
+*.img
+
 # Log files
 *.log
 

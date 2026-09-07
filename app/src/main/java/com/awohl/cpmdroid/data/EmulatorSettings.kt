@@ -1,7 +1,10 @@
 package com.awohl.cpmdroid.data
 
+// No romName. The ROM is not a property of the app any more: it belongs to the
+// selected RomWBW release, is named by that release's catalog, and is chosen by
+// catalog ID through SettingsRepository.selectedRomId(). A field here would be a
+// second place for that answer to live and a filename where an ID belongs.
 data class EmulatorSettings(
-    val romName: String = "emu_avw.rom",
     val diskSlots: List<String?> = listOf(null, null, null, null),
     val fontSize: Int = 14,
     val wrapLines: Boolean = false,

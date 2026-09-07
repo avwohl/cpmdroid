@@ -93,41 +93,49 @@ class RomSelectionTest {
     }
 
     //-------------------------------------------------------------------------
-    // Bundled asset or catalog download
+    // Which ROM a release boots
     //-------------------------------------------------------------------------
 
     /**
-     * The case that makes a fresh install work with no connection at all: the
-     * selected release is the one the bundled ROM declares, so nothing is
-     * fetched and no index is read.
+     * The pick wins over the flag. This is what makes the Settings ROM row do
+     * anything at all: emu_rcz80 has been published since the migration and was
+     * unreachable in every build until a pick could override `default: true`.
      */
     @Test
-    fun theBundledRomIsUsedForTheReleaseItDeclares() {
-        assertSame(RomRequirement.Bundled, romRequirement("3.5.1", "3.5.1"))
+    fun aPickedRomWinsOverTheDefaultFlag() {
+        val roms = listOf(rom("emu_avw", isDefault = true), rom("emu_rcz80", isDefault = false))
+        assertEquals("emu_rcz80", selectRom(roms, "emu_rcz80")?.id)
     }
 
     /**
-     * The case this whole feature exists for. RomWBW 3.6.0 is published stable
-     * and default; every shipped client bundles a 3.5.1 ROM. Pairing them is
-     * what makes CP/M print *** WARNING: HBIOS/CBIOS Version Mismatch ***, so
-     * the bundled ROM must not be reachable from here.
+     * A pick this release does not publish falls back rather than failing.
+     * roms[] is per-release, so choosing emu_rcz80 under one release and
+     * switching to another that publishes only emu_avw is an ordinary thing to
+     * do, and it has to land on a bootable ROM. The pick stays in preferences,
+     * so switching back restores it.
      */
     @Test
-    fun anotherReleaseNeedsItsOwnRomFromTheCatalog() {
-        val requirement = romRequirement("3.6.0", "3.5.1")
-        assertEquals(RomRequirement.FromCatalog("3.6.0"), requirement)
-        assertFalse(requirement is RomRequirement.Bundled)
+    fun aPickThisReleaseDoesNotPublishFallsBackToTheDefault() {
+        val roms = listOf(rom("emu_avw", isDefault = true))
+        assertEquals("emu_avw", selectRom(roms, "emu_rcz80")?.id)
+    }
+
+    /** No pick is the ordinary case: the flagged default. */
+    @Test
+    fun withNoPickTheFlaggedDefaultIsUsed() {
+        val roms = listOf(rom("emu_rcz80", isDefault = false), rom("emu_avw", isDefault = true))
+        assertEquals("emu_avw", selectRom(roms, null)?.id)
     }
 
     /**
-     * An unreadable bundled asset cannot be claimed to match anything. It is
-     * read through emu_romwbw_release_of_image() rather than from a constant
-     * precisely so that a swapped or truncated asset answers null instead of
-     * lying.
+     * A claim carries the id it was fetched for, which is what lets an offline
+     * launch tell "the ROM I have is the one I want" from "the one I wanted
+     * last time". Without it a pick would be stored and then ignored forever,
+     * because a verified file already on disk answers first.
      */
     @Test
-    fun anUnreadableBundledRomMatchesNoRelease() {
-        assertEquals(RomRequirement.FromCatalog("3.5.1"), romRequirement("3.5.1", null))
+    fun aClaimRecordsWhichRomItWasFetchedFor() {
+        assertEquals("emu_rcz80", rom("emu_rcz80", isDefault = false).claim().romId)
     }
 
     //-------------------------------------------------------------------------
