@@ -382,3 +382,32 @@ intent-filter - were folded into row 4 rather than given a fourteenth row.  Row
 every "item 13" and "(#4)" cross-reference in a document that has dozens of
 them.  If a future capability needs a row of its own, that is the cost to price.
 
+
+- [ANDROID] the catalog index is switchable in the model but has no UI yet.
+SettingsRepository now carries KEY_CATALOG_INDEX_URL (empty = the index this
+build ships with), resolveIndexUrl/isCustomIndex/fnv1a32, and the instance
+accessors catalogIndexUrl, effectiveIndexUrl, usingCustomIndex and
+indexUrlIsFromEnvironment.  $ROMWBW_INDEX_URL wins over the setting for one run,
+which is what a test uses and what works TODAY with no UI:
+
+    adb shell setprop ... is not it - use the run configuration's environment,
+    or set the pref directly while debugging.
+
+  Everything a switch has to move moves with it.  scope() appends indexScope to
+every per-release key - disk slots, NVRAM, catalog generation, the ROM claim -
+and DiskDownloadManager's disksDirName()/modifiedDisksDirName() append it to the
+folders, so a visit to a test catalog cannot read or write the library the device
+already has, and coming back finds it untouched.  indexScope is EMPTY for the
+built-in index, so every existing install's keys and folders are byte-identical
+to what they were.
+  WHAT IS MISSING is a field in SettingsActivity: a text box bound to
+catalogIndexUrl with "built-in catalog" as its hint, disabled when
+indexUrlIsFromEnvironment, a line showing effectiveIndexUrl, and a warning when
+usingCustomIndex saying the catalog is the thing being trusted - downloads are
+still checked against that catalog's own sha256, but the index is the root of
+that chain.  Applying one must call refreshIndexScope() (the setter already does)
+and then re-fetch the catalog.  ioscpm's Settings "Catalog" section is the model
+to copy; z80cpmw's SettingsDialogWx has the same field.
+  NONE OF THIS HAS BEEN COMPILED.  It was written on a machine with no Android
+SDK, no Gradle and no JRE - /usr/bin/java is the Apple stub - so not one line of
+it has been through kotlinc.  Read it before running it.

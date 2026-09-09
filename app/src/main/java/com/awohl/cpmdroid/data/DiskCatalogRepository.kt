@@ -105,8 +105,17 @@ class DiskCatalogRepository {
          * here. HelpActivity's own index does float on releases/latest, and
          * that difference is deliberate too.
          */
-        const val INDEX_URL =
-            "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json"
+        /**
+         * The index this build ships with.
+         *
+         * ONE literal, in SettingsRepository, because that is where the setting
+         * that can replace it lives and two copies of this string would be two
+         * sources of truth about which catalog is in play - the thing CLAUDE.md
+         * names as the bug. What is actually fetched is
+         * SettingsRepository.indexUrlInUse, which is this unless the device has
+         * been pointed elsewhere.
+         */
+        const val INDEX_URL = SettingsRepository.DEFAULT_INDEX_URL
 
         /**
          * Cap on a document read into memory.
@@ -134,7 +143,12 @@ class DiskCatalogRepository {
      */
     suspend fun fetchIndex(): Result<List<RomwbwVersion>> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder().url(INDEX_URL).build()
+            // The index in use, which is INDEX_URL unless this device has been
+            // pointed somewhere else. Read from SettingsRepository rather than
+            // held here, so that applying a new one takes effect on the next
+            // fetch without this object being rebuilt.
+            val request = Request.Builder()
+                .url(SettingsRepository.indexUrlInUse).build()
 
             // use{}, not a bare execute(): the not-successful arm returns
             // without ever reading the body, and okhttp hands a connection back

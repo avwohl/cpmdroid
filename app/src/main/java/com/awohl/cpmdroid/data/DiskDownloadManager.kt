@@ -15,6 +15,27 @@ class DiskDownloadManager(private val context: Context) {
         /** Catalog downloads, named by catalog filename. */
         private const val DISKS_DIR_NAME = "Disks"
 
+        /**
+         * The disks folder for the catalog in use.
+         *
+         * "Disks" exactly for the index this build ships with - so a device that
+         * has never been pointed anywhere else finds its library where it left
+         * it, and the v0 rename pass renames the files it already renamed. A
+         * custom index gets a folder of its own beside it, because two catalogs
+         * publish DIFFERENT BYTES under the same filenames:
+         * hd1k_combo-v0-3.6.0.img means one thing in romwbw_disks and another in
+         * a fork, and one folder would have them overwrite each other on every
+         * switch - taking any work saved inside the disk with them.
+         *
+         * SettingsRepository.indexScope is EMPTY for the built-in index, so this
+         * is the same string it has always been unless somebody asked for it not
+         * to be.
+         */
+        private fun disksDirName() = DISKS_DIR_NAME + SettingsRepository.indexScope
+
+        private fun modifiedDisksDirName() =
+            MODIFIED_DISKS_DIR_NAME + SettingsRepository.indexScope
+
         /** The user's written-to copies, named by the same catalog filename. */
         private const val MODIFIED_DISKS_DIR_NAME = "ModifiedDisks"
 
@@ -65,7 +86,7 @@ class DiskDownloadManager(private val context: Context) {
         catalogRepo.fetchCatalog(entry)
 
     fun getDisksDir(): File {
-        val dir = File(context.getExternalFilesDir(null), DISKS_DIR_NAME)
+        val dir = File(context.getExternalFilesDir(null), disksDirName())
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
@@ -85,10 +106,10 @@ class DiskDownloadManager(private val context: Context) {
      * migration is the one caller that must refuse to act rather than act on an
      * empty directory: it is what writes the flag saying the rename is done.
      */
-    fun getDisksDirOrNull(): File? = externalSubdirOrNull(DISKS_DIR_NAME)
+    fun getDisksDirOrNull(): File? = externalSubdirOrNull(disksDirName())
 
     /** [getPersistedDisksDir] with the same guard, and for the same reason. */
-    fun getPersistedDisksDirOrNull(): File? = externalSubdirOrNull(MODIFIED_DISKS_DIR_NAME)
+    fun getPersistedDisksDirOrNull(): File? = externalSubdirOrNull(modifiedDisksDirName())
 
     private fun externalSubdirOrNull(name: String): File? {
         val root = context.getExternalFilesDir(null) ?: return null
@@ -467,7 +488,7 @@ class DiskDownloadManager(private val context: Context) {
      * These are kept separate from downloaded catalog disks.
      */
     fun getPersistedDisksDir(): File {
-        val dir = File(context.getExternalFilesDir(null), MODIFIED_DISKS_DIR_NAME)
+        val dir = File(context.getExternalFilesDir(null), modifiedDisksDirName())
         if (!dir.exists()) dir.mkdirs()
         return dir
     }

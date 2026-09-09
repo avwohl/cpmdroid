@@ -102,7 +102,88 @@ class SettingsRepository(context: Context) {
          * renamed it. Sharing one key across releases would not corrupt
          * anything; it would quietly do the wrong thing.
          */
-        private fun scope(romwbwVersion: String) = ".v0.$romwbwVersion"
+        /**
+         * The catalog index this build ships with, and the only URL compiled in.
+         *
+         * Everything else - which releases exist, which ROMs and disks each has,
+         * where they live and what they hash to - is read out of a document at
+         * run time. That is what lets romwbw_disks publish a new ROM or disk and
+         * have it reach an installed client with no app release.
+         */
+        const val DEFAULT_INDEX_URL =
+            "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json"
+
+        /**
+         * Where a user-supplied index URL is remembered. Empty or absent means
+         * "the one this build ships with", and deliberately NOT a copy of
+         * DEFAULT_INDEX_URL: storing the default would freeze this install onto
+         * whatever it was the day it was written, where empty picks up a default
+         * that moves in a later release.
+         */
+        const val KEY_CATALOG_INDEX_URL = "catalog_index_url"
+
+        /**
+         * The scope suffix for the index in use, and EMPTY for the built-in one.
+         *
+         * Empty is the point. Every key this appends to has to come out
+         * byte-identical to what a device already holds, or one visit to a test
+         * catalog would strand the user's library behind a key nothing reads
+         * afterwards. Only a custom index gets a suffix.
+         *
+         * Held here rather than read from prefs on each call because the key
+         * builders below are pure string functions with no prefs in hand, and
+         * because the answer cannot change while the process is alive: applying
+         * a new index restarts the catalog, and $ROMWBW_INDEX_URL is fixed for
+         * the run. Set by [refreshIndexScope], which the constructor calls.
+         */
+        @Volatile
+        @JvmStatic
+        var indexScope: String = ""
+            private set
+
+        /**
+         * The index URL actually being fetched, for callers with no prefs in
+         * hand - DiskCatalogRepository is constructed with no Context and must
+         * still fetch the right document. Kept beside [indexScope] and set by
+         * the same call, so the URL and the namespace its downloads land in can
+         * never disagree.
+         */
+        @Volatile
+        @JvmStatic
+        var indexUrlInUse: String = DEFAULT_INDEX_URL
+            private set
+
+        /** FNV-1a folded to 32 bits - the same function, folded the same way, as
+         *  ioscpm's Swift and z80cpmw's C++, so one index URL produces one tag on
+         *  every client and a bug report naming a scope means the same thing in
+         *  each. Verified against both on 2026-09-08. */
+        @JvmStatic
+        fun fnv1a32(s: String): String {
+            var hash = -0x340d631b7bdddcdbL   // 0xcbf29ce484222325
+            for (b in s.toByteArray(Charsets.UTF_8)) {
+                hash = hash xor (b.toLong() and 0xff)
+                hash *= 0x100000001b3L
+            }
+            val folded = ((hash ushr 32) xor hash) and 0xffffffffL
+            return String.format("%08x", folded)
+        }
+
+        /** The index actually in use. Precedence matches romwbw-get and the
+         *  other two clients: the environment first, so one test run needs
+         *  nothing stored; then the setting; then the built-in. */
+        @JvmStatic
+        fun resolveIndexUrl(configured: String?): String {
+            val env = System.getenv("ROMWBW_INDEX_URL")?.trim().orEmpty()
+            if (env.isNotEmpty()) return env
+            val c = configured?.trim().orEmpty()
+            return if (c.isEmpty()) DEFAULT_INDEX_URL else c
+        }
+
+        @JvmStatic
+        fun isCustomIndex(configured: String?): Boolean =
+            resolveIndexUrl(configured) != DEFAULT_INDEX_URL
+
+        private fun scope(romwbwVersion: String) = ".v0.$romwbwVersion" + indexScope
 
         private fun diskSlotKey(slot: Int, romwbwVersion: String) =
             KEY_DISK_SLOT_PREFIX + slot + scope(romwbwVersion)
@@ -155,6 +236,50 @@ class SettingsRepository(context: Context) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    init {
+        // Before anything reads a scoped key. Every key builder above appends
+        // [indexScope], and it must be right the first time it is used: a slot
+        // read under the wrong namespace shows an empty machine.
+        refreshIndexScope()
+    }
+
+    /**
+     * Re-read which catalog is in play and recompute the key namespace.
+     *
+     * Called from the constructor and again whenever the setting changes.
+     * Everything scoped by it - disk slots, NVRAM, the catalog generation, the
+     * ROM claim - therefore moves together, which is the property that lets a
+     * user visit a test catalog and come back to their own library intact.
+     */
+    fun refreshIndexScope() {
+        val configured = prefs.getString(KEY_CATALOG_INDEX_URL, "") ?: ""
+        indexUrlInUse = resolveIndexUrl(configured)
+        indexScope = if (isCustomIndex(configured)) "@" + fnv1a32(indexUrlInUse) else ""
+    }
+
+    /** The user's own index URL, or "" for the one this build ships with. */
+    var catalogIndexUrl: String
+        get() = prefs.getString(KEY_CATALOG_INDEX_URL, "") ?: ""
+        set(value) {
+            val v = value.trim()
+            prefs.edit {
+                if (v.isEmpty()) remove(KEY_CATALOG_INDEX_URL) else putString(KEY_CATALOG_INDEX_URL, v)
+            }
+            refreshIndexScope()
+        }
+
+    /** The index actually being fetched, whatever its source. */
+    val effectiveIndexUrl: String get() = resolveIndexUrl(catalogIndexUrl)
+
+    /** Is this app reading a catalog other than the one it ships with? */
+    val usingCustomIndex: Boolean get() = isCustomIndex(catalogIndexUrl)
+
+    /** Is the index fixed by the environment for this run, so the setting cannot
+     *  change it? The UI shows the field disabled in that case rather than
+     *  pretending an edit would take effect. */
+    val indexUrlIsFromEnvironment: Boolean
+        get() = !System.getenv("ROMWBW_INDEX_URL")?.trim().isNullOrEmpty()
 
     /**
      * The RomWBW release whose slots and NVRAM to read RIGHT NOW.
