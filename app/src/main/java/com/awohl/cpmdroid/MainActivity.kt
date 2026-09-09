@@ -89,12 +89,25 @@ class MainActivity : AppCompatActivity() {
     private var lastDiskSlots: List<String?> = emptyList()
     private var cameFromSettings = false
 
-    // The release the running machine's ROM and disks belong to, snapshotted
-    // the same way lastDiskSlots is and compared in onResume. Changing release
-    // in Settings changes the ROM, not only the four slots, so the disk-only
-    // reload that already runs there is not enough: it would leave 3.6.0 disks
-    // mounted under the ROM 3.5.1 was started with, which is the pairing this
-    // whole path exists to make impossible.
+    // The release the running machine's ROM and disks belong to, compared in
+    // onResume. Changing release in Settings changes the ROM, not only the four
+    // slots, so the disk-only reload that already runs there is not enough: it
+    // would leave 3.6.0 disks mounted under the ROM 3.5.1 was started with,
+    // which is the pairing this whole path exists to make impossible.
+    //
+    // WRITTEN IN TWO PLACES, and the pair is the point rather than a
+    // duplication. startMachine() records a start REQUESTED for a release,
+    // which is what lets onResume drop a resolution that a later switch has
+    // overtaken. loadRomAndDisks() records a ROM actually IN THE BANKS, and it
+    // has to, because startMachine() returns early at `!hasResolvedRelease()`
+    // and the resolve path then reaches the load without coming back through
+    // it - so a first launch left this null with a machine running, onResume
+    // read that as "nothing to compare", and a release switched in that same
+    // session moved the disks and the NVRAM out from under the ROM.
+    //
+    // Null therefore means only "no start has been requested and no ROM has
+    // been loaded in this process", which is what onResume's null gate wants it
+    // to mean.
     private var lastRomwbwVersion: String? = null
 
     // The ROM pick the running machine was started under, snapshotted the same
@@ -938,7 +951,7 @@ class MainActivity : AppCompatActivity() {
             needsDefaultDisk = false
             downloadDefaultDisk(romwbwVersion, romBytes)
         } else {
-            loadRomAndDisks(settings, romBytes)
+            loadRomAndDisks(settings, romwbwVersion, romBytes)
         }
     }
 
@@ -1129,7 +1142,7 @@ class MainActivity : AppCompatActivity() {
             // Settings are re-read rather than reused: setDiskSlot(0, ...) above
             // may have just changed them, and the snapshot this coroutine
             // started with predates that.
-            loadRomAndDisks(settingsRepo.getSettings(), romBytes)
+            loadRomAndDisks(settingsRepo.getSettings(), romwbwVersion, romBytes)
         }
     }
 
@@ -1159,12 +1172,46 @@ class MainActivity : AppCompatActivity() {
      * load. There is no other source: this app carries no ROM, so a machine
      * either starts on catalog bytes or does not start.
      */
-    private fun loadRomAndDisks(settings: EmulatorSettings, romBytes: ByteArray) {
+    private fun loadRomAndDisks(
+        settings: EmulatorSettings,
+        romwbwVersion: String,
+        romBytes: ByteArray
+    ) {
         // The resolution ends here and not at romResolved(), so that the
         // starter-disk fetch between the two is covered by it as well: for as
         // long as this is set, a play-button tap is a no-op rather than a
         // second resolution running beside the first.
         resolvingRomFor = null
+
+        // WHAT IS ABOUT TO BE IN THE BANKS, recorded here as well as at the
+        // request in startMachine(), because a request is not a load and one
+        // launch makes exactly that difference.
+        //
+        // startMachine() returns early at `!hasResolvedRelease()` on an install
+        // that has never read the index, and resolveReleaseThenStart() then goes
+        // to fetchRomThenStart() rather than back through startMachine() - its
+        // own comment says so, and it is right to. So a first launch loaded a
+        // ROM with lastRomwbwVersion still null, onResume's
+        // `lastRomwbwVersion != null` gate read that as "nothing is running",
+        // and a release switched in Settings during that same session reached
+        // the disks and the NVRAM - both keyed .v0.<ver> - while the ROM in the
+        // banks stayed the one the session started on. That is the
+        // HBIOS/CBIOS mismatch this field exists to make impossible.
+        //
+        // ADDED rather than moved. The write in startMachine() also says "a
+        // start has been REQUESTED for this release", which is what lets
+        // onResume drop an overtaken resolution and what romUnavailable()
+        // leaves behind for the "switch release to recover" path; taking it
+        // away to put it here would close one hole by opening those.
+        //
+        // The release is the caller's and not settingsRepo's, for the reason
+        // romResolved() already gives about its own parameter: the selection can
+        // move while a hash or a download is in flight, and this has to name
+        // what the BYTES are for. lastRomId is deliberately not touched here -
+        // onResume compares it against selectedRomId(), where an unmade pick
+        // reads as null, so recording a concrete id against a null pick would
+        // report a ROM change on every resume.
+        lastRomwbwVersion = romwbwVersion
 
         // Apply display settings
         terminalView.customFontSize = settings.fontSize.toFloat()

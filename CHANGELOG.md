@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+No version number yet, and **none of this has been compiled**: it was written on
+a machine with no Android SDK, no Gradle and no JRE at all (`/usr/bin/java` is
+Apple's stub). Read it before building it.
+
+### Fixed
+
+- **A release switched during the session that first resolved one moved the
+  disks and the NVRAM out from under the ROM in the banks.**
+  `lastRomwbwVersion` was written in exactly one place, inside `startMachine()`
+  — but `startMachine()` returns early at `!hasResolvedRelease()`, and
+  `resolveReleaseThenStart()` then goes to `fetchRomThenStart()` rather than back
+  through `startMachine()`, deliberately and for a good reason of its own. So a
+  first launch loaded a ROM with the field still null, `onResume`'s
+  `lastRomwbwVersion != null` gate read that as "nothing is running", and a
+  release switched in Settings during that same session was applied to the
+  preferences — disk slots and the NVRAM blob, both keyed `.v0.<ver>` — while the
+  ROM stayed the one the session started on. That is the HBIOS/CBIOS version
+  mismatch the field exists to make impossible, on the one launch where nothing
+  was watching for it.
+
+  `loadRomAndDisks()` now records the release as well, taking it as a parameter
+  the way `romResolved()` already does and for the same stated reason: the
+  selection can move while a hash or a download is in flight, so this has to name
+  what the BYTES are for rather than what is selected now.
+
+  **Added rather than moved**, and that distinction came out of review. The write
+  in `startMachine()` also means "a start has been requested for this release",
+  which is what lets `onResume` drop a resolution a later switch has overtaken
+  and what `romUnavailable()` leaves behind for the "switch release to recover"
+  path. Taking it away to put it at the load site would have closed one hole by
+  opening those. `lastRomId` is deliberately not touched at the load site either:
+  `onResume` compares it against `selectedRomId()`, where an unmade pick reads as
+  null, so recording a concrete id there would report a ROM change on every
+  resume.
+
+  Found by an audit of all three clients against the interface-v0 contract, where
+  it survived three adversarial verifiers.
+
 ## Version 1.29 (versionCode 31)
 
 No ROM in this repository. `app/src/main/assets/emu_avw.rom` is deleted, nothing
