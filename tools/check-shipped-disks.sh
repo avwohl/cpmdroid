@@ -15,22 +15,45 @@
 # note that has to be read at the right moment is not a gate.  So this checks the
 # BUILT ARTIFACT as well as the tree, because that is the gap that won.
 #
-# Copy: this script checks every port, not just the one it is sitting in, so no
-# repository can report "fixed" while its neighbour's users are on an old pin.
-# Edit one, copy to the rest.
+# Copy: this script checks every port in the table below, not just the one it
+# is sitting in, so no repository can report "fixed" while its neighbour's
+# users are on an old pin.  That is the whole reason it is duplicated.
 #
-# WHERE THE COPIES ACTUALLY ARE, listed because the line that used to sit here
-# said this file was "identical in cpmemu, romwbw_emu, cpmdroid, ioscpm and
-# z80cpmw" and that was wrong three ways at once, none of them visible from
-# inside any single checkout.  Measured on 2026-09-07 with sha256sum: cpmdroid,
-# cpmemu and romwbw_emu carry tools/check-shipped-disks.sh and were
-# byte-for-byte the same file until this edit; z80cpmw carries its own copy
-# under that name, diverged on 2026-09-07 when it deleted its roms/ directory;
-# ioscpm has no file by this name at all, only the pre-rename
-# tools/check-disk-pins.sh, 255 lines that predate every note below; and
-# romwbw_disks, which publishes the catalog this whole script is about, has no
-# copy.  So "copy to the rest" is a merge and not a cp, and after this edit
-# cpmemu and romwbw_emu are the two that are behind.
+# WHERE THE COPIES ARE.  Four repositories carry it - cpmdroid, ioscpm,
+# romwbw_emu and z80cpmw.  romwbw_disks, which publishes the catalog this
+# script is about, has never had one.  cpmemu had one and deleted it on
+# 2026-09-10 (294ee01): it is not a row in the table below, tracks no disk
+# image, and ran the script from no workflow, so its copy only ever reported
+# on its neighbours.  Do not re-add it there.  Re-measure rather than trust
+# this paragraph:
+#     ls /Users/wohl/src/*/tools/check-shipped-disks.sh
+#
+# THE FOUR ARE NOT ONE SCRIPT, and have not been since 2026-09-07:
+#     md5 -q /Users/wohl/src/*/tools/check-shipped-disks.sh | sort | uniq -c
+# expects four lines, not one.  No hash is written here on purpose - every
+# note that quoted one was wrong within a day.  No copy is a superset of the
+# others either, so "edit one, copy to the rest" is a merge and not a cp, and
+# taking any single copy wholesale loses something:
+#   ioscpm      roms_in_tree(), and the only *.app arms in scan_artifact() and
+#               scan_artifact_for() - the other three find an .app bundle and
+#               cannot open it.
+#   cpmdroid    detect_kind(), the only copy that reads a checkout to decide a
+#               port's kind instead of trusting the table's kind column.
+#   romwbw_emu  the only ports row for romwbw_emu itself, and the only check
+#               that the v0 index publishes at least one release.
+#   z80cpmw     nothing the other three lack.
+# romwbw_disks/docs/RELEASING.md carries the family-wide inventory; correct it
+# there when this changes, rather than in four headers that drift apart.
+#
+# KNOWN FALSE ALARM, measured 2026-09-10 in all four copies: every one of them
+# exits 1 reporting NO v0 INDEX URL for ioscpm and for cpmdroid, and both of
+# those ports are correct.  Each moved its index URL behind a re-export -
+# ioscpm's EmulatorViewModel returns CatalogMigration.indexURL, cpmdroid's
+# DiskCatalogRepository returns SettingsRepository.DEFAULT_INDEX_URL - and
+# index_url_of(), still byte-identical in all four copies, greps only the one
+# file the table names.  It is the table's file column that is stale, not the
+# ports.  Nothing runs this script in CI in any of the four repositories, so
+# that exit 1 turns nothing red.
 #
 # WHY MIGRATED PORTS ARE ASKED A DIFFERENT QUESTION.  cpmdroid no longer pins an
 # ioscpm release tag: it fetches romwbw_disks' index-v0.json and takes every URL
