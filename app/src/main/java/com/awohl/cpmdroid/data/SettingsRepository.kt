@@ -109,9 +109,19 @@ class SettingsRepository(context: Context) {
          * where they live and what they hash to - is read out of a document at
          * run time. That is what lets romwbw_disks publish a new ROM or disk and
          * have it reach an installed client with no app release.
+         *
+         * AND IT NAMES NO RELEASE TAG. It was
+         * `releases/download/catalog-v0/index-v0.json` until 2026-09-10, which
+         * pinned the tag: adding a RomWBW version was always free, because a
+         * version is an entry INSIDE the index, but romwbw_disks could never
+         * rename that release, move the index, or publish a v1 anywhere a
+         * shipped client would look. `releases/latest/download/` is resolved by
+         * GitHub to whichever release carries the Latest flag, so where the
+         * index lives belongs to romwbw_disks; a v1 ships as index-v1.json
+         * beside index-v0.json on that same release.
          */
         const val DEFAULT_INDEX_URL =
-            "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json"
+            "https://github.com/avwohl/romwbw_disks/releases/latest/download/index-v0.json"
 
         /**
          * Where a user-supplied index URL is remembered. Empty or absent means

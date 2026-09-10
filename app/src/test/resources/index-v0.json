@@ -3,7 +3,68 @@
   "schema_version": 1,
   "interface": "v0",
   "repo": "https://github.com/avwohl/romwbw_disks",
-  "index_url": "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json",
+  "index_url": "https://github.com/avwohl/romwbw_disks/releases/latest/download/index-v0.json",
+  "help": {
+    "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/",
+    "topics": [
+      {
+        "id": "quick_start",
+        "filename": "help_quick_start.md",
+        "name": "Quick Start Guide",
+        "description": "Getting started with the emulator",
+        "size": 3271,
+        "sha256": "6cd6822b1dec8ceaa1f87d8100c9eeb10dfad913891ffc4b9f48d2a93a7136e9"
+      },
+      {
+        "id": "cpm22",
+        "filename": "help_cpm22.md",
+        "name": "CP/M 2.2 User Guide",
+        "description": "Complete guide to CP/M 2.2 operating system",
+        "size": 5551,
+        "sha256": "a10d616b50dba09603b48d68db9da003f2af3ddf398e5487c646b5e383960373"
+      },
+      {
+        "id": "zsdos",
+        "filename": "help_zsdos.md",
+        "name": "ZSDOS User Guide",
+        "description": "Z-System DOS with date/time stamping",
+        "size": 4281,
+        "sha256": "b70feac3d4eb563394e9bcdaa247436da48273ad884ab22eb9d5ddeafba5e698"
+      },
+      {
+        "id": "nzcom",
+        "filename": "help_nzcom.md",
+        "name": "NZCOM User Guide",
+        "description": "Z-System for CP/M 2.2 environments",
+        "size": 3560,
+        "sha256": "d12d2c511df78d33f8539dd27be8d9deebe43952f6b574b377656da0f5a22e65"
+      },
+      {
+        "id": "zpm3",
+        "filename": "help_zpm3.md",
+        "name": "ZPM3 User Guide",
+        "description": "Z-System Plus/M3 enhanced CP/M 3",
+        "size": 3883,
+        "sha256": "5c6490726f2a0af49e44805fbe67243b956ff99886b42f46f212bf1c79adf6b0"
+      },
+      {
+        "id": "qpm",
+        "filename": "help_qpm.md",
+        "name": "QPM User Guide",
+        "description": "QP/M operating system",
+        "size": 4198,
+        "sha256": "81c4d65a243a21567cc77d049a7d2667f81dccfb1b5e8df2fec02c764b30f5ff"
+      },
+      {
+        "id": "disk_transfer",
+        "filename": "help_file_transfer.md",
+        "name": "File Transfer (R8/W8)",
+        "description": "Transfer files between host and CP/M",
+        "size": 3547,
+        "sha256": "59b9edf81869a9c8e23583e0ee09b8f69c79e92e61af8c4aa3db2cba28b6c9ce"
+      }
+    ]
+  },
   "romwbw_versions": [
     {
       "romwbw_version": "3.5.1",

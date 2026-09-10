@@ -99,11 +99,21 @@ class DiskCatalogRepository {
          * GitHub answered 404 for, and no user of that build could download
          * anything at all.
          *
-         * Deliberately a fixed tag (`catalog-v0`) rather than
-         * releases/latest/download: this is the interface-v0 index, and a v1
-         * would live alongside it at a different URL rather than replace it
-         * here. HelpActivity's own index does float on releases/latest, and
-         * that difference is deliberate too.
+         * It goes through releases/latest/download and names no release tag.
+         *
+         * This paragraph used to argue the opposite - "deliberately a fixed tag
+         * (`catalog-v0`) rather than releases/latest/download: this is the
+         * interface-v0 index, and a v1 would live alongside it at a different
+         * URL rather than replace it here" - and that was the mistake, stated
+         * plainly enough to be worth correcting rather than deleting. A v1 at a
+         * different URL is unreachable from a constant naming the old one, so
+         * that arrangement made a v1 mean "rebuild every client on every
+         * platform", which is the coupling the catalog exists to remove.
+         *
+         * A v1 ships as index-v1.json BESIDE index-v0.json on whichever release
+         * carries the Latest flag: v0 clients keep reading v0, v1 clients read
+         * v1, nobody rebuilds anything. HelpActivity floating on
+         * releases/latest was right all along; the difference was the error.
          */
         /**
          * The index this build ships with.
