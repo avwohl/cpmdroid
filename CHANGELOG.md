@@ -1,5 +1,28 @@
 # Changelog
 
+## Version 1.31 (versionCode 33)
+
+**The same code as 1.30, under a number Play has not seen.** Nothing in the app
+changed. This is the build that is actually uploaded, and it gets its own number
+because 1.30's never was - along with 1.26, 1.27, 1.28 and 1.29, which is five
+consecutive versionCodes spent on builds that reached no user.
+
+`tools/check-store-version.sh`, run 2026-09-10, reports Play serving **1.25**,
+which this file maps to versionCode 27. So 32 was almost certainly free. The
+number moved anyway, because that tool measures what Play SERVES and Play
+refuses an upload at a versionCode it has SEEN - a build pushed to a test track
+and never promoted is invisible to the measurement and fatal to the upload. Only
+one of those two questions can be answered from outside, and it is not the one
+that decides whether an upload is accepted.
+
+Uploaded is not released, and released is not installed. When this reaches the
+store, the line to correct is the one in that script's output, by re-running it
+rather than by editing anything here.
+
+Built as an app bundle - `./gradlew :app:bundleRelease` - because that is what
+Play takes. The README's `assembleRelease` APK is for sideloading and adb, and
+uploading one gets a rejection rather than an error worth reading.
+
 ## Version 1.30 (versionCode 32)
 
 **This app compiles in no cpmdroid URL at all now.** The in-app help was the last

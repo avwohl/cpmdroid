@@ -124,9 +124,21 @@ android {
         // app release, and no cpmdroid release has to stay Latest forever to
         // keep an installed build working.
         //
+        // 33 / "1.31" is 1.30's code under a number Play has not seen. Nothing
+        // in the app changed: this is the build that is actually uploaded,
+        // where 28 through 32 were spent on builds that reached nobody.
+        //
+        // Measured rather than assumed, with tools/check-store-version.sh on
+        // 2026-09-10: Play serves 1.25, which CHANGELOG.md maps to versionCode
+        // 27. So 32 was almost certainly free - but that tool reads what Play
+        // SERVES, and Play refuses an upload at a versionCode it has SEEN,
+        // which includes anything pushed to a test track and never promoted.
+        // The two are not the same question and only one of them is
+        // measurable from outside.
+        //
         // A versionCode costs nothing. A record that says the wrong thing does.
-        versionCode = 32
-        versionName = "1.30"
+        versionCode = 33
+        versionName = "1.31"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the
