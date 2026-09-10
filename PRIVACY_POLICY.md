@@ -26,7 +26,7 @@ CPMDroid accesses the internet to download content from GitHub. No ROM and no di
   - CP/M disk images
   - The catalog documents that list the ROMs and disk images on offer, and publish the size and SHA-256 each one is checked against
   - All three from the romwbw_disks releases area (https://github.com/avwohl/romwbw_disks/releases/)
-  - Help documentation and the help topic index, from the CPMDroid releases area (https://github.com/avwohl/cpmdroid/releases/). The index names the host its topics are fetched from, and today it names that same area
+  - Help documentation, from the same romwbw_disks releases area. Since 1.30 the topic list is part of that catalog index rather than a separate document in the CPMDroid releases area, so the app connects to one host and not two
 - **When:** Only when you:
   - Start the emulator without the ROM for the selected release already on the device, and accept the download the app offers. This is what a first launch is: the app ships no ROM, so it cannot start until one catalog fetch has succeeded
   - Choose a different ROM or a different RomWBW release in Settings

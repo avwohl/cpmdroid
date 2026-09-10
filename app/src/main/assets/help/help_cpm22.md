@@ -11,7 +11,7 @@ This guide covers using CP/M 2.2 in the emulator.
 3. Return to the main screen and start the emulator
 4. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`. Typing `0` answers `*** No system image on disk`.
 
-On Android the Combo image is downloaded into disk slot 0 on first launch, so a fresh install can skip to step 3 and type `2` there.
+The Combo image is downloaded into disk slot 0 on first launch - the catalog marks it as the default for that slot - so a fresh install can skip to step 3 and type `2` there.
 
 You'll see the CP/M prompt:
 

@@ -19,27 +19,17 @@ import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.awohl.cpmdroid.data.HelpIndex
+import com.awohl.cpmdroid.data.HelpTopic
+import com.awohl.cpmdroid.data.SettingsRepository
+import com.awohl.cpmdroid.data.helpTopicUrl
+import com.awohl.cpmdroid.data.parseHelpIndex
 import com.awohl.cpmdroid.data.sharedHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.text.DateFormat
 import java.util.Date
-
-data class HelpTopic(
-    val id: String,
-    val title: String,
-    val description: String,
-    val filename: String?,  // Relative to base_url
-    val url: String?        // Full URL (overrides base_url + filename)
-)
-
-data class HelpIndex(
-    val version: Int,
-    val baseUrl: String,
-    val topics: List<HelpTopic>
-)
 
 /**
  * Which of the three copies of a piece of help text the reader is looking at.
@@ -205,13 +195,30 @@ internal object HelpAssets {
 class HelpActivity : AppCompatActivity() {
 
     companion object {
-        private const val INDEX_URL = "https://github.com/avwohl/cpmdroid/releases/latest/download/help_index.json"
-
         // One name for both offline tiers: the cached index and the bundled
         // index are the same document from two places, and assets/help holds it
-        // under this name too.
+        // under this name too. It is a filename on this device and not a
+        // published asset name - what is fetched and saved under it is
+        // index-v0.json.
         private const val INDEX_NAME = "help_index.json"
     }
+
+    /**
+     * The catalog index, which is where the help topics are published.
+     *
+     * NO URL IS COMPILED IN HERE ANY MORE. This used to be
+     * `avwohl/cpmdroid/releases/latest/download/help_index.json`: a second
+     * index, in a second repository, in a second shape, for a subsystem that had
+     * no reason to be special. It made a typo fix in a help topic need a release
+     * of this app, and it kept whichever cpmdroid release carried the Latest
+     * flag load-bearing for as long as any install existed.
+     *
+     * It is the same document the disk catalog reads - SettingsRepository owns
+     * the one literal - so a device pointed at a test catalog with
+     * $ROMWBW_INDEX_URL or the Settings field reads that catalog's help too,
+     * and a fork gets its own help for free rather than serving this one's.
+     */
+    private val indexUrl: String by lazy { SettingsRepository(this).effectiveIndexUrl }
 
     /** An index plus where it came from; index is null when no tier answered. */
     private data class ResolvedIndex(
@@ -265,8 +272,8 @@ class HelpActivity : AppCompatActivity() {
             val source = resolved.source
             if (index != null && source != null) {
                 supportActionBar?.subtitle = helpSourceNote(source, resolved.savedWhen)
-                recyclerView.adapter = HelpTopicAdapter(index.topics, index.baseUrl) { topic, baseUrl ->
-                    openHelpTopic(topic, baseUrl)
+                recyclerView.adapter = HelpTopicAdapter(index) { topic ->
+                    openHelpTopic(index, topic)
                 }
             } else {
                 errorText.visibility = View.VISIBLE
@@ -320,50 +327,18 @@ class HelpActivity : AppCompatActivity() {
         ResolvedIndex(null, null, null, error)
     }
 
-    /**
-     * One parser for all three tiers, so the bundled index has to keep the same
-     * schema as the published one rather than growing a private shape nobody
-     * exercises. Null on anything malformed, which is what makes a poisoned
-     * cache fall through to the copy in the APK instead of ending the search.
-     */
-    private fun parseHelpIndex(json: String): HelpIndex? {
-        return try {
-            val jsonObj = JSONObject(json)
-
-            val version = jsonObj.optInt("version", 1)
-            val baseUrl = jsonObj.optString("base_url", "https://github.com/avwohl/ioscpm/releases/latest/download/")
-
-            val topicsArray = jsonObj.getJSONArray("topics")
-            val topics = mutableListOf<HelpTopic>()
-
-            for (i in 0 until topicsArray.length()) {
-                val topicObj = topicsArray.getJSONObject(i)
-                topics.add(HelpTopic(
-                    id = topicObj.getString("id"),
-                    title = topicObj.getString("title"),
-                    description = topicObj.optString("description", ""),
-                    filename = topicObj.optString("filename").ifEmpty { null },
-                    url = topicObj.optString("url").ifEmpty { null }
-                ))
-            }
-
-            if (topics.isEmpty()) null else HelpIndex(version, baseUrl, topics)
-        } catch (e: Exception) {
-            null
-        }
-    }
-
     private suspend fun fetchIndexJson(): Result<String> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url(INDEX_URL)
+                .url(indexUrl)
                 .build()
 
             // use{}, not a bare execute(): the HTTP-error arm below returns
             // without reading the body, which never gives its connection back
-            // to sharedHttpClient's pool. INDEX_URL resolves through
-            // releases/latest, so a release with no help_index.json attached
-            // takes that arm for every reader, every time.
+            // to sharedHttpClient's pool. The index resolves through
+            // releases/latest, so a release published without the Latest flag
+            // takes that arm for every reader, every time - which romwbw_disks
+            // did to itself on 2026-09-10 by cutting the help tag.
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(IOException("HTTP ${response.code}"))
@@ -405,15 +380,23 @@ class HelpActivity : AppCompatActivity() {
         }
     }
 
-    private fun openHelpTopic(topic: HelpTopic, baseUrl: String) {
-        // An entry with neither a url nor a filename has no network source at
-        // all; it used to compose "<base_url>null" and fetch that. An empty
-        // string tells HelpTopicActivity to skip straight to its offline tiers.
+    private fun openHelpTopic(index: HelpIndex, topic: HelpTopic) {
+        // An entry with neither a url nor a filename never gets this far, and an
+        // entry whose index published no base_url resolves to "" here - which
+        // tells HelpTopicActivity to skip straight to its offline tiers rather
+        // than fetch the "<base_url>null" this used to compose.
         val assetName = topic.filename
-        val topicUrl = topic.url ?: assetName?.let { baseUrl + it } ?: ""
+        val topicUrl = helpTopicUrl(index, topic)
         val intent = Intent(this, HelpTopicActivity::class.java).apply {
             putExtra("topic_title", topic.title)
             putExtra("topic_url", topicUrl)
+            // What the downloaded bytes are checked against, and 0 / "" when the
+            // index publishes neither - a check that is skipped, never one that
+            // fails. Help was the last content this family published that
+            // nothing verified; the index gives a size and a sha256 per topic
+            // now, exactly as it does for a ROM or a disk.
+            putExtra("topic_size", topic.size)
+            putExtra("topic_sha256", topic.sha256)
             // The cache key. The id, not the URL: the two in-tree indexes route
             // the same topics differently - one by filename under base_url, one
             // by absolute url at the iOS release - and a key taken from the URL
@@ -441,10 +424,11 @@ class HelpActivity : AppCompatActivity() {
 }
 
 class HelpTopicAdapter(
-    private val topics: List<HelpTopic>,
-    private val baseUrl: String,
-    private val onClick: (HelpTopic, String) -> Unit
+    private val index: HelpIndex,
+    private val onClick: (HelpTopic) -> Unit
 ) : RecyclerView.Adapter<HelpTopicAdapter.ViewHolder>() {
+
+    private val topics: List<HelpTopic> = index.topics
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val titleText: TextView = view.findViewById(R.id.topicTitle)
@@ -465,7 +449,7 @@ class HelpTopicAdapter(
         holder.titleText.text = topic.title
         holder.descriptionText.text = topic.description
         holder.descriptionText.visibility = if (topic.description.isEmpty()) View.GONE else View.VISIBLE
-        holder.itemView.setOnClickListener { onClick(topic, baseUrl) }
+        holder.itemView.setOnClickListener { onClick(topic) }
     }
 
     override fun getItemCount() = topics.size

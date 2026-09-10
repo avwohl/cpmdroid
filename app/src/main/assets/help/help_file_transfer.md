@@ -81,14 +81,22 @@ cannot browse there no matter how you navigate. Reach the folders with a
 third-party file manager, over USB in MTP mode, or with `adb push` and
 `adb pull`.
 
-A copyable form of the last one:
+The app has its own view of both folders, and it is the way round all of that:
+the **File transfer** button in the toolbar lists what is in Imports and
+Exports, imports a file with a picker, and saves or shares an exported one out
+to anywhere on the device. CPMDroid is also a share target, so another app can
+send it a file directly. An imported name is rewritten to something CP/M can
+address - `My Long Archive.tar.gz` becomes `my-long-.gz`, and the app tells you
+which name it got.
+
+Staging files by hand still works. A copyable form of the last one:
 
 ```
 adb pull /storage/emulated/0/Android/data/com.awohl.cpmdroid/files/Exports/OUTPUT.TXT
 ```
 
-To import, put the file into the matching **Imports** folder the same way, then
-run `R8 FILENAME.EXT`.
+To import that way, put the file into the matching **Imports** folder, then run
+`R8 FILENAME.EXT`.
 
 ### Windows
 There is no Imports/Exports split. One flat data folder holds the disk images

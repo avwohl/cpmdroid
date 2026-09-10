@@ -1,10 +1,182 @@
 # Changelog
 
-## Unreleased
+## Version 1.30 (versionCode 32)
 
-No version number yet, and **none of this has been compiled**: it was written on
-a machine with no Android SDK, no Gradle and no JRE at all (`/usr/bin/java` is
-Apple's stub). Read it before building it.
+**This app compiles in no cpmdroid URL at all now.** The in-app help was the last
+one: `HelpActivity` fetched `avwohl/cpmdroid/releases/latest/download/
+help_index.json`, a second index, in a second repository, in a second shape, for
+the one subsystem that had no reason to be special. It meant a typo fix in a help
+topic needed an app release, and it meant whichever cpmdroid release carried the
+Latest flag stayed load-bearing for as long as any install existed. Help is a
+block inside `index-v0.json` now, beside the RomWBW releases, so romwbw_disks can
+re-cut, rename or move its help tag - as it can its catalog and its ROMs - with
+no release here.
+
+Built with the real toolchain and installed on a tablet over adb; not uploaded to
+Play.
+
+### Verified on a device
+
+Samsung Galaxy Tab A8 (SM-X200), Android 14, upgraded in place over the 1.18 that
+was on it - release-signed with the same key, so nothing was uninstalled and no
+data was lost. `./gradlew :app:test` is 71 tests, 0 failures (was 56).
+
+- **The catalog reached the device with no app knowledge of its contents.** A
+  build that had never seen 3.6.0 read the index, followed the catalog's own
+  default off 3.5.1, fetched and verified `emu_avw-v0-3.6.0.rom` (524288 bytes,
+  chosen from the 2 ROMs published), loaded it and reached the RomWBW boot
+  loader. Nothing in the APK named that ROM, that release or that URL.
+- **Help came from romwbw_disks.** All seven topics listed, and the descriptions
+  are that repository's wording - "Getting started with the emulator", "Transfer
+  files between host and CP/M" - where the document this app used to fetch said
+  "with CPMDroid" and "between Android and CP/M". Opening Quick Start fetched it
+  from the `help-v0` tag and rendered it. All seven were separately checked from
+  the desktop: each fetches and matches the size and SHA-256 the index publishes.
+- **The Catalog Index field works both ways.** Pointed at
+  `raw.githubusercontent.com/avwohl/romwbw_disks/master/catalog/v0/index.json`,
+  Apply reported 2 runnable releases and 24 disks, and the ROM row changed to
+  "Not on this device yet" - the new index's namespace, with the default
+  index's ROM untouched beside it. Returning to the main screen logged the
+  index change and offered to fetch that catalog's ROM. Clearing the field and
+  applying brought the default index back, reloaded its already-downloaded
+  ROM, and the machine came up again.
+- **The published help reached the device with no app release.** The topics were
+  rewritten in romwbw_disks and published while the app sat installed; reopening
+  Help showed the new text, fetched and verified against the freshly published
+  index. That is the same property the ROM and the disks have, now demonstrated
+  for help too.
+- **Not checked:** downloading a disk image (49 MB over the tablet's connection),
+  booting CP/M to `A>`, and an R8/W8 round trip. The slots are empty on that
+  device because its one image is a 3.5.1 disk and the catalog moved it to 3.6.0,
+  which keeps its slots separately.
+
+### Changed
+
+- **Help is a catalog entry.** `data/HelpCatalog.kt` reads the index's `help`
+  block: `base_url` plus topics carrying an `id`, a `filename`, a `name`, a
+  `size` and a `sha256` - the same shape `disks[]` and `roms[]` already had, and
+  the same treatment on arrival. A fetched topic is checked against the size and
+  hash the index published for it, and a body that is whole and is not that topic
+  is refused rather than written over the copy the reader already had. Help had
+  been the only content this family published that nothing verified.
+
+- **One URL for the whole app.** The help list is fetched from
+  `SettingsRepository.effectiveIndexUrl`, which is the document the disk catalog
+  already reads, so `$ROMWBW_INDEX_URL` and the Settings index field now move
+  help with them: a device pointed at a test catalog reads that catalog's help
+  instead of this repository's, and a fork gets its own help for free.
+
+- **The help parser stops being the one that fails whole.**
+  `DiskCatalog.kt` names the old `HelpActivity.parseHelpIndex` in as many words
+  as the in-repo precedent for a document that one bad entry destroys: required
+  fields read through getters inside a single try/catch, so a topic shaped in a
+  way the build did not understand returned null for the entire list. The
+  replacement drops the entry and keeps the rest, exactly as the index and
+  catalog parsers do. It also reads BOTH shapes - the block in the index, and the
+  standalone document with `title` instead of `name` - because that older
+  document is what is saved on the disk of every device that ran 1.29, and
+  refusing it would take help away from the reader with no network, who is the
+  one the cache exists for.
+
+- **The bundled help topics are the published ones again.** The seven `.md`
+  files were this port's private fork - richer than what romwbw_disks served, and
+  the reason the migration would otherwise have downgraded what a reader sees
+  online. That fork is now merged upstream: romwbw_disks' topics carry the
+  Android facts (the ROM download on first launch, the Settings gating, the
+  in-app file-transfer browser, the control strip) alongside ioscpm's iOS and
+  macOS selection detail, which had diverged privately in the other direction.
+  The copies here are byte-identical to the published ones once more, so a reader
+  offline and a reader online see the same document, and
+  `src/test/resources/index-v0.json` was refreshed with them.
+
+  **Published the same day**, and the tablet was the proof: it fetched the new
+  index, downloaded the seven rewritten topics from the `help-v0` tag, checked
+  each against the index's size and SHA-256, and rendered them - with no app
+  release involved, which is the property the whole change exists for.
+
+- **`app/src/main/assets/help/help_index.json` is the published shape**, a copy
+  of the index's `help` block rather than a document of its own, so the floor
+  under the list is parsed by the same code as the live one. The copy it replaces
+  named a `base_url` under `avwohl/cpmdroid/releases/latest/download/` that
+  nothing publishes any more; every topic URL built from it would have 404ed. The
+  seven bundled `.md` files are unchanged and are still the Android-specific text
+  this port wrote - they are the offline floor, and the published topics are what
+  a reader online sees.
+
+- **`release_assets/` is deleted.** Eight files, byte-identical to
+  `app/src/main/assets/help/`, whose only purpose was to be attached to a
+  cpmdroid release for `HelpActivity` to fetch. Nothing fetches them now, and
+  leaving them would have been an invitation to keep attaching help to releases
+  that no client reads.
+
+### Added
+
+- **A Catalog Index field in Settings, so a private catalog can be reached from
+  the device.** `catalogIndexUrl`, `usingCustomIndex` and
+  `indexUrlIsFromEnvironment` have been in `SettingsRepository` since the index
+  repoint and had no UI at all: on a phone or a tablet there was no way to point
+  CPMDroid at anything but the default index, so a romwbw_disks release could
+  not be tested before it was published except by setting `$ROMWBW_INDEX_URL`,
+  which needs a shell. z80cpmw has had the field since its own migration; this is
+  the same control, under the RomWBW release picker for the same reason - the
+  index decides what that picker can offer.
+
+  Empty means the default index. **Apply stores it and then goes
+  and reads it**, reporting how many releases this build can run and how many
+  disks and ROMs the selected one publishes, because the question a person is
+  actually asking is whether the URL serves a catalog and a setting that is never
+  exercised answers it much later, on the launch path, as a machine that will not
+  start. A URL that does not answer is kept rather than reverted - the fix is
+  usually to the catalog, not to the field - and the message says that clearing
+  the field goes back.
+
+  The field is disabled, and says why, when `$ROMWBW_INDEX_URL` is set for the
+  run: it wins over anything stored, and a control that silently does nothing is
+  worse than one that is visibly not yours to use.
+
+- **"Built-in catalog" is not a thing, and the field said it was.** The hint read
+  "built-in catalog" and the note said "the catalog this build ships with", both
+  carried over from z80cpmw's dialog. Nothing is built in: since 1.29 the package
+  holds one URL and an offline copy of the help topics, and no catalog, ROM or
+  disk image at all. Wording that implies otherwise tells a reader there is
+  something to fall back on when the network is gone, and there is not. It is
+  **the default index** throughout now - hint, note, both Apply outcomes, the
+  validation message and the comments in `SettingsRepository`,
+  `DiskCatalogRepository` and `DiskDownloadManager` that said the same thing.
+
+- **MainActivity notices the catalog moving, not just the release.** `onResume`
+  compared `selectedRomwbwVersion()` and the selected ROM id, and an index change
+  need not change either: point Settings at a fork that also publishes 3.6.0 and
+  both answers are byte-identical while the ROM, the disk set and the key
+  namespace behind them are somebody else's. The running machine would have kept
+  the old catalog's ROM in the banks under the new catalog's slots - the pairing
+  `lastRomwbwVersion` exists to prevent, reached from the other direction.
+  `lastIndexUrl` is snapshotted at both sites that record `lastRomwbwVersion` and
+  folded into the same reload.
+
+  Verified on the tablet, and the log line is the proof the release comparison
+  alone was not enough: `Catalog index changed …/releases/latest/download/
+  index-v0.json -> …raw.githubusercontent.com/…/catalog/v0/index.json (RomWBW
+  3.6.0 -> 3.6.0); reloading the ROM as well as the disks`.
+
+- **`IndexUrlTest`, 6 tests** over what the field accepts. The point of the
+  setting is that it refuses almost nothing - a fork, a draft release, a laptop
+  serving a directory, a bare IP and port are all the reason it exists - so the
+  tests are mostly that those are accepted, plus the three that could not
+  possibly work (not a URL, no document on the host, a non-HTTP scheme) and the
+  GitHub `/blob/` page URL, which is the mistake a person actually makes: it
+  answers 200 with HTML, so without naming it the report reads as a broken
+  catalog rather than as the wrong URL.
+
+- **`HelpCatalogParsingTest`, 9 tests** against the published `index-v0.json`
+  fixture: the seven topics and their hashes, base_url + filename with nothing
+  inserted, an absolute `url` overriding the base, the legacy document, one
+  unusable entry not taking the others, a document with no help block returning
+  null, and the size/hash check accepting the real thing as well as rejecting.
+  One of them reads `assets/help/help_index.json` and asserts the bundled floor
+  lists the same topics as the published index and ships every file it names -
+  that tier is read only when nobody is watching, so nothing else would notice it
+  having drifted.
 
 ### Fixed
 

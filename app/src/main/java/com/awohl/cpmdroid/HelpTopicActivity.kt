@@ -14,6 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.awohl.cpmdroid.data.helpTopicMismatch
 import com.awohl.cpmdroid.data.sharedHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -38,6 +39,13 @@ class HelpTopicActivity : AppCompatActivity() {
     private var topicId: String? = null
     private var topicAsset: String? = null
 
+    // What the catalog says this topic's bytes are, handed over with it. 0 and
+    // "" mean the index published no claim, which is a check skipped rather
+    // than a check failed - the same degradation a catalog document gets when
+    // the index carries no hash for it.
+    private var topicSize: Long = 0L
+    private var topicSha256: String = ""
+
     private val httpClient = sharedHttpClient
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,6 +67,8 @@ class HelpTopicActivity : AppCompatActivity() {
         val topicUrl = intent.getStringExtra("topic_url") ?: ""
         topicId = intent.getStringExtra("topic_id")
         topicAsset = intent.getStringExtra("topic_asset")
+        topicSize = intent.getLongExtra("topic_size", 0L)
+        topicSha256 = intent.getStringExtra("topic_sha256") ?: ""
 
         title = topicTitle
 
@@ -170,6 +180,17 @@ class HelpTopicActivity : AppCompatActivity() {
                 if (declared >= 0 && bytes.size.toLong() != declared) {
                     return@withContext Result.failure(
                         IOException("Truncated: got ${bytes.size} of $declared bytes")
+                    )
+                }
+
+                // Checked before it is decoded, shown or cached. A response
+                // that is whole and is not this topic reaches here with a
+                // correct Content-Length and would otherwise be written over
+                // the copy the reader already had.
+                val mismatch = helpTopicMismatch(bytes, topicSize, topicSha256)
+                if (mismatch != null) {
+                    return@withContext Result.failure(
+                        IOException("Not the published topic: $mismatch")
                     )
                 }
 

@@ -1,75 +1,62 @@
-# Quick Start Guide for CPMDroid
+# Quick Start Guide
 
 ## First Launch
 
-**The first launch needs a network connection.** CPMDroid carries no ROM: it
-fetches the one the selected RomWBW release publishes and checks it against the
-size and SHA-256 that release's catalog gives for it, and only then starts. With
-no network it says so and offers a Download button rather than booting bytes it
-cannot check. Every launch after that works offline - the catalog's claim is
-stored beside the ROM and re-checked against it.
+**The first launch needs a network connection.** The app carries no ROM and no
+disk image. It fetches the ROM the selected RomWBW release publishes, checks it
+against the size and SHA-256 that release's catalog gives for it, and only then
+starts. With no network it says so and offers to download rather than booting
+bytes it cannot check.
 
-Once the ROM is in hand, the Combo disk image is downloaded and assigned to disk
-slot 0. Its name carries the release it belongs to, so on RomWBW 3.6.0 it is
-`hd1k_combo-v0-3.6.0.img`. You'll see the RomWBW boot loader screen.
+Once the ROM is in hand the **Combo** disk image is downloaded and assigned to
+disk slot 0 - the catalog marks it as the default for that slot. Its name
+carries the release it belongs to, so under RomWBW 3.6.0 it is
+`hd1k_combo-v0-3.6.0.img`. Then you get the RomWBW boot loader screen.
 
-## Toolbar
+Every launch after that works offline. What the catalog said about the ROM is
+stored beside it and re-checked against the file, so nothing is fetched again
+unless it is missing or no longer matches.
 
-Six buttons and a status label, left to right. There is no gear icon and no
-overflow menu - this is the whole toolbar.
+## Where the ROM and the disks come from
 
-| Control | Function |
-|---------|----------|
-| Start/Stop | Start the emulator, or stop it |
-| Boot/Reboot | Reset the machine and reboot, after a confirmation |
-| Running / Stopped | Not a button - the emulator's current state |
-| File transfer | The app's own view of the Imports and Exports folders |
-| ? | Help topics (this screen) |
-| Settings | ROM, RomWBW release, disk slots, font size, scrollback and display options |
-| About | Version and credits |
+Everything is downloaded from a catalog, and nothing about it is compiled into
+the app except the address of the catalog's index. That is what lets a new ROM,
+a new disk image or a whole new RomWBW release reach an installed app with no
+update from the store.
 
-**Settings only opens while the emulator is stopped.** Tapping it during a
-session raises "Stop emulator before changing settings" and does nothing else,
-so stop first, change what you came for, then start and reboot.
+Three rows in Settings come out of that catalog rather than out of the app:
 
-The two rows at the top of Settings come from the catalog rather than from the
-app, so what they offer can change without a new version of CPMDroid:
-
-- **ROM** - the ROMs the selected release publishes, listed by **Change**. The
-  one you pick is fetched, if it is not already here, and checked against the
-  catalog before the machine starts
-- **RomWBW Release** - the release everything else follows, listed by its own
-  **Change**. A new install takes the catalog's current release the first time it
-  reads it, and then stays there; this is what moves it afterwards. Each release
-  keeps its own disk slots, NVRAM and ROM, so switching and switching back loses
+- **ROM** - the ROMs the selected release publishes. The one you pick is
+  fetched, if it is not already on the device, and checked before the machine
+  starts
+- **RomWBW Release** - the release everything else follows. A new install takes
+  whichever release the catalog marks current, the first time it reads it, and
+  then stays there; this row is what moves it afterwards. Each release keeps its
+  own disk slots, boot settings and ROM, so switching and switching back loses
   nothing
+- **Catalog index** - which catalog all of the above comes from. Empty is the
+  default one. A URL here points the app at another index, which is how a
+  release is tested before it is published; each index keeps its own downloads
+  and settings
 
-## Control Strip
-
-The strip below the terminal stands in for the keys a soft keyboard has no room
-for:
-
-| Button | Function |
-|--------|----------|
-| Ctrl | Fold the next key into a control character, then turn itself off |
-| Esc | Send escape (0x1B) |
-| Tab | Send tab (0x09) |
-| Copy | Copy the terminal screen to the clipboard |
-| Paste | Paste clipboard text as keyboard input |
+Every download is checked against the size and SHA-256 the catalog publishes,
+and bytes that do not match are not kept.
 
 ## Booting CP/M
 
-1. At the boot prompt `Boot [H=Help]:`, type `2` and press Enter
-2. Unit `2` is the first hard disk, the image in slot 0. Units 0 and 1 are the
-   RAM and ROM memory disks and carry no operating system, so typing `0`
-   answers `*** No system image on disk` - it is not a broken download
-3. Plain `2` boots slice 0; type `2.3` for a specific slice. A second
-   configured disk is unit 3
+1. At the boot prompt `Boot [H=Help]:`, type the unit number of the hard disk
+   you want to boot and press Enter - with the default image that is `2`
+2. Units 0 and 1 are the RAM and ROM memory disks and carry no operating
+   system, so the first attached hard disk (Disk 0, the Combo image) is unit 2
+   and the next attached disk is unit 3. Typing `0` answers
+   `*** No system image on disk` - that is the memory disk answering, not a
+   broken download
+3. Plain `2` boots slice 0; type `2.3` for a specific slice
 4. You'll see the `A>` prompt when CP/M is ready
 
-At the boot prompt, `D` lists the disk units actually attached, `L` lists the
-ROM applications, and `W` opens RomWBW Configure, whose Boot Options page sets
-the autoboot default.
+At the boot prompt, `D` lists the disk units that are actually attached, `L`
+lists the ROM applications, and `W` opens RomWBW Configure, whose Boot Options
+page sets the autoboot default.
 
 ## Basic Commands
 
@@ -85,29 +72,32 @@ the autoboot default.
 ## Drive Letters
 
 Before you boot an OS from a hard disk - while a ROM application is running,
-for instance - **A:** is the RAM disk, **B:** is the ROM disk, and the slices
-of your configured images follow from **C:**.
+for instance - **A:** is the RAM disk, **B:** is the ROM disk, and the slices of
+your configured images follow from **C:**.
 
 Booting rearranges all of it. RomWBW hands out the letters as it boots: the
-slice you booted becomes **A:**, the two memory disks follow as **B:** (RAM)
-and **C:** (ROM), and the slices left over take the letters after that.
+slice you booted becomes **A:**, the two memory disks follow as **B:** (RAM) and
+**C:** (ROM), and the slices left over take the letters after that - the rest of
+the first disk before the second disk.
 
-With the default setup - one disk image in slot 0, booted with `2`:
+With the default setup, one Combo image in slot 0 booted with `2`:
 
 | Drive | Contents |
 |-------|----------|
 | `A:` | The slice you booted (Disk 0, slice 0) |
 | `B:` | RAM disk (temporary storage, cleared on restart) |
 | `C:` | ROM disk (read-only utilities) |
-| `D:-F:` | The rest of Disk 0, slices 1-3 |
+| `D:` onwards | The rest of Disk 0's slices, then any other disk you attach |
 
-A second configured disk continues from `G:`. Boot a different slice and that
-slice becomes `A:` instead, with the others following in the same order. The
-drive map CBIOS prints at boot is the authority - read it rather than counting.
+The Combo image is six slices, so it alone accounts for `D:` through `H:`. Boot
+a different slice and that slice becomes `A:` instead, with the others following
+in the same order. **The drive map CBIOS prints at boot is the authority** -
+read it rather than counting, because the slice count belongs to the image and
+changes with the release.
 
 ## Running Programs
 
-Type the program name without the .COM extension:
+Just type the program name without the .COM extension:
 ```
 A>MBASIC
 A>WS
@@ -116,56 +106,55 @@ A>ZORK1
 
 ## Control Keys
 
-A Ctrl keystroke is folded to its ASCII control byte and passed straight to
-CP/M: Ctrl+A through Ctrl+Z give 0x01-0x1A, Ctrl+@ gives NUL, and
-Ctrl+[ \ ] ^ and _ give 0x1B-0x1F. There is no emulator console - **Ctrl+E** is
-WordStar cursor-up, not a debugger.
+Every Ctrl keystroke is folded to its ASCII control byte and passed straight to
+CP/M: Ctrl+A through Ctrl+Z give 0x01-0x1A, Ctrl+@ and Ctrl+Space give NUL,
+Ctrl+[ \ ] ^ and _ give 0x1B-0x1F, and Ctrl+? or Ctrl+Backspace give DEL.
+There is no emulator console - **Ctrl+E** is WordStar cursor-up, not a debugger.
 
-With a hardware or Bluetooth keyboard you type all of those directly, and
-Ctrl+Space also gives NUL. With no hardware keyboard the control strip stands
-in: **Ctrl** folds the next key you type and then turns itself off again. It
-covers the same `@` through `_` range, so for NUL tap **Ctrl** then `@` rather
-than **Ctrl** then Space.
+On Windows and macOS you type all of these on the keyboard. On iOS, iPadOS and
+Android the buttons beside the terminal stand in when no hardware keyboard is
+attached: **Ctrl** folds the next key you type and then turns itself off again,
+and **Esc** and **Tab** send those keys directly. The control strip covers the
+same `@` through `_` range, so with no hardware keyboard, NUL is **Ctrl** then
+`@` rather than **Ctrl** then Space.
 
-Scrollback is a drag or a key combination. Pull the terminal down to walk back
-through the history and up to return. With a hardware keyboard, Shift+PageUp
-and Shift+PageDown move a screen at a time and Ctrl+Home and Ctrl+End jump to
-the oldest line and back to the live prompt; the app answers those four itself,
-so plain PageUp, PageDown, Home and End still reach CP/M. The view stays where
-you put it while CP/M keeps printing, so you can read a listing that is still
-being written; typing anything returns you to the live prompt. Scrollback works
-with the keyboard open too. How much history is kept is **Terminal Scrollback**
-in Settings.
+The app keeps only a few keys for itself: Shift+Page Up / Shift+Page Down and
+Ctrl+Home / Ctrl+End scroll the terminal history on Windows, macOS, iOS and
+iPadOS; on Android you scroll by dragging the screen, and those four key
+combinations work there too with a hardware keyboard attached. Unmodified Page
+Up, Page Down, Home and End still reach the guest.
 
-Copy and paste are the **Copy** and **Paste** buttons on the control strip -
-Ctrl+C is a CP/M keystroke here, not a copy.
+The view stays where you put it while CP/M keeps printing, so you can read a
+listing that is still being written; typing anything returns you to the live
+prompt. How much history is kept is a setting.
 
-## File Transfer
+Copy and paste are on every port, reached differently:
 
-Use the R8 and W8 utilities to move files between Android and CP/M:
+- **iOS and iPadOS, by touch:** **press and hold** the terminal, then **drag**
+  without lifting to select. The text highlights as you go, and lifting your
+  finger brings up **Copy**, **Copy All** and **Paste**. Press and hold without
+  dragging for the same menu with nothing selected. A one-finger drag on its own
+  still scrolls the history, as it always has - it is the *holding still* that
+  starts a selection.
+- **macOS:** select with the pointer, then **Cmd+C**, or press and hold for the
+  menu. **Cmd+V** pastes.
+- **With a hardware keyboard** on any of the three: **Cmd+C** and **Cmd+V**.
+  Cmd+C with nothing selected copies the whole screen.
+- **Android:** the **Copy** and **Paste** buttons beside the terminal.
+- **Windows:** select with the mouse and right-click for **Copy** and **Paste** -
+  there Ctrl+C is a CP/M keystroke, not a copy.
 
-1. Put the file in the **Imports** folder on the device
-2. In CP/M, run `R8 FILENAME.EXT` to import it
-3. Run `W8 FILENAME.EXT` to export to the **Exports** folder
+Selection reads the screen as you see it, so scrolling back into the history and
+selecting there copies what is on screen, not what the guest has printed since.
 
-Both folders are under
-`/storage/emulated/0/Android/data/com.awohl.cpmdroid/files/`, which Android 11
-and later hide from the stock Files app. See the "File Transfer (R8/W8)" topic
-for how to reach them anyway.
+## Changing Disks
 
-## Changing Disk Images
+Open Settings to select different disk images for each disk slot, or to browse
+the catalog and download more. On Android, stop the emulator first - Settings
+refuses to open while it is running, and answers "Stop emulator before changing
+settings".
 
-1. Stop the emulator - Settings will not open while it is running
-2. Tap Settings
-3. Assign disk slots 0-3 from the downloaded images, or browse the catalog to
-   download more
-4. Go back and tap Boot/Reboot, then confirm Restart - that reloads the disks
-   and starts the emulator, so there is no separate Start to press
-
-## Tips
-
-- Tap the terminal screen to show the soft keyboard
-- Use landscape mode for a wider terminal display
-- Adjust **Font Size** in Settings to suit the screen
-- Turn on **Wrap long lines** in Settings to wrap at the screen edge instead of
-  truncating
+After changing a slot, reboot the machine: that is what reloads the disks. The
+slots belong to the selected RomWBW release, so a release you have not used
+before starts with none assigned, and the ones you had come back when you select
+that release again.

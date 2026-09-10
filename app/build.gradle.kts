@@ -117,9 +117,16 @@ android {
         // upgrading install follows the index's own default release instead of
         // being pinned to whatever the package happened to carry.
         //
+        // 32 / "1.30" is the release that compiles in no cpmdroid URL at all.
+        // The help topics were the last thing this app fetched from its own
+        // releases area, and they now come out of the romwbw_disks index like
+        // every other asset - so a corrected help topic reaches a reader with no
+        // app release, and no cpmdroid release has to stay Latest forever to
+        // keep an installed build working.
+        //
         // A versionCode costs nothing. A record that says the wrong thing does.
-        versionCode = 31
-        versionName = "1.29"
+        versionCode = 32
+        versionName = "1.30"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the

@@ -97,6 +97,9 @@ class SettingsActivity : AppCompatActivity() {
             showRomwbwVersionDialog()
         }
 
+        // Which catalog all of the above comes out of.
+        setupCatalogIndex()
+
         // Setup disk slot views
         diskNameViews.clear()
         diskNameViews.add(binding.disk0Name)
@@ -485,6 +488,190 @@ class SettingsActivity : AppCompatActivity() {
     private fun romLooksPresent(romwbwVersion: String): Boolean {
         val claim = settingsRepo.romClaim(romwbwVersion) ?: return false
         return downloadManager.romFileLooksPresent(claim)
+    }
+
+    //-------------------------------------------------------------------------
+    // Catalog index
+    //-------------------------------------------------------------------------
+
+    /**
+     * The field that says which catalog everything else on this screen comes
+     * from.
+     *
+     * The app compiles in exactly one URL so that everything else - which
+     * releases exist, which ROMs and disks each publishes, where they live and
+     * what they hash to - can be read out of a document at run time. This is
+     * that one URL, made changeable, and it is what makes a romwbw_disks
+     * release testable before it is published: point this at the index of a
+     * private or draft catalog and the release picker, the ROM picker, the disk
+     * catalog and the in-app help all follow it.
+     *
+     * It exists in the data layer since the index repoint and had no UI until
+     * now: `catalogIndexUrl`, `usingCustomIndex` and `indexUrlIsFromEnvironment`
+     * were all reachable only from a debugger or by setting the environment
+     * variable, so on a device there was no way to reach a test catalog at all.
+     */
+    private fun setupCatalogIndex() {
+        binding.catalogIndexUrlInput.setText(settingsRepo.catalogIndexUrl)
+
+        // $ROMWBW_INDEX_URL is fixed for the run and wins over anything stored,
+        // so the field is disabled rather than left editable to no effect. The
+        // note underneath says why, because a control that is greyed out with
+        // no explanation reads as a bug.
+        val fromEnvironment = settingsRepo.indexUrlIsFromEnvironment
+        binding.catalogIndexUrlInput.isEnabled = !fromEnvironment
+        binding.applyCatalogIndexButton.isEnabled = !fromEnvironment
+
+        updateCatalogIndexNote()
+        binding.applyCatalogIndexButton.setOnClickListener { applyCatalogIndex() }
+    }
+
+    /**
+     * The sentence under the field, and the URL actually being fetched.
+     *
+     * "In use" is on a line of its own and is the whole resolved URL: it is the
+     * line most likely to be read and compared against what somebody meant to
+     * type, and abbreviating it would defeat that.
+     */
+    private fun updateCatalogIndexNote() {
+        val explanation = when {
+            settingsRepo.indexUrlIsFromEnvironment ->
+                "\$ROMWBW_INDEX_URL is set for this run, and it wins over anything " +
+                    "typed here. Unset it and restart CPMDroid to use this field."
+
+            settingsRepo.usingCustomIndex ->
+                "Reading an index other than the default. Its disks, its ROMs, its " +
+                    "NVRAM and its boot config are all kept under keys of their own, so " +
+                    "clearing this field brings the default index's library back exactly " +
+                    "as it was."
+
+            else ->
+                "Empty uses the default index. That URL is the only content address " +
+                    "in CPMDroid - no catalog, no ROM and no disk is bundled - so a URL " +
+                    "here moves everything at once: the release list, the ROM list, the " +
+                    "disk catalog and the in-app help all come from whichever index it " +
+                    "names."
+        }
+        binding.catalogIndexNote.text = explanation + "\n\nIn use: " + settingsRepo.effectiveIndexUrl
+    }
+
+    /**
+     * Store the typed index, then go and read it.
+     *
+     * Storing first is not an ordering detail: writing the setting is what
+     * recomputes the key namespace (SettingsRepository.refreshIndexScope), and
+     * every read after it - the disk slots, the ROM claim, the catalog
+     * generation - has to come from the new namespace rather than the old one.
+     *
+     * Then it is fetched, because "Apply" has to answer the only question the
+     * user is actually asking: does this URL serve a catalog my build can use?
+     * A stored setting that is never exercised would report success for a
+     * typo and leave the failure to be discovered later, on the launch path,
+     * as a machine that will not start.
+     *
+     * A URL that does not answer is kept rather than reverted. The user typed
+     * it on purpose, the fix is usually to the catalog and not to the field,
+     * and reverting would take away the thing they are iterating on. The
+     * message says how to get back.
+     */
+    private fun applyCatalogIndex() {
+        val typed = binding.catalogIndexUrlInput.text.toString().trim()
+
+        SettingsRepository.indexUrlProblem(typed)?.let { problem ->
+            AlertDialog.Builder(this)
+                .setTitle("Catalog Index")
+                .setMessage(problem)
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        if (SettingsRepository.resolveIndexUrl(typed) == settingsRepo.effectiveIndexUrl) {
+            // Nothing to do, and saying so is better than a fetch that looks
+            // like work and changes nothing. The field is rewritten because the
+            // typed text may differ from the stored one by whitespace alone.
+            binding.catalogIndexUrlInput.setText(typed)
+            Toast.makeText(this, "That is already the catalog in use.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        settingsRepo.catalogIndexUrl = typed
+        binding.catalogIndexUrlInput.setText(settingsRepo.catalogIndexUrl)
+        cachedSelection = null
+        knownVersions = emptyList()
+        currentSettings = settingsRepo.getSettings()
+        refreshAfterCatalogIndexChange()
+
+        val progress = AlertDialog.Builder(this)
+            .setTitle("Catalog Index")
+            .setMessage("Reading " + settingsRepo.effectiveIndexUrl + " ...")
+            .setCancelable(false)
+            .create()
+        progress.show()
+
+        lifecycleScope.launch {
+            // finally, for the reason showRomwbwVersionDialog gives: leaving
+            // this screen mid-fetch cancels the coroutine, and a dialog that is
+            // setCancelable(false) cannot be dismissed by the user either.
+            val result = try {
+                loadSelectedCatalog(downloadManager, settingsRepo)
+            } finally {
+                if (progress.isShowing) progress.dismiss()
+            }
+
+            result.fold(
+                onSuccess = { selection ->
+                    cachedSelection = selection
+                    knownVersions = selection.runnable
+                    currentSettings = settingsRepo.getSettings()
+                    refreshAfterCatalogIndexChange()
+                    // The last line has to say which direction this went. It
+                    // read "kept separately from the built-in catalog's"
+                    // unconditionally, which was wrong twice over: nothing is
+                    // built in, and in the case a user is most likely to be
+                    // checking - clearing the field to get their own library
+                    // back - the index just applied IS the default one.
+                    val closing = if (settingsRepo.usingCustomIndex) {
+                        "Its ROM and disks are downloaded on demand and kept separately " +
+                            "from the default index's, which is left as it was."
+                    } else {
+                        "This is the default index, so whatever was downloaded under it " +
+                            "is back."
+                    }
+                    AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("Catalog Index")
+                        .setMessage(
+                            "This catalog publishes ${selection.runnable.size} RomWBW " +
+                                "release(s) this build can run.\n\n" +
+                                "${selection.selected.label} is selected, with " +
+                                "${selection.catalog.disks.size} disk(s) and " +
+                                "${selection.catalog.roms.size} ROM(s) published for it.\n\n" +
+                                closing
+                        )
+                        .setPositiveButton("OK", null)
+                        .show()
+                },
+                onFailure = { error ->
+                    AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("Catalog Index")
+                        .setMessage(
+                            catalogErrorMessage(error) + "\n\nThe URL is stored, so you " +
+                                "can fix the catalog and press Apply again. Clear the " +
+                                "field and press Apply to go back to the default index."
+                        )
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            )
+        }
+    }
+
+    /** Every row that is per-catalog, redrawn after the index moves. */
+    private fun refreshAfterCatalogIndexChange() {
+        updateCatalogIndexNote()
+        updateDiskSlotDisplays()
+        updateRomwbwVersionDisplay()
+        updateRomDisplay()
     }
 
     /**

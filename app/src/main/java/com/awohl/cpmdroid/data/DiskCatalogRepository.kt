@@ -116,7 +116,8 @@ class DiskCatalogRepository {
          * releases/latest was right all along; the difference was the error.
          */
         /**
-         * The index this build ships with.
+         * The default index, which is an ADDRESS and not a document: no
+         * catalog of any kind is in this package.
          *
          * ONE literal, in SettingsRepository, because that is where the setting
          * that can replace it lives and two copies of this string would be two

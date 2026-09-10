@@ -45,15 +45,18 @@
 # romwbw_disks/docs/RELEASING.md carries the family-wide inventory; correct it
 # there when this changes, rather than in four headers that drift apart.
 #
-# KNOWN FALSE ALARM, measured 2026-09-10 in all four copies: every one of them
-# exits 1 reporting NO v0 INDEX URL for ioscpm and for cpmdroid, and both of
-# those ports are correct.  Each moved its index URL behind a re-export -
-# ioscpm's EmulatorViewModel returns CatalogMigration.indexURL, cpmdroid's
-# DiskCatalogRepository returns SettingsRepository.DEFAULT_INDEX_URL - and
-# index_url_of(), still byte-identical in all four copies, greps only the one
-# file the table names.  It is the table's file column that is stale, not the
-# ports.  Nothing runs this script in CI in any of the four repositories, so
-# that exit 1 turns nothing red.
+# THAT FALSE ALARM IS FIXED HERE, and here only so far.  Measured 2026-09-10 in
+# all four copies: every one exited 1 reporting NO v0 INDEX URL for ioscpm and
+# for cpmdroid, and both of those ports were correct.  Each had moved its index
+# URL behind a re-export - ioscpm's EmulatorViewModel returns
+# CatalogMigration.indexURL, cpmdroid's DiskCatalogRepository returns
+# SettingsRepository.DEFAULT_INDEX_URL - and index_url_of() grepped only the one
+# file the table names.  It was the table's file column that was stale, not the
+# ports.  index_url_of() falls back to the checkout now when the named file holds
+# no literal, which answers for both ports and needs no table edit the next time
+# a constant moves.  Carry it to the other three copies as a merge and not a cp -
+# see the paragraph above on what each of them holds that the others do not.
+# Nothing runs this script in CI in any of the four repositories.
 #
 # WHY MIGRATED PORTS ARE ASKED A DIFFERENT QUESTION.  cpmdroid no longer pins an
 # ioscpm release tag: it fetches romwbw_disks' index-v0.json and takes every URL
@@ -215,8 +218,26 @@ pin_of() { # $1 = port dir, $2 = file, $3 = pattern -> prints vX.Y.Z
 # still written there, and matching it would report a leftover pin forever.
 index_url_of() { # $1 = port dir, $2 = file -> prints the v0 index URL
     f="$1/$2"
-    [ -f "$f" ] || return 1
-    grep -v '^[[:space:]]*[/*#]' "$f" 2>/dev/null |
+    if [ -f "$f" ]; then
+        u=$(grep -v '^[[:space:]]*[/*#]' "$f" 2>/dev/null |
+            sed -n 's|.*"\(https://[^"]*index-v0\.json\)".*|\1|p' | head -1)
+        if [ -n "$u" ]; then
+            echo "$u"
+            return 0
+        fi
+    fi
+    # The named file holds the constant's NAME and not its value.  Both migrated
+    # GUI ports have done that - one literal, in the file that owns the setting
+    # which can replace it, re-exported from the file that used to hold the pin -
+    # and calling that "no index URL" reports a port as broken for having exactly
+    # one source of truth.  So ask the checkout rather than the table.  Prose is
+    # excluded for the same reason detect_kind excludes it: every one of these
+    # repositories documents the URL in a README or a changelog, and matching
+    # that would report an index URL for a port that compiles in none.
+    grep -rhE '"https://[^"]*index-v0[.]json"' "$1" \
+        --exclude-dir=.git --exclude-dir=build --exclude-dir=DerivedData \
+        --exclude='*.md' --exclude='*.txt' --exclude='*.json' 2>/dev/null |
+        grep -v '^[[:space:]]*[/*#]' |
         sed -n 's|.*"\(https://[^"]*index-v0\.json\)".*|\1|p' | head -1
 }
 

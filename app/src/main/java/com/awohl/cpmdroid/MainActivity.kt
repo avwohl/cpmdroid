@@ -119,6 +119,18 @@ class MainActivity : AppCompatActivity() {
     // distinct value from any id and compares correctly.
     private var lastRomId: String? = null
 
+    // The catalog the running machine's ROM and disks came out of, snapshotted
+    // beside the two above and for a reason neither of them covers: an index
+    // change need not change either. Point Settings at a fork that also
+    // publishes 3.6.0 and `selectedRomwbwVersion()` still answers "3.6.0" and
+    // `selectedRomId()` still answers "emu_avw", while the bytes behind both
+    // names are somebody else's - a different ROM, a different disk set, under
+    // a different key namespace. Comparing the release alone would leave that
+    // machine running with the old catalog's ROM in the banks and the new
+    // catalog's slots on screen, which is the same pairing lastRomwbwVersion
+    // exists to make impossible, arrived at from the other direction.
+    private var lastIndexUrl: String? = null
+
     // True once a machine has been started in this process. A second
     // loadRomAndDisks() - which only a release change causes - is a reboot onto
     // a different ROM, not a first boot, so it goes through the same reset the
@@ -817,6 +829,7 @@ class MainActivity : AppCompatActivity() {
         resolvingRomFor = selected
 
         lastRomwbwVersion = selected
+        lastIndexUrl = SettingsRepository.indexUrlInUse
 
         // What the catalog promised about this release's ROM when it was
         // fetched. Without a claim there is nothing to check the file against,
@@ -1212,6 +1225,11 @@ class MainActivity : AppCompatActivity() {
         // reads as null, so recording a concrete id against a null pick would
         // report a ROM change on every resume.
         lastRomwbwVersion = romwbwVersion
+        // Recorded here as well as in startMachine(), and for the same reason
+        // the release is: this is the site that knows a ROM is in the banks,
+        // and the resolve path reaches it without coming back through
+        // startMachine().
+        lastIndexUrl = SettingsRepository.indexUrlInUse
 
         // Apply display settings
         terminalView.customFontSize = settings.fontSize.toFloat()
@@ -1590,14 +1608,24 @@ class MainActivity : AppCompatActivity() {
         // ROM that 3.5.1 was started with.
         val selectedNow = settingsRepo.selectedRomwbwVersion()
         val romIdNow = settingsRepo.selectedRomId(selectedNow)
-        val releaseChanged = lastRomwbwVersion != null && selectedNow != lastRomwbwVersion
+        // A catalog change is a release change even when the release is spelled
+        // the same, so it is tested first and folded into the same reload: two
+        // indexes can both publish "3.6.0" and mean different bytes under it.
+        val indexNow = SettingsRepository.indexUrlInUse
+        val indexChanged = lastRomwbwVersion != null && indexNow != lastIndexUrl
+        val releaseChanged = lastRomwbwVersion != null &&
+            (indexChanged || selectedNow != lastRomwbwVersion)
         // A ROM change within one release takes the same path. The disks stay
         // valid - they belong to the release, not to the ROM - but the bytes the
         // CPU is executing do not, and leaving them would run emu_avw while
         // Settings said emu_rcz80 with nothing to show the difference.
         val romChanged = lastRomwbwVersion != null && !releaseChanged && romIdNow != lastRomId
         if (releaseChanged || romChanged) {
-            if (releaseChanged) {
+            if (indexChanged) {
+                Log.i(TAG, "Catalog index changed $lastIndexUrl -> $indexNow " +
+                    "(RomWBW $lastRomwbwVersion -> $selectedNow); reloading the ROM " +
+                    "as well as the disks")
+            } else if (releaseChanged) {
                 Log.i(TAG, "RomWBW release changed $lastRomwbwVersion -> $selectedNow; " +
                     "reloading the ROM as well as the disks")
             } else {

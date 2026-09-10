@@ -80,19 +80,33 @@ works, and is no longer the only way.
 
 ## ROMs and Disk Images
 
-**Nothing is bundled.** The APK carries the emulator core and the help topics; it
-carries no ROM and no disk image. Both come from the interface-v0 catalog in
+**Nothing is bundled.** The APK carries the emulator core and an offline copy of
+the help topics; it carries no ROM and no disk image. Both come from the
+interface-v0 catalog in
 [romwbw_disks](https://github.com/avwohl/romwbw_disks), and the only content
-address compiled into the app is the index that catalog starts from (`INDEX_URL`
-in `data/DiskCatalogRepository.kt`; the in-app help has its own). There is no
+address compiled into the app is the index that catalog starts from
+(`DEFAULT_INDEX_URL` in `data/SettingsRepository.kt`) - one URL for the whole
+app, help included, since 1.30. There is no
 pinned release tag any more: the index names every published RomWBW release and
 points at that release's own catalog, that catalog publishes a `base_url`, and
 every asset is that `base_url` plus a filename - nothing is assembled here from a
 version number. Everything fetched is measured against the size and SHA-256 the
 catalog publishes, and bytes that do not match are not kept.
 
-Two things are yours to choose, both in Settings and both filled from the catalog
-rather than from this build:
+Three things are yours to choose, all in Settings:
+
+- **Catalog Index** - which catalog everything else comes from. Empty is the
+  default index; a URL here points CPMDroid at another index - a
+  romwbw_disks release you have not published yet, or a catalog of your own - and
+  the release list, the ROM list, the disk catalog and the in-app help all follow
+  it. Apply fetches it and says what it found, rather than storing a URL whose
+  first test would be a machine that will not start. Each index keeps its own
+  disks, ROM, NVRAM and boot config, so visiting a test catalog and coming back
+  costs nothing. `$ROMWBW_INDEX_URL` overrides it for the run, and the field says
+  so and is disabled when it is set
+
+The other two are filled from whichever catalog that is, rather than from this
+build:
 
 - **RomWBW Release** - the index, filtered to the releases the emulator core says
   it can boot. An install that has not settled on a release yet - a fresh one, or

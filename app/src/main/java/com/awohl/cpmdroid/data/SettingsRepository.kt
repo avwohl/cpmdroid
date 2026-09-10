@@ -103,7 +103,14 @@ class SettingsRepository(context: Context) {
          * anything; it would quietly do the wrong thing.
          */
         /**
-         * The catalog index this build ships with, and the only URL compiled in.
+         * The default catalog index: the ONE URL this build compiles in.
+         *
+         * Not a catalog and not an index - an ADDRESS. Nothing else about the
+         * catalog is in the package: no index document, no ROM, no disk image,
+         * no help topic beyond an offline copy. Calling this "the built-in
+         * catalog" anywhere a user can read it describes an app this has not
+         * been since 1.29, and invites the reader to believe there is something
+         * to fall back on when the network is gone. There is not.
          *
          * Everything else - which releases exist, which ROMs and disks each has,
          * where they live and what they hash to - is read out of a document at
@@ -125,7 +132,7 @@ class SettingsRepository(context: Context) {
 
         /**
          * Where a user-supplied index URL is remembered. Empty or absent means
-         * "the one this build ships with", and deliberately NOT a copy of
+         * "the default one", and deliberately NOT a copy of
          * DEFAULT_INDEX_URL: storing the default would freeze this install onto
          * whatever it was the day it was written, where empty picks up a default
          * that moves in a later release.
@@ -133,7 +140,7 @@ class SettingsRepository(context: Context) {
         const val KEY_CATALOG_INDEX_URL = "catalog_index_url"
 
         /**
-         * The scope suffix for the index in use, and EMPTY for the built-in one.
+         * The scope suffix for the index in use, and EMPTY for the default one.
          *
          * Empty is the point. Every key this appends to has to come out
          * byte-identical to what a device already holds, or one visit to a test
@@ -180,7 +187,7 @@ class SettingsRepository(context: Context) {
 
         /** The index actually in use. Precedence matches romwbw-get and the
          *  other two clients: the environment first, so one test run needs
-         *  nothing stored; then the setting; then the built-in. */
+         *  nothing stored; then the setting; then the default. */
         @JvmStatic
         fun resolveIndexUrl(configured: String?): String {
             val env = System.getenv("ROMWBW_INDEX_URL")?.trim().orEmpty()
@@ -192,6 +199,50 @@ class SettingsRepository(context: Context) {
         @JvmStatic
         fun isCustomIndex(configured: String?): Boolean =
             resolveIndexUrl(configured) != DEFAULT_INDEX_URL
+
+        /**
+         * Null when [typed] is a URL worth trying, else why it is not.
+         *
+         * Deliberately shallow. The document at the other end is what decides
+         * whether an index is any good, and it is fetched, size-checked and
+         * hash-checked a moment later - so anything this refuses has to be
+         * something that could not possibly work, not something that merely
+         * looks unusual. A path that does not end in .json is fine; a host that
+         * is not github.com is the entire point.
+         *
+         * Empty is accepted and means the default index - the URL below, which
+         * is the only content address in this app - and that is what makes
+         * clearing the field the way back.
+         *
+         * The `/blob/` case is called out by name because it is the mistake a
+         * person actually makes: copying the URL out of the browser's address
+         * bar while looking at the file on GitHub yields a page that answers
+         * with HTML, and the failure that produces - "the response was not a
+         * catalog index" after a successful 200 - reads like the catalog is
+         * broken rather than like the URL names the wrong thing.
+         */
+        fun indexUrlProblem(typed: String): String? {
+            val url = typed.trim()
+            if (url.isEmpty()) return null
+            val lower = url.lowercase()
+            if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+                return "A catalog index is fetched over HTTP. Start the URL with " +
+                    "https:// (or http://), or clear the field to use the default index."
+            }
+            val afterScheme = url.substringAfter("://")
+            val host = afterScheme.substringBefore('/').substringBefore('?')
+            if (host.isEmpty()) return "That URL names no host."
+            if (afterScheme.length == host.length || afterScheme.endsWith("/")) {
+                return "That URL names a host but no document. It has to point at the " +
+                    "index file itself, such as .../releases/latest/download/index-v0.json."
+            }
+            if (url.contains("/blob/")) {
+                return "That is a GitHub page URL: it answers with HTML, not with the " +
+                    "index. Use the raw or release-asset URL - the Raw button on that " +
+                    "page gives it."
+            }
+            return null
+        }
 
         private fun scope(romwbwVersion: String) = ".v0.$romwbwVersion" + indexScope
 
@@ -268,7 +319,7 @@ class SettingsRepository(context: Context) {
         indexScope = if (isCustomIndex(configured)) "@" + fnv1a32(indexUrlInUse) else ""
     }
 
-    /** The user's own index URL, or "" for the one this build ships with. */
+    /** The user's own index URL, or "" for the default one. */
     var catalogIndexUrl: String
         get() = prefs.getString(KEY_CATALOG_INDEX_URL, "") ?: ""
         set(value) {
@@ -282,7 +333,7 @@ class SettingsRepository(context: Context) {
     /** The index actually being fetched, whatever its source. */
     val effectiveIndexUrl: String get() = resolveIndexUrl(catalogIndexUrl)
 
-    /** Is this app reading a catalog other than the one it ships with? */
+    /** Is this app reading an index other than the default one? */
     val usingCustomIndex: Boolean get() = isCustomIndex(catalogIndexUrl)
 
     /** Is the index fixed by the environment for this run, so the setting cannot

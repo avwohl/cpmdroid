@@ -18,7 +18,7 @@ class DiskDownloadManager(private val context: Context) {
         /**
          * The disks folder for the catalog in use.
          *
-         * "Disks" exactly for the index this build ships with - so a device that
+         * "Disks" exactly for the default index - so a device that
          * has never been pointed anywhere else finds its library where it left
          * it, and the v0 rename pass renames the files it already renamed. A
          * custom index gets a folder of its own beside it, because two catalogs
@@ -27,7 +27,7 @@ class DiskDownloadManager(private val context: Context) {
          * a fork, and one folder would have them overwrite each other on every
          * switch - taking any work saved inside the disk with them.
          *
-         * SettingsRepository.indexScope is EMPTY for the built-in index, so this
+         * SettingsRepository.indexScope is EMPTY for the default index, so this
          * is the same string it has always been unless somebody asked for it not
          * to be.
          */

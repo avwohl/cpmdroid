@@ -1,48 +1,64 @@
 {
-  "version": 1,
-  "base_url": "https://github.com/avwohl/cpmdroid/releases/latest/download/",
-  "topics": [
-    {
-      "id": "quick_start",
-      "title": "Quick Start Guide",
-      "description": "Getting started with CPMDroid",
-      "filename": "help_quick_start.md"
-    },
-    {
-      "id": "cpm22",
-      "title": "CP/M 2.2 User Guide",
-      "description": "Complete guide to CP/M 2.2 operating system",
-      "filename": "help_cpm22.md"
-    },
-    {
-      "id": "zsdos",
-      "title": "ZSDOS User Guide",
-      "description": "Z-System DOS with date/time stamping",
-      "filename": "help_zsdos.md"
-    },
-    {
-      "id": "nzcom",
-      "title": "NZCOM User Guide",
-      "description": "Z-System for CP/M 2.2 environments",
-      "filename": "help_nzcom.md"
-    },
-    {
-      "id": "zpm3",
-      "title": "ZPM3 User Guide",
-      "description": "Z-System Plus/M3 enhanced CP/M 3",
-      "filename": "help_zpm3.md"
-    },
-    {
-      "id": "qpm",
-      "title": "QPM User Guide",
-      "description": "QP/M operating system",
-      "filename": "help_qpm.md"
-    },
-    {
-      "id": "disk_transfer",
-      "title": "File Transfer (R8/W8)",
-      "description": "Transfer files between Android and CP/M",
-      "filename": "help_file_transfer.md"
-    }
-  ]
+  "comment": "The floor under the help list: a copy of the `help` block in romwbw_disks index-v0.json, not a document of its own. It is read only when neither the live index nor this reader's saved copy can be. Refreshing it is optional - going stale costs a reader who is offline the newest wording and nothing else, since the sizes and hashes here only ever check bytes fetched against THIS list.",
+  "help": {
+    "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/",
+    "topics": [
+      {
+        "id": "quick_start",
+        "filename": "help_quick_start.md",
+        "name": "Quick Start Guide",
+        "description": "Getting started with the emulator",
+        "size": 7387,
+        "sha256": "5948d8f451cc80761c3234caaff8d12cb7c30e7b7b6b4a4ee0f7c86ef2d1486d"
+      },
+      {
+        "id": "cpm22",
+        "filename": "help_cpm22.md",
+        "name": "CP/M 2.2 User Guide",
+        "description": "Complete guide to CP/M 2.2 operating system",
+        "size": 6035,
+        "sha256": "4f457c250b984f37a0468ccf99aa22c9223562f55385da93071e7ad46c9572a7"
+      },
+      {
+        "id": "zsdos",
+        "filename": "help_zsdos.md",
+        "name": "ZSDOS User Guide",
+        "description": "Z-System DOS with date/time stamping",
+        "size": 4401,
+        "sha256": "0fe9ed9b58c0544b883debb1a108a7995ba70fd26c6b74f579b31e0e290372e0"
+      },
+      {
+        "id": "nzcom",
+        "filename": "help_nzcom.md",
+        "name": "NZCOM User Guide",
+        "description": "Z-System for CP/M 2.2 environments",
+        "size": 3643,
+        "sha256": "f6da5f16d34a329c2f95fcf02fa1f551015318ff719440ada20e1154fc1ed7f5"
+      },
+      {
+        "id": "zpm3",
+        "filename": "help_zpm3.md",
+        "name": "ZPM3 User Guide",
+        "description": "Z-System Plus/M3 enhanced CP/M 3",
+        "size": 3966,
+        "sha256": "2313d75b1d9cd6b779f827ae8b3ed601b1bba5b65b185872923bba2248b0c4e7"
+      },
+      {
+        "id": "qpm",
+        "filename": "help_qpm.md",
+        "name": "QPM User Guide",
+        "description": "QP/M operating system",
+        "size": 4281,
+        "sha256": "313bb7feaa4f9ba06ab882a1a2de291f68a1428aef8239149f1ef4e69669a9cf"
+      },
+      {
+        "id": "disk_transfer",
+        "filename": "help_file_transfer.md",
+        "name": "File Transfer (R8/W8)",
+        "description": "Transfer files between host and CP/M",
+        "size": 4934,
+        "sha256": "ae33d7ab8e81d63438015f86749a58fe1b851a5e95aad103826845f718664641"
+      }
+    ]
+  }
 }
