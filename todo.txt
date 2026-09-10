@@ -20,6 +20,28 @@ MANUAL_CHECKS.md gained a section and why the first item below is new.
 NOBODY HAS SEEN THE NEW TERMINAL RUN
 -------------------------------------
 
+- [ANY, NEEDS NETWORK] 1.31 / versionCode 33 WENT INTO PLAY REVIEW ON
+2026-09-10 and nothing in this tree may say it shipped until Play serves it.
+Uploaded is not released, released is not rolled out, and rolled out is not
+installed.  The measurement is the only thing allowed to move the record:
+
+    sh tools/check-store-version.sh
+
+While it still reports 1.25 there is nothing to do.  When it reports 1.31, TWO
+things need correcting in the same round, and the second is why this item
+exists at all:
+  - z80cpmw/FEATURE_PARITY.md's cpmdroid line reads `shipped:27`.  The script
+    reads that field and compares it against the store, so the moment Play
+    serves 1.31 it stops printing "agrees with what Play serves" and starts
+    printing "CLAIMS shipped:27, BUT Play serves 1.31 = versionCode 33", and
+    exits 1.  That file is in ANOTHER REPOSITORY, so the correction is a commit
+    there, not here.
+  - This file loses this item.
+
+Do NOT pre-emptively write 33 into either place to save a trip.  That is the
+exact failure the script was built to catch, in z80cpmw, where a changelog was
+wrong by two releases and had already sent a re-read to the wrong commit.
+
 - [ANDROID DEVICE or EMULATOR] the 2026-08-29 terminal round added VT52, a
 scrolling region, DECSC/DECRC, the query replies, seven editing commands and
 per-cell bold, underline, blink and reverse - and none of it has been drawn on a
