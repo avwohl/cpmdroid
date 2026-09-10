@@ -216,29 +216,38 @@ pin_of() { # $1 = port dir, $2 = file, $3 = pattern -> prints vX.Y.Z
 # Comment lines are dropped for both of these, because the file that replaced
 # the pin explains in prose what it replaced - "RELEASE_TAG = \"v1.4.12\"" is
 # still written there, and matching it would report a leftover pin forever.
-index_url_of() { # $1 = port dir, $2 = file -> prints the v0 index URL
-    f="$1/$2"
-    if [ -f "$f" ]; then
-        u=$(grep -v '^[[:space:]]*[/*#]' "$f" 2>/dev/null |
+index_url_of() { # $1 = port dir -> prints the v0 index URL the port compiles in
+    # ASK THE CHECKOUT, NOT THE TABLE.  This used to grep one file named in the
+    # ports table, and every port that moved its literal - ioscpm behind
+    # CatalogMigration, cpmdroid behind SettingsRepository - was reported as
+    # "NO v0 INDEX URL ... repointed back, or renamed?" for having exactly one
+    # source of truth.  The table's file column was what had gone stale.
+    #
+    # TESTS ARE EXCLUDED, and that is not tidiness.  cpmdroid's IndexUrlTest
+    # asserts the default names no release tag, and to do it carries fixture
+    # URLs on a deliberately fake fork - "github.com/someone/romwbw_disks/...".
+    # grep -r reaches it before the real source, so the checker fetched the
+    # fake one and reported the port's index UNREACHABLE.  That is the
+    # cry-wolf failure this file's header spends thirty lines warning about,
+    # arriving through the scan that was meant to end it.
+    #
+    # This script is excluded too: it quotes the URL pattern itself.
+    #
+    # Prose is excluded for the same reason detect_kind excludes it: every one
+    # of these repositories documents the URL in a README or a changelog, and
+    # matching that would report an index URL for a port that compiles in none.
+    for f in $(grep -rlE '"https://[^"]*index-v0[.]json"' "$1" \
+            --exclude-dir=.git --exclude-dir=build --exclude-dir=DerivedData \
+            --exclude-dir=.gradle --exclude-dir=node_modules \
+            --exclude='*.md' --exclude='*.txt' --exclude='*.json' \
+            --exclude='check-shipped-disks.sh' 2>/dev/null |
+            grep -vE '/([Tt]ests?|androidTest)/' | sort); do
+        u=$(grep -hE '"https://[^"]*index-v0[.]json"' "$f" 2>/dev/null |
+            grep -v '^[[:space:]]*[/*#]' |
             sed -n 's|.*"\(https://[^"]*index-v0\.json\)".*|\1|p' | head -1)
-        if [ -n "$u" ]; then
-            echo "$u"
-            return 0
-        fi
-    fi
-    # The named file holds the constant's NAME and not its value.  Both migrated
-    # GUI ports have done that - one literal, in the file that owns the setting
-    # which can replace it, re-exported from the file that used to hold the pin -
-    # and calling that "no index URL" reports a port as broken for having exactly
-    # one source of truth.  So ask the checkout rather than the table.  Prose is
-    # excluded for the same reason detect_kind excludes it: every one of these
-    # repositories documents the URL in a README or a changelog, and matching
-    # that would report an index URL for a port that compiles in none.
-    grep -rhE '"https://[^"]*index-v0[.]json"' "$1" \
-        --exclude-dir=.git --exclude-dir=build --exclude-dir=DerivedData \
-        --exclude='*.md' --exclude='*.txt' --exclude='*.json' 2>/dev/null |
-        grep -v '^[[:space:]]*[/*#]' |
-        sed -n 's|.*"\(https://[^"]*index-v0\.json\)".*|\1|p' | head -1
+        if [ -n "$u" ]; then printf '%s\n' "$u"; return 0; fi
+    done
+    return 1
 }
 
 legacy_pin_in() { # $1 = port dir, $2 = file -> prints a vX.Y.Z still in the source
