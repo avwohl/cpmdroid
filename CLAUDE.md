@@ -68,7 +68,9 @@ It names **no release tag** - `releases/latest/download/` - and
 `IndexUrlTest.theDefaultUrlNamesNoReleaseTag` asserts that. Note that this test
 carries fixture URLs on a deliberately fake fork (`github.com/someone/...`);
 `tools/check-shipped-disks.sh` once fetched one of them and reported this port's
-index unreachable.
+index unreachable — a trap worth remembering even though that script was deleted
+on 2026-09-13, because the next thing that greps source for a URL will hit it
+too.
 
 Everything is verified: the catalog document against the index's size and
 sha256 **before parsing**, disks and ROMs on download, ROMs **again on every
