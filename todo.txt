@@ -159,6 +159,19 @@ change deliberately accepts.  And check 9, that a corrupt ROM stops the machine:
 there is no bundled ROM left for it to fall back to, so what that check now
 watches for is not a silent fallback but a silent boot on anything at all.
 
+- [ANDROID] an image downloaded before the v1.4.12 repin keeps the destructive R8 and
+there is no way out of it from inside the app.  That r8.com copies the host basename
+into the FCB unfiltered, so '?' and '*' make it ambiguous and F_DELETE runs before
+F_MAKE: importing a?b.txt erases every CP/M file matching A?B.TXT first and says
+nothing (romwbw_emu CHANGELOG, "R8 erased unrelated CP/M files" - verified live, two
+unrelated files went).  Downloads only happen for an ABSENT file, so the repin does
+not refresh what is already there.  This port has no DiskLedger and no
+refreshSuperseded, and deleteDisk()/deletePersistedDisk() in DiskDownloadManager.kt
+have no caller anywhere under app/ - the Settings X is clearDiskSlot(), which sets the
+slot to null and leaves the file on the device.  Reinstalling is the only remedy a
+user has.  ioscpm solves this with a ledger that refreshes a superseded-and-pristine
+image automatically; z80cpmw has the same gap and its own todo.txt line 52 carries it.
+
 - [ANDROID] a ROM is never deleted, including a bad one.  A file that fails
 verification is re-downloaded once, and the fetch renames a fully verified
 transfer over it - so a failed attempt leaves what was there rather than leaving
