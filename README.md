@@ -232,13 +232,14 @@ follows, help fetching, NVRAM autoboot, the font-size and scrollback settings, a
 Dazzler/DSKY stubs. Touch any of those and that column needs re-reading.
 
 The commits each column was read at are recorded in that file's
-`sibling-readings` block, and a script beside it reports how far the checkouts
-have moved since:
+`sibling-readings` block. A script beside it used to report how far the
+checkouts had moved since; it was deleted on 2026-09-13, so the comparison is a
+`git log` in this tree:
 
-    sh ../z80cpmw/tools/check-sibling-drift.sh
+    git log --oneline <the-sha-recorded-for-cpmdroid>..origin/master
 
-It reads only - it never writes to a sibling - and exits non-zero when any
-column is behind the tree it describes.
+Anything it lists is a change this port has taken since the column describing it
+was last read.
 
 The other repositories in and around this family:
 

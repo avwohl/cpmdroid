@@ -382,10 +382,11 @@ PARITY WITH THE OTHER PORTS
 
 z80cpmw's FEATURE_PARITY.md describes this port from outside it, and README.md's
 Related Projects section says which of these files back which rows.  After
-changing them, run the reporter from here:
-    sh ../z80cpmw/tools/check-sibling-drift.sh
-It reads only, and exits non-zero when a column is behind the tree it describes.
-Correcting a column is an edit in z80cpmw.
+changing them, check what the column has not seen:
+    git log --oneline <the-sha-recorded-for-cpmdroid>..origin/master
+The reporter that did this (../z80cpmw/tools/check-sibling-drift.sh) was deleted
+on 2026-09-13, along with every other parity check.  Correcting a column is
+still an edit in z80cpmw.
 
 - [PARITY] rows 4, 6 and 13 were corrected in z80cpmw on 2026-08-29, and row 13
 went from the row where this port was furthest behind to one where it is level
@@ -394,8 +395,9 @@ sibling-readings block, and the reason is the document's own rule: that line
 certifies a reading of the WHOLE column, and rows 4, 6 and 13 are three of
 thirteen.  Row 2 was re-read from this tree on 2026-09-02 and rewritten, so what
 is left is rows 1, 3, 5, 7, 8, 9, 10, 11 and 12; whoever reads those against
-this tree can advance it; until then check-sibling-drift.sh will keep reporting
-this column as drifted, which is correct.
+this tree can advance it.  Until 2026-09-13 check-sibling-drift.sh kept
+reporting this column as drifted, which was correct; that script is gone, so the
+outstanding rows are now only recorded here.
 
 - [PARITY] the two capabilities with no row - a bounded import and a receive
 intent-filter - were folded into row 4 rather than given a fourteenth row.  Row
