@@ -33,10 +33,13 @@ Four gaps, and they compound:
   call **on a device**, not at build time. Past the *name*, nothing is checked
   at all: the translation unit has only ever been `-fsyntax-only` compiled, so
   a descriptor mismatch surfaces nowhere earlier.
-- **Nothing in CI compiles this app.** The one workflow
-  (`.github/workflows/store-version.yml`) runs `tools/check-store-version.sh`
-  daily and needs no toolchain. `./gradlew :app:test` is opt-in and the
-  README's build steps do not invoke it.
+- **Nothing in CI compiles this app — and as of 2026-09-13 there is no CI at
+  all.** The one workflow was `.github/workflows/store-version.yml`, which ran
+  `tools/check-store-version.sh` daily and needed no toolchain; it was removed
+  because what Google Play is serving is not something CI should be asked. That
+  script is still here and is still the only way to answer the question, but it
+  is run by hand now. `./gradlew :app:test` is opt-in and the README's build
+  steps do not invoke it, so nothing mechanical looks at this repository.
 
 `JniNameParityTest` is what stands in for all of that: it greps both source
 files and compares the `native*` / `Java_com_awohl_cpmdroid_EmulatorEngine_*`
