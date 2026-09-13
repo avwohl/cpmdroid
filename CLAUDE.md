@@ -167,3 +167,16 @@ with no Android SDK it is the only honest thing to write.
 
 `docs/release_notes.txt` stops at 1.11 and `docs/bug1.txt` is an old user
 report. Neither is a current record. `CHANGELOG.md` is.
+
+## What is finished but not shipped
+
+`tools/unreleased.sh` reports the gap between written, built, uploaded and
+served. It measures Play with `check-store-version.sh` and anchors on the commit
+that first set `versionName` to the served value, then lists what has landed
+since, counting `app/` separately. Play refuses an upload at a versionCode it has
+seen, so shipping anything it reports starts with moving the number.
+
+**It is not a gate and must not become one.** No exit 1: 0 even when work is
+unreleased, 2 only when it could not measure. This repository has no CI at all
+as of 2026-09-13; do not rebuild one out of this.
+
