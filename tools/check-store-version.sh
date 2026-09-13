@@ -2,9 +2,10 @@
 # check-store-version.sh - what does Google Play actually serve, and does
 # anything in this tree claim otherwise?
 #
-# WHY THIS EXISTS.  A versionName in build.gradle.kts, a CHANGELOG heading and a
-# shipped: field in z80cpmw/FEATURE_PARITY.md all describe the TREE.  None of
-# them knows what a user can install.  ioscpm has measured its store since
+# WHY THIS EXISTS.  A versionName in build.gradle.kts and a CHANGELOG heading
+# both describe the TREE.  None of them knows what a user can install.  (A
+# shipped: field in z80cpmw/FEATURE_PARITY.md used to be the third; it was
+# removed on 2026-09-13 - see FEATURE_PARITY.md NOT CONSULTED below.)  ioscpm has measured its store since
 # 2026-09-03 and z80cpmw since 2026-09-06 - and z80cpmw's first measurement found
 # its own changelog wrong by two releases, which had already sent a column re-read
 # to the wrong commit.  This port was the last one still asserting.
@@ -46,7 +47,6 @@ root=$(cd "$here" && git rev-parse --show-toplevel 2>/dev/null) || root=$(dirnam
 
 GRADLE="$root/app/build.gradle.kts"
 CHANGELOG="$root/CHANGELOG.md"
-PARITY="$root/../z80cpmw/FEATURE_PARITY.md"
 
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t play)
 trap 'rm -rf "$tmp"' EXIT INT TERM
@@ -139,25 +139,13 @@ else
     echo "  records what USERS have.  Uploaded is not released."
 fi
 
-# --- what the family records ---------------------------------------------------
-if [ -f "$PARITY" ]; then
-    claim=$(awk '/^cpmdroid[[:space:]]/ { for (i = 1; i <= NF; i++)
-                    if ($i ~ /^shipped:/) { print substr($i, 9); exit } }' "$PARITY")
-    echo
-    if [ -z "$claim" ]; then
-        echo "z80cpmw/FEATURE_PARITY.md  no shipped: field on the cpmdroid line"
-    elif [ -z "$livecode" ]; then
-        echo "z80cpmw/FEATURE_PARITY.md  shipped:$claim - cannot be checked, no versionCode for $live"
-    elif [ "$claim" = "$livecode" ]; then
-        echo "z80cpmw/FEATURE_PARITY.md  shipped:$claim agrees with what Play serves"
-    else
-        echo "z80cpmw/FEATURE_PARITY.md  CLAIMS shipped:$claim, BUT Play serves $live = versionCode $livecode"
-        echo "  That field is compared against a versionCode, so a versionName in"
-        echo "  it reads as a wildly older build.  Re-read the column at the"
-        echo "  shipped commit, then set this."
-        status=1
-    fi
-fi
+# FEATURE_PARITY.md is NOT consulted.  It used to carry a shipped:<build> field
+# per port in its sibling-readings block, and this script compared the store's
+# answer against it - which is how a stale column was caught twice.  The field
+# was removed on 2026-09-13 along with the CI jobs that checked it, because what
+# a store serves is not something a repository can be gated on.  So this script
+# now reports the measurement and stops: comparing it with what any document
+# claims is a job for the person reading the output.
 
 echo
 if [ "$status" != 0 ]; then
