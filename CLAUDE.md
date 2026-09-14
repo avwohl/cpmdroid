@@ -161,6 +161,16 @@ marked `[DELIBERATE, do not report this as a gap again]` mean it. Cites name a
 symbol or a greppable string, not a file:line - a line number reads as evidence
 while carrying none.
 
+**No entry here says what another repository needs.** If a sibling has work to
+do, that sibling's `todo.txt` says it, and moving the item there is the fix -
+what stays here is only the part this repository owes, which is often a
+conditional ("delete this guard when the upstream floor lands"). These six
+checkouts move independently and on the same day: an item parked in the wrong
+backlog goes stale where nobody who could act on it will read it. This file
+claimed z80cpmw carried an open item about four hours after z80cpmw had closed
+it and shipped the fix. Naming a sibling's *finished* code as a shape to copy,
+or its history as precedent for a check here, is a different thing and stays.
+
 Commit messages here carry a **NOT COMPILED / NOT BUILT / NOT RUN** disclosure
 naming exactly what was and was not exercised. Keep doing that; on a machine
 with no Android SDK it is the only honest thing to write.

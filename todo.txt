@@ -27,20 +27,19 @@ installed.  The measurement is the only thing allowed to move the record:
 
     sh tools/check-store-version.sh
 
-While it still reports 1.25 there is nothing to do.  When it reports 1.31, TWO
-things need correcting in the same round, and the second is why this item
-exists at all:
-  - z80cpmw/FEATURE_PARITY.md's cpmdroid line reads `shipped:27`.  The script
-    reads that field and compares it against the store, so the moment Play
-    serves 1.31 it stops printing "agrees with what Play serves" and starts
-    printing "CLAIMS shipped:27, BUT Play serves 1.31 = versionCode 33", and
-    exits 1.  That file is in ANOTHER REPOSITORY, so the correction is a commit
-    there, not here.
-  - This file loses this item.
+While it still reports 1.25 there is nothing to do.  When it reports 1.31, this
+file loses this item and CHANGELOG.md's 1.31 entry stops saying Play has not
+seen the number.  Nothing else is owed, and there used to be: the script
+compared its measurement against a shipped: field in another repository's
+document, which is gone as of 2026-09-13 along with every reader of it.  The
+script says so where the comparison used to stand - grep it for "is NOT
+consulted".  The reading is the whole answer and the date it was taken is the
+whole of its authority.
 
-Do NOT pre-emptively write 33 into either place to save a trip.  That is the
-exact failure the script was built to catch, in z80cpmw, where a changelog was
-wrong by two releases and had already sent a re-read to the wrong commit.
+Do NOT pre-emptively write 33 into anything that records what users have, to
+save a trip.  That is the exact failure the script was built to catch, in
+z80cpmw, where a changelog was wrong by two releases and had already sent a
+re-read to the wrong commit.
 
 - [ANDROID DEVICE or EMULATOR] the 2026-08-29 terminal round added VT52, a
 scrolling region, DECSC/DECRC, the query replies, seven editing commands and
@@ -175,8 +174,12 @@ not refresh what is already there.  This port has no DiskLedger and no
 refreshSuperseded, and deleteDisk()/deletePersistedDisk() in DiskDownloadManager.kt
 have no caller anywhere under app/ - the Settings X is clearDiskSlot(), which sets the
 slot to null and leaves the file on the device.  Reinstalling is the only remedy a
-user has.  ioscpm solves this with a ledger that refreshes a superseded-and-pristine
-image automatically; z80cpmw has the same gap and its own todo.txt line 52 carries it.
+user has.  ioscpm solves this with a ledger keyed on provenance - the catalog sha256
+a verified download matched - not on hashing the installed file, because a downloaded
+disk is a writable volume the guest rewrites and that comparison calls every disk a
+user has saved work into stale.  DiskLedger.action is the shape: refresh unasked only
+when superseded AND pristine, offer when it would be lossy, stand down while the
+emulator holds the file open.  Copy that rather than inventing one.
 
 - [ANDROID] a ROM is never deleted, including a bad one.  A file that fails
 verification is re-downloaded once, and the fetch renames a fully verified
@@ -206,25 +209,34 @@ carries the new r8.com and w8.com, and pushing it onto a device exercises both
   way, and it is worth knowing how often it does.
 
 
-UPSTREAM, NOT HERE
--------------------
+A GUARD HERE THAT STANDS IN FOR A MISSING FLOOR UPSTREAM
+--------------------------------------------------------
 
-- [ROMWBW_EMU] emu_host_path_cap_name() in src/emu_io_common.cc can return the
-empty string, and emu_io.h promises in as many words that it cannot: "a result
-of "", ".", ".." or a bare drive letter is replaced by `fallback`".  The
-head-keeping branch calls back_off_utf8() with no floor, so a component longer
-than EMU_HOST_NAME_MAX whose first 255 bytes are continuation bytes backs all
-the way to 0.  Reproducer:
+- [ANDROID] android_host_leaf() carries a floor that the function it guards does
+not, and deleting that guard is a re-sync rather than an edit to make on its own.
+android_host_path_cap_name() is this port's copy of romwbw_emu's
+emu_host_path_cap_name(), kept in step with it on purpose so a drift sweep finds
+nothing to file, and the head-keeping branch it copied backs a cut off
+continuation bytes with no floor: a component longer than EMU_HOST_NAME_MAX whose
+first 255 bytes are continuation bytes backs all the way to 0 and the function
+answers "", where emu_io.h promises in as many words that it cannot - "a result
+of "", ".", ".." or a bare drive letter is replaced by `fallback`".  Confirmed by
+compiling and running romwbw_emu's own source on 2026-09-13, g++ -std=c++17, not
+reasoned about: the head branch returns 0 bytes and the tail branch, which has
+the guard, returns 255.  Note while re-syncing that the guard's own comment calls
+this copy "byte-for-byte the shared function" and it is not - the logic matches,
+the indentation and the comment wrapping do not, so diff the two by hand rather
+than trusting either sentence.
 
-    emu_host_path_basename(std::string(256, '\x80'), "download.bin") == ""
-
-  The tail-keeping branch in the same function guards exactly this case, which
-  is what makes it an omission rather than a design.  It matters most on a
-  write: an empty leaf joined to an export directory names the DIRECTORY.  It
-  reaches every port that calls the shared helper, and this one has a guard at
-  its own call site (android_host_leaf) so that its copy of the function can
-  stay byte-for-byte the original; delete that guard when the floor lands
-  upstream and the copy is re-synced.
+  It matters on the write side only.  An empty leaf makes
+  g_host_write_destination the Exports FOLDER, and opening that path for writing
+  asks the filesystem to truncate a directory; the read path passes "" as its
+  fallback deliberately, since an empty name means "no preference" to the
+  bare-FCB R8, so the guard is a no-op there.  Nothing shipped reaches it today
+  because R8 and W8 both build the path in a 128-byte buffer - a property of the
+  .com files on today's images, not of this function's contract.
+  The floor belongs in the shared helper, and romwbw_emu's todo.txt is where
+  that is recorded; when it lands, this guard comes out with the re-sync.
 
 
 TERMINAL: WHAT IS STILL NOT THERE
@@ -314,36 +326,6 @@ point at it: drag back with the keyboard closed, then open the keyboard and drag
 again; run a long DIR and confirm the view stays put while it prints; type a key
 and confirm it returns to live; confirm the cursor is absent while scrolled back
 and present at the bottom.
-
-
-PARITY WITH THE OTHER PORTS
-----------------------------
-
-z80cpmw's FEATURE_PARITY.md describes this port from outside it, and README.md's
-Related Projects section says which of these files back which rows.  After
-changing them, check what the column has not seen:
-    git log --oneline <the-sha-recorded-for-cpmdroid>..origin/master
-The reporter that did this (../z80cpmw/tools/check-sibling-drift.sh) was deleted
-on 2026-09-13, along with every other parity check.  Correcting a column is
-still an edit in z80cpmw.
-
-- [PARITY] rows 4, 6 and 13 were corrected in z80cpmw on 2026-08-29, and row 13
-went from the row where this port was furthest behind to one where it is level
-on everything the row measures.  What that edit could NOT do is advance the
-sibling-readings block, and the reason is the document's own rule: that line
-certifies a reading of the WHOLE column, and rows 4, 6 and 13 are three of
-thirteen.  Row 2 was re-read from this tree on 2026-09-02 and rewritten, so what
-is left is rows 1, 3, 5, 7, 8, 9, 10, 11 and 12; whoever reads those against
-this tree can advance it.  Until 2026-09-13 check-sibling-drift.sh kept
-reporting this column as drifted, which was correct; that script is gone, so the
-outstanding rows are now only recorded here.
-
-- [PARITY] the two capabilities with no row - a bounded import and a receive
-intent-filter - were folded into row 4 rather than given a fourteenth row.  Row
-4's parity targets were already a lettered list and its heading already says
-"arbitrary host paths + a findable data folder"; a new row would have renumbered
-every "item 13" and "(#4)" cross-reference in a document that has dozens of
-them.  If a future capability needs a row of its own, that is the cost to price.
 
 
 - [ANDROID] the catalog index is switchable in the model but has no UI yet.
