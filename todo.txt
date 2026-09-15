@@ -212,32 +212,16 @@ carries the new r8.com and w8.com, and pushing it onto a device exercises both
 A GUARD HERE THAT STANDS IN FOR A MISSING FLOOR UPSTREAM
 --------------------------------------------------------
 
-- [ANDROID] android_host_leaf() carries a floor that the function it guards does
-not, and deleting that guard is a re-sync rather than an edit to make on its own.
-android_host_path_cap_name() is this port's copy of romwbw_emu's
-emu_host_path_cap_name(), kept in step with it on purpose so a drift sweep finds
-nothing to file, and the head-keeping branch it copied carries the same defect
-as the shared function.  **The defect itself is romwbw_emu's and was refiled
-there on 2026-09-15** (emu_host_path_cap_name in src/emu_io_common.cc: the head
-branch has no continuation-byte floor, so a component whose first 255 bytes are
-continuation bytes backs to 0 and the function answers "", which emu_io.h
-promises it cannot).  What stays here is the conditional: when that lands,
-android_host_leaf() in app/src/main/cpp/emu_io_android.cpp needs the same fix,
-because it is a hand-kept copy rather than a call.  Note while re-syncing that the guard's own comment calls
-this copy "byte-for-byte the shared function" and it is not - the logic matches,
-the indentation and the comment wrapping do not, so diff the two by hand rather
-than trusting either sentence.
-
-  It matters on the write side only.  An empty leaf makes
-  g_host_write_destination the Exports FOLDER, and opening that path for writing
-  asks the filesystem to truncate a directory; the read path passes "" as its
-  fallback deliberately, since an empty name means "no preference" to the
-  bare-FCB R8, so the guard is a no-op there.  Nothing shipped reaches it today
-  because R8 and W8 both build the path in a 128-byte buffer - a property of the
-  .com files on today's images, not of this function's contract.
-  The floor belongs in the shared helper, and romwbw_emu's todo.txt is where
-  that is recorded; when it lands, this guard comes out with the re-sync.
-
+- [ANDROID] the read path's fallback does not do what todo.txt and the code
+comments said it did.  emu_host_file_open_read() calls
+android_host_leaf(filename, ""), and the comment reasoning about it says an
+empty name means "no preference" to the bare-FCB R8 - but
+android_host_path_basename() substitutes "download.bin" for an empty fallback
+before returning, so the read path gets "download.bin", never "".  Decide which
+was intended: if the empty name really is wanted there, basename needs a way to
+say so; if "download.bin" is right, the comments that describe the other
+behaviour should go.  Found 2026-09-15 while re-syncing the cap_name fix, by a
+test that expected "" and got 12 bytes.
 
 TERMINAL: WHAT IS STILL NOT THERE
 ----------------------------------

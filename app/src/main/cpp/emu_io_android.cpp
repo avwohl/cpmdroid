@@ -631,6 +631,13 @@ static std::string android_host_path_cap_name(const std::string& base) {
     }
 
     size_t keep = android_back_off_utf8(base, EMU_HOST_NAME_MAX - ext.size());
+    // The whole window was continuation bytes, so there is no character
+    // boundary to cut on and backing up ran to 0 - which returned "" when
+    // there is no extension either, the one answer emu_io.h promises this
+    // cannot give. Keep the bytes instead: the tail branch above makes the
+    // same choice for the same reason, and an 8-bit guest command line need
+    // not be UTF-8 at all. Matches romwbw_emu's fix in emu_io_common.cc.
+    if (keep == 0) keep = EMU_HOST_NAME_MAX - ext.size();
     return base.substr(0, keep) + ext;
 }
 
@@ -694,33 +701,14 @@ static std::string android_host_path_basename(const std::string& path,
 static std::string android_host_leaf(const char* filename, const char* fallback) {
     std::string leaf = android_host_path_basename(filename ? filename : "", fallback);
 
-    // The shared original can still answer "" from its cap, and the guard for
-    // that is here rather than in the copy above, so the copy stays byte-for-
-    // byte the shared function and the next sweep finds no drift to file.
-    //
-    // The hole: emu_host_path_cap_name()'s head-keeping branch backs the cut
-    // off a UTF-8 continuation byte and has no floor, so a component longer
-    // than EMU_HOST_NAME_MAX whose first 255 bytes are continuation bytes
-    // backs all the way to 0 and returns the empty string. Its tail-keeping
-    // branch guards exactly this ("if (start >= base.size())"); the other one
-    // was not given the same floor. Reproducer, and it is not exotic - a guest
-    // command line is 8 bits wide and passes through the CCP untouched:
-    //     emu_host_path_basename(std::string(256, '\x80'), "download.bin") == ""
-    // The declared contract in emu_io.h says the opposite in as many words -
-    // "a result of "", ".", ".." or a bare drive letter is replaced by
-    // `fallback`" - so this restores what the caller was promised rather than
-    // inventing a rule.
-    //
-    // It matters on the write side. An empty leaf makes
-    // g_host_write_destination the Exports FOLDER, and a UI layer that then
-    // opens that path for writing is asking the filesystem to truncate a
-    // directory. On the read side the fallback is deliberately "" - an empty
-    // name means "no preference" to the bare-FCB R8 - so this is a no-op
-    // there, which is the behaviour that path already wanted.
-    //
-    // Reported upstream in todo.txt; delete this when the shared function
-    // grows the floor and this copy is re-synced.
-    if (leaf.empty()) leaf = (fallback && *fallback) ? fallback : "";
+    // No empty-leaf guard here any more, and `leaf` can no longer be empty at
+    // all. It existed because the shared emu_host_path_cap_name()'s
+    // head-keeping branch had no continuation-byte floor and could answer "",
+    // which emu_io.h says it cannot; romwbw_emu grew that floor on 2026-09-15
+    // and this copy was re-synced with it. The other route to "" is closed
+    // too: android_host_path_basename() substitutes "download.bin" for an
+    // empty `fallback` before it returns anything, so even the read path's
+    // `android_host_leaf(filename, "")` cannot come back empty.
 
     for (char& c : leaf) {
         if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
