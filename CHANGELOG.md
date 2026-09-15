@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### WIP.md said the terminal fixes had never shipped. They shipped.
+
+"It has also never gone into a published build, so a clean install from the
+store still shows the black band and still drops lines." That was written at
+versionCode 19/20 and had been overtaken by thirteen versionCodes.
+
+Measured 2026-09-15 rather than reasoned about:
+
+- `tools/check-store-version.sh` — Play serves **1.31**, versionCode 33.
+- `git merge-base --is-ancestor 690da30 6848615` succeeds, where `6848615` is
+  the commit that set `versionName = "1.31"`.
+- `git show 6848615:app/src/main/java/com/awohl/cpmdroid/TerminalView.kt`
+  contains the scrollback code.
+
+So a clean install from the store has all three fixes: the soft keyboard no
+longer covers the prompt, the black band is gone, and scrollback exists. The
+file is the design record of shipped work now, and says so at the top.
+
+**What is still true is what it always said needs a person: no one has watched
+it run.** That has not changed and is not fixed by this entry.
+
+`todo.txt` was already more current — it records two of the four scrollback
+findings as closed — so `WIP.md` now points there rather than competing with it.
+This is the shape the whole file was in: accurate about the code, a version and
+a half behind about the world.
+
 ### The privacy policy sent Android users to the iOS repository, and understated the permissions
 
 Two defects in a document Play links from the store listing.

@@ -1,17 +1,29 @@
 # WIP — Terminal keyboard fix + scrollback (Android)
 
-**Status as of 2026-07-25:** implemented, built, installed on the test tablet, **awaiting
-visual confirmation + possible tuning.**
+**This work has shipped. This file is its design record, not open work.**
 
-**Correction, 2026-08-26:** the rest of this file was written before the checkpoint
-commit and still said the work was uncommitted. It is committed — `690da30`
-(*WIP: Android terminal keyboard-aware scrolling + scrollback*, 2026-07-25), on
-`master` and on `origin/master`, and every later commit builds on it. Nothing here
-is at risk of being lost, and there is no working tree to restore before resuming.
-What is still true is the part that needs a person: **no one has watched it run.**
-It has also never gone into a published build, so a clean install from the store
-still shows the black band and still drops lines. See `todo.txt` for the current
-statement of that item.
+Measured 2026-09-15: `tools/check-store-version.sh` says Play serves **1.31**
+(versionCode 33); `git merge-base --is-ancestor 690da30 6848615` succeeds, where
+`6848615` is the commit that set `versionName = "1.31"`; and that commit's
+`TerminalView.kt` carries the scrollback code. So a clean install from the store
+has all three fixes below.
+
+It said the opposite until 2026-09-15 — "it has also never gone into a published
+build, so a clean install from the store still shows the black band and still
+drops lines" — which was true when written at versionCode 19/20 and had been
+overtaken by thirteen versionCodes. That sentence is the reason to check a
+shipped-state claim against the store rather than against the tree.
+
+**What is still true is the part that needs a person: no one has watched it
+run.** `MANUAL_CHECKS.md` holds that; `todo.txt` has the current statement of
+what is left, and is more recent than this file — it records two of the four
+scrollback findings as closed. Read it rather than the status lines here.
+
+The earlier correction this replaces, kept because it is the answer to an
+obvious worry: the work is committed as `690da30` (*WIP: Android terminal
+keyboard-aware scrolling + scrollback*, 2026-07-25), on `master` and
+`origin/master`, with every later commit building on it. Nothing is at risk of
+being lost and there is no working tree to restore before resuming.
 
 ## Baseline
 - Written against HEAD = `5ae1bdd` (*Bump to 1.18 / versionCode 19*).
