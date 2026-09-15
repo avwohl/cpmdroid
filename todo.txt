@@ -212,17 +212,6 @@ carries the new r8.com and w8.com, and pushing it onto a device exercises both
 A GUARD HERE THAT STANDS IN FOR A MISSING FLOOR UPSTREAM
 --------------------------------------------------------
 
-- [ANDROID] the read path's fallback does not do what todo.txt and the code
-comments said it did.  emu_host_file_open_read() calls
-android_host_leaf(filename, ""), and the comment reasoning about it says an
-empty name means "no preference" to the bare-FCB R8 - but
-android_host_path_basename() substitutes "download.bin" for an empty fallback
-before returning, so the read path gets "download.bin", never "".  Decide which
-was intended: if the empty name really is wanted there, basename needs a way to
-say so; if "download.bin" is right, the comments that describe the other
-behaviour should go.  Found 2026-09-15 while re-syncing the cap_name fix, by a
-test that expected "" and got 12 bytes.
-
 TERMINAL: WHAT IS STILL NOT THERE
 ----------------------------------
 

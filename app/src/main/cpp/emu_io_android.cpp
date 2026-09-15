@@ -750,7 +750,40 @@ bool emu_host_file_open_read(const char* filename) {
     // the leaf and look for that in Imports rather than refusing outright -
     // which is what the shared helper exists for, and what every sandboxed
     // port is asked to do.
-    g_host_read_filename = filename ? android_host_leaf(filename, "") : "";
+    // Two different questions here, and the shared leaf helper can only answer
+    // one of them. Its contract is that it always returns a USABLE name, so it
+    // substitutes "download.bin" for an empty fallback - correct for the write
+    // side, which has to name a file, and wrong here, where "no name" is a
+    // meaningful answer that MainActivity.handleHostFileRead() is written for
+    // ("An empty name still means 'no preference' ... so that one case keeps
+    // the first-file behaviour"). Passing "" straight through never reached
+    // that branch, because the helper had already turned it into
+    // "download.bin" - so a bare-FCB R8 looked up a file literally called
+    // download.bin, and found one if the user had ever exported or downloaded
+    // under that name.
+    if (!filename || !*filename) {
+        // The guest gave nothing: "no preference".
+        g_host_read_filename = "";
+    } else {
+        // The guest gave something. Ask the helper twice with two different
+        // fallbacks: an answer that tracks the fallback means it had nothing
+        // to work with - a path like ".." or "/" that reduces to no leaf at
+        // all. Asking twice beats a sentinel, which a guest command line is
+        // 8-bit enough to collide with, and beats restating the helper's
+        // reduction rules here, which is how the two copies drift.
+        const std::string a = android_host_leaf(filename, "a");
+        const std::string b = android_host_leaf(filename, "b");
+        if (a == "a" && b == "b") {
+            // Neither "" (which would import whichever file is first in
+            // Imports, for a name the user DID type) nor "download.bin"
+            // (a name the user did not type). Refuse: R8 says it cannot open
+            // the host file and prints what was asked for.
+            LOGI("Host file read refused: %s reduces to no usable name", filename);
+            g_host_file_state = HOST_FILE_IDLE;
+            return false;
+        }
+        g_host_read_filename = a;
+    }
     // The previous transfer's answer, dropped before this one has one. The
     // getter's HOST_FILE_READING gate already makes it unreadable between here
     // and the Kotlin layer's reply, so this is not load-bearing - it is what
