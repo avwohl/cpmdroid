@@ -184,8 +184,10 @@ Commit messages here carry a **NOT COMPILED / NOT BUILT / NOT RUN** disclosure
 naming exactly what was and was not exercised. Keep doing that; on a machine
 with no Android SDK it is the only honest thing to write.
 
-`docs/release_notes.txt` stops at 1.11 and `docs/bug1.txt` is an old user
-report. Neither is a current record. `CHANGELOG.md` is.
+`docs/release_notes.txt` stops at 1.11 and is not a current record.
+`CHANGELOG.md` is. `docs/bug1.txt`, an old user report, went on 2026-09-15:
+five of its six items had shipped and the sixth was not this repository's to
+close - see the CHANGELOG entry for where each one landed.
 
 ## What is finished but not shipped
 

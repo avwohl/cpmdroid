@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### docs/bug1.txt was a closed bug list nothing said was closed
+
+A user report from a physical Samsung tablet, carried in `docs/bug1.txt` since
+2026-01-15 with six action items and no dispositions. `CLAUDE.md` already said
+it was "an old user report" and "not a current record", which is a warning
+rather than an answer: the file still read as an open list. Five of the six had
+shipped. Checked one at a time against the tree rather than assumed:
+
+| Item | Where it is |
+|---|---|
+| "fix font size to work ... and be remembered" | `fontSizeSeekBar` in Settings, persisted as `font_size` by `SettingsRepository`, read back into `terminalView.customFontSize` -> `fontScaleSetting` -> `calculateFontSize()` |
+| "add a wrap lines checkbox" | `wrapLinesCheckbox` in Settings, persisted as `wrap_lines`, and `TerminalView.wrapLines` is the user's half of the wrap decision that DECAWM is the guest's half of |
+| "good sized gap between pause/play and reset" | a 32dp spacer `View` between `playPauseButton` and `bootButton` in `activity_main.xml` |
+| "remove the typein area for the boot text ... Leave the clear boot config" | the Boot Configuration section is prose - "Use the ROM's W command (SYSCONF)" - plus `clearBootConfigButton`. There is no `EditText` |
+| "adding a confirmation pop-up to the restart button" (the reporter's own) | `showRestartConfirmDialog()`, and `bootButton` calls it whenever a ROM is loaded |
+
+The sixth is real, unbuilt, and **not this repository's to close**: AY-3-8910 /
+YM2149 tone generation. `handleSND` in romwbw_emu's `hbios_dispatch.cc` keeps
+`snd_period[4]` and `snd_volume[4]` and answers `SNDQ_CHCNT` with four tone
+channels, but nothing reads those arrays back out - `BF_SNDPLAY` looks at
+channel 0 and calls `emu_dsky_beep(duration)`, a fixed beep of that length, so
+a four-voice tune is four identical beeps. Synthesis belongs in the shared core
+where all four ports get it from one change, and it needs a new `emu_io` entry
+point besides: `emu_dsky_beep(int duration_ms)` is the only audio hook there is
+and a duration is its whole vocabulary. It is `romwbw_emu/todo.txt` now, tagged
+`[SOUND]`, which is where a todo that another repository has to act on belongs.
+
+The file is gone rather than annotated. Its dispositions are here, its one live
+item is filed where the work would happen, and git has the original.
+
 ## Version 1.31 (versionCode 33)
 
 **The same code as 1.30, under a number Play has not seen.** Nothing in the app
