@@ -113,7 +113,7 @@ total, because a chunked response declares nothing.
 - **Never branch on the index's `notes` field.** The published 3.6.0 note still
   describes a compile-time pin the core stopped having in v1.39.
 - **Parse per entry, tolerantly.** One bad entry must not take the document
-  away; `HelpActivity.parseHelpIndex` is the in-tree anti-precedent.
+  away; `parseHelpIndex` (a top-level function in `data/HelpCatalog.kt`) is the in-tree anti-precedent.
 - **There should never be a `DISK_NAMES_MIGRATION_PASS` 3.** If one seems
   needed, something started writing pre-v0 names again and that reason matters
   more than the sweep.
@@ -122,7 +122,10 @@ total, because a chunked response declares nothing.
 
 **Uploaded is not released, released is not rolled out, and rolled out is not
 installed.** Nothing in this tree may say it shipped until Play serves it, and
-`tools/check-store-version.sh` - the one thing CI runs - is what measures that.
+`tools/check-store-version.sh` is what measures that - **and nothing runs it for
+you.** There is no CI in this repository at all: no `.github` directory exists,
+and the store-version workflow was deleted on 2026-09-13. Run it by hand before
+writing down a shipped state.
 Do not pre-emptively write a versionCode into the changelog to save a trip;
 that is the exact failure the script was built to catch, in z80cpmw, where a
 changelog wrong by two releases had already sent a re-read to the wrong commit.
@@ -144,19 +147,25 @@ trusting exit 0.
 ## What z80cpmw says about this repo
 
 `z80cpmw/FEATURE_PARITY.md` carries an Android column describing this code from
-outside it, gated by z80cpmw's own CI. Touching the terminal parser, key
-handling, Imports/Exports, the catalog client, help fetching, NVRAM autoboot,
-the font/scrollback settings or the Dazzler/DSKY stubs means that column needs
-re-reading - **and correcting it is an edit in z80cpmw**, not here. Its
-`shipped:` field is compared against what Play serves, so it goes red when this
-app ships and that line is not updated.
+outside it. Touching the terminal parser, key handling, Imports/Exports, the
+catalog client, help fetching, NVRAM autoboot, the font/scrollback settings or
+the Dazzler/DSKY stubs means that column needs re-reading - **and correcting it
+is an edit in z80cpmw**, not here.
+
+**Nothing enforces this.** It was gated by z80cpmw's CI against a `shipped:`
+field; that repository has no `.github` directory either, and the field and its
+drift script were both removed on 2026-09-13 - FEATURE_PARITY.md now mentions
+`shipped:` only to say it no longer exists. The obligation is real and it is
+entirely manual: the person making the change here is the only one who can
+notice.
 
 ## Documentation discipline
 
 `MANUAL_CHECKS.md` holds checks nobody has run yet - **delete one once it has
 been run**; the result belongs in `CHANGELOG.md` under **Verified**.
-`todo.txt` holds open items only, tagged `[ANY]`, `[ANDROID]`,
-`[ANDROID DEVICE or EMULATOR]`, `[RELEASE]`, `[PARITY]`, `[DELIBERATE]`; items
+`todo.txt` holds open items only, tagged `[ANY]`, `[ANY, NEEDS NETWORK]`,
+`[ANDROID]`, `[ANDROID DEVICE]`, `[ANDROID DEVICE or EMULATOR]`, `[ALL PORTS]`,
+`[DELIBERATE]`; items
 marked `[DELIBERATE, do not report this as a gap again]` mean it. Cites name a
 symbol or a greppable string, not a file:line - a line number reads as evidence
 while carrying none.
