@@ -184,10 +184,18 @@ Commit messages here carry a **NOT COMPILED / NOT BUILT / NOT RUN** disclosure
 naming exactly what was and was not exercised. Keep doing that; on a machine
 with no Android SDK it is the only honest thing to write.
 
-`docs/release_notes.txt` stops at 1.11 and is not a current record.
-`CHANGELOG.md` is. `docs/bug1.txt`, an old user report, went on 2026-09-15:
-five of its six items had shipped and the sixth was not this repository's to
-close - see the CHANGELOG entry for where each one landed.
+`docs/release_notes.txt` stops at 1.11 and is not a current record - but it is
+not redundant either, and do not delete it on that reading: `CHANGELOG.md` runs
+from 1.13 upward and 1.2 downward, so this file is the only record of 1.7
+through 1.11. Its own header says so. Anything from 1.13 on goes in
+`CHANGELOG.md`.
+
+Three files under `docs/` went on 2026-09-15, each having been checked item by
+item rather than assumed stale: `bug1.txt` (five of six items shipped, the sixth
+refiled to `romwbw_emu/todo.txt` as `[SOUND]`), `test-invite.txt` (recruiting
+the twelve testers Play required before release - the app has been released
+since), and `v1_3_feedback.txt` (three Play Console warnings against v1.3, all
+three addressed). The CHANGELOG entries say where each item landed.
 
 ## What is finished but not shipped
 

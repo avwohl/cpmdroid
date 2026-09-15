@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### Two more closed files under docs/, and one that is not what CLAUDE.md said
+
+`docs/test-invite.txt` recruited "at least 12 different testers" to unlock the
+Play Store release. The app has been on Play for months — `check-store-version.sh`
+says 1.31. It also describes an app that "runs a RomWBW 3.51 rom", which has not
+been true since the ROM moved to the catalog and both 3.5.1 and 3.6.0 became
+selectable. Deleted; it did its job.
+
+`docs/v1_3_feedback.txt` held three Play Console warnings against release 4
+(v1.3). All three were checked against the tree, not assumed:
+
+| Warning | Where it stands |
+|---|---|
+| Edge-to-edge insets not handled | `enableEdgeToEdge()` at `MainActivity.kt:240`, and the inset listener below it takes `systemBars`, `ime` and the measured keyboard height |
+| Deprecated edge-to-edge APIs | the androidx `enableEdgeToEdge` / `WindowInsetsCompat` path is the replacement for them |
+| Native libraries not 16 KB aligned | `ndkVersion = "28.0.13004108"`. **NDK r28 aligns shared libraries to 16 KB by default**, which is the fix Google asks for |
+
+`targetSdk` is 36, past the SDK 35 the first two are about. **The 16 KB one has
+not been confirmed against a built `.so`** — that needs a Gradle build, which
+this machine cannot do; the claim above is about what NDK r28 does by default,
+not about a measured artifact. Worth a look on the next real build.
+
+**`docs/release_notes.txt` stays, and CLAUDE.md was wrong about why.** It called
+it "not a current record" — true — which reads as an invitation to delete it. It
+is not redundant: `CHANGELOG.md` runs from 1.13 upward and 1.2 downward and has
+**no entry for 1.7, 1.8, 1.9, 1.10 or 1.11**. This file is the only record of
+those five versions. It now says so in its own first paragraph, and CLAUDE.md
+says it too.
+
+`docs/midi.md` also stays. It is research for work that is still open, and
+`romwbw_emu/todo.txt`'s `[SOUND]` item now points at it — the same user report
+asked for both, and they are different questions: MIDI has no HBIOS driver
+interface at all, where the sound channels already have one sitting in
+`handleSND`.
+
 ### WIP.md said the terminal fixes had never shipped. They shipped.
 
 "It has also never gone into a published build, so a clean install from the
