@@ -193,24 +193,12 @@ answer is a user-initiated cleanup, not an automatic one.
 THE PACKAGE IS BEHIND THE TREE
 -------------------------------
 
-- [ANDROID] the refreshed images are the only way to reach two paths this port
-implements and has never executed: HBF_HOST_CAPS and HBF_HOST_GETNAME.  The
-w8.com on the images today neither probes nor asks.  A local check is possible
-without waiting for the release - romwbw_emu/disks/hd1k_combo.img already
-carries the new r8.com and w8.com, and pushing it onto a device exercises both
-- and that is worth doing before the images ship rather than after.
+- [ANDROID] three HBIOS paths this port implements have never been executed on
+a device: HBF_HOST_CAPS, HBF_HOST_GETNAME and HBF_HOST_GETRNAME.  The procedure
+is a keyboard-and-screen one and lives in MANUAL_CHECKS.md now, under "The three
+HBIOS host-file paths nothing has ever run"; what stays here is only that it is
+outstanding.
 
-  Add HBF_HOST_GETRNAME (0xEA) to that list.  R8's "Reading:" line now has a
-  real answer to print and nothing has ever printed it, and the interesting
-  case is not the ordinary one: R8 asks between the open and the read loop, so
-  the state is usually still HOST_FILE_WAITING_READ and the honest answer is
-  "no answer" - meaning the line SHOULD show what was typed.  A run that shows
-  the absolute path instead is not a pass, it is the race landing the other
-  way, and it is worth knowing how often it does.
-
-
-A GUARD HERE THAT STANDS IN FOR A MISSING FLOOR UPSTREAM
---------------------------------------------------------
 
 TERMINAL: WHAT IS STILL NOT THERE
 ----------------------------------

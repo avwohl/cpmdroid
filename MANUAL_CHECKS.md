@@ -641,3 +641,38 @@ looks at it: a first launch with no network cannot start.
     otherwise unavailable, launch on 3.6.0. It must report a ROM it cannot find
     rather than crash, and - since there is nowhere else a ROM can come from - it
     must not start at all.
+
+## 9. The three HBIOS host-file paths nothing has ever run
+
+Moved here from `todo.txt` on 2026-09-15: it carries a keyboard-and-screen
+procedure, which is what this file is for, and `todo.txt`'s own rule is that it
+holds open items rather than how to perform them.
+
+This port implements `HBF_HOST_CAPS`, `HBF_HOST_GETNAME` and
+`HBF_HOST_GETRNAME` (0xEA) and has executed none of them on a device. The
+`w8.com` on an older image neither probes nor asks, so the image matters:
+
+**Getting an image with the new utilities.** The original recipe said to push
+`romwbw_emu/disks/hd1k_combo.img`. That file is gone - romwbw_emu has tracked
+no disk image since its v1.40. Fetch a published one instead:
+
+```
+romwbw-get path --work @disk0        # the combo, the only image with R8/W8
+```
+
+and push that onto the device's Imports folder.
+
+- [ ] `W8 SOMEFILE.TXT /some/path` - the probe. A `w8.com` carrying the
+      interlock asks `HBF_HOST_CAPS` before it sends a host path, and this port
+      answers `EMU_HOST_CAP_SAFE_PATHS`, so the transfer must go ahead rather
+      than printing `This emulator is too old to be given a host path safely.`
+- [ ] The `To host:` line - `HBF_HOST_GETNAME`. It must name where the file
+      actually landed, which on Android is the Exports folder, not the path
+      that was typed.
+- [ ] `R8 <name>` and its `Reading:` line - `HBF_HOST_GETRNAME`, and **the
+      interesting case is not the ordinary one.** R8 asks between the open and
+      the read loop, so the state is usually still `HOST_FILE_WAITING_READ` and
+      the honest answer is "no answer" - meaning the line SHOULD show what was
+      typed. A run that shows the absolute path instead is not a pass, it is
+      the race landing the other way. Worth knowing how often it does.
+
