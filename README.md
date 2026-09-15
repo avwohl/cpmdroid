@@ -1,143 +1,135 @@
 # CPMDroid - CP/M Emulator for Android
 
-A Z80/CP/M emulator for Android phones and tablets, built on the [RomWBW](https://github.com/wwarthen/RomWBW) HBIOS platform.
+A Z80/CP/M emulator for Android phones and tablets, built on the
+[RomWBW](https://github.com/wwarthen/RomWBW) HBIOS platform.
 
 ## Features
 
-- **Full Z80 emulation** with accurate instruction timing
-- **RomWBW HBIOS** compatibility for authentic CP/M experience
+- **Z80 emulation** with the RomWBW HBIOS interface
 - **ANSI/VT100 terminal with VT52** - cursor motion, a scrolling region,
-  save/restore, the insert and delete commands, 16-colour SGR foreground and
-  background, per-cell bold, underline, blink and reverse, and scrollback.
-  `todo.txt` lists the few sequences that are still absent, most of which no
-  port in the family has. This still does not claim "runs Zork, WordStar, etc.",
-  because nobody has measured that - the parser is now wide enough that it is a
-  reasonable thing to go and try, which is a different statement.
-- **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
+  save/restore, insert and delete, 16-colour SGR foreground and background,
+  per-cell bold, underline, blink and reverse, and scrollback
+- **Four disk slots**, hd1k format, 8 MB slices
 - **Nothing bundled** - the ROM and every disk image come from the interface-v0
-  catalog in [romwbw_disks](https://github.com/avwohl/romwbw_disks), and each
-  download is checked against the size and SHA-256 that catalog publishes
-- **Hardware keyboard support** - Bluetooth and USB keyboards
-- **Control strip** - Ctrl, Esc, Tab, Copy, Paste buttons for touch input
-- **Help system** - seven topics bundled in the app, refreshed from GitHub when
-  there is a network and cached after that, so it works offline
+  catalog in [romwbw_disks](https://github.com/avwohl/romwbw_disks), each
+  download checked against the size and SHA-256 that catalog publishes
+- **Hardware keyboard support** - Bluetooth and USB
+- **Control strip** - Ctrl, Esc, Tab, Copy and Paste buttons for touch input
+- **Help system** - seven topics shipped in the APK as a floor, refreshed from
+  the catalog index when there is a network and cached after that
 - **R8/W8 file transfer** - move files between Android and CP/M, with an in-app
   Imports/Exports browser, save-as and share out, and a picker in. CPMDroid is
   also a share target, so other apps can send it a file
 
 ## Getting Started
 
-1. **First launch** needs a network connection: it fetches the ROM for the
+1. **First launch needs a network connection.** It fetches the ROM for the
    selected RomWBW release, then a default boot disk. Later launches work
    offline - the catalog's claim about the ROM is stored beside the file and
    re-checked against it
-2. **Open Settings** (the wrench, in the toolbar) to configure disks and
-   options. Stop the emulator first - Settings refuses to open while it runs
-3. **Download additional disk images** from the disk catalog
-4. **Press Play** to start the emulator
-5. At boot menu, press `2` to boot from the first hard disk (units 0 and 1 are the RAM and ROM memory disks and carry no OS)
+2. **Open Settings** (the wrench in the toolbar) to configure disks and
+   options. Stop the emulator first; Settings refuses to open while it runs
+3. **Download disk images** from the disk catalog
+4. **Press Play**
+5. At the boot menu, type `2` and Enter to boot the first hard disk
 
 ### Boot Menu Keys
-- `h` - Help
-- `l` - List ROM applications
-- `d` - List disk devices
-- `w` - Save your choice as the autoboot default
-- `0-9` - Boot from device number (the first hard disk is unit 2)
+
+Every command is read as a line, so nothing happens until you press Enter.
+
+- `2` - boot the first hard disk, slice 0; `2.3` for slice 3
+- `c` - boot CP/M 2.2 from ROM
+- `d` - list the disk devices
+- `w` - SYSCONF, where a choice can be saved as the autoboot default
+- `h` - the full menu
+
+Units 0 and 1 are the on-board RAM and ROM memory disks and carry no operating
+system, so booting `0` answers `*** No system image on disk`.
 
 ### Control Strip
-- **Ctrl** - Toggle control key mode (next key becomes control character)
-- **Esc** - Send escape character
-- **Tab** - Send tab character
-- **Copy** - Copy screen to clipboard
-- **Paste** - Paste clipboard as keyboard input
+
+- **Ctrl** - toggle control key mode (the next key becomes a control character)
+- **Esc** - send escape
+- **Tab** - send tab
+- **Copy** - copy the screen to the clipboard
+- **Paste** - paste the clipboard as keyboard input
 
 ## File Transfer (R8/W8)
 
-Transfer files between Android and CP/M using the R8/W8 utilities:
+`R8` and `W8` are CP/M programs that live on the disk, and only the
+`hd1k_combo` image carries them - boot a single-OS image and there is no `R8`
+or `W8` to run.
 
 - **Imports folder**: `Android/data/com.awohl.cpmdroid/files/Imports/`
 - **Exports folder**: `Android/data/com.awohl.cpmdroid/files/Exports/`
 
 Since Android 11 the stock Files app does not show `Android/data` at all, so
-those two paths are where the files live rather than somewhere you can browse
-to. Use the **File transfer** button in the toolbar, which is the app's own view
-of both folders.
+those are where the files live rather than somewhere you can browse to. Use the
+**File transfer** button in the toolbar, which is the app's own view of both
+folders.
 
-To import a file to CP/M:
-1. **File transfer > Import file...**, and pick it. Or share it to CPMDroid from
-   any other app. Either way it is renamed to something CP/M can address:
-   `My Long Archive.tar.gz` becomes `my-long-.gz`, and the app tells you which
+To import a file into CP/M:
+
+1. **File transfer > Import file...**, and pick it. Or share it to CPMDroid
+   from another app. Either way it is renamed to something CP/M can address -
+   `My Long Archive.tar.gz` becomes `my-long-.gz` - and the app tells you which
    name it got
-2. In CP/M, run: `R8 MY-LONG-.GZ`
+2. In CP/M, run `R8 MY-LONG-.GZ`
 
 To export a file from CP/M:
-1. In CP/M, run: `W8 FILENAME.EXT`. It prints the full host path it wrote to
+
+1. In CP/M, run `W8 FILENAME.EXT`. It prints the full host path it wrote to
 2. **File transfer**, then **Save as...** to put it anywhere on the device, or
    **Share** to send it to another app
 
 Staging a file into `Imports/` by hand with a third-party file manager still
-works, and is no longer the only way.
+works.
 
 ## ROMs and Disk Images
 
-**Nothing is bundled.** The APK carries the emulator core and an offline copy of
-the help topics; it carries no ROM and no disk image. Both come from the
-interface-v0 catalog in
-[romwbw_disks](https://github.com/avwohl/romwbw_disks), and the only content
+**Nothing is bundled.** The APK carries the emulator core and an offline copy
+of the help topics; it carries no ROM and no disk image.
+
+Both come from the interface-v0 catalog in
+[romwbw_disks](https://github.com/avwohl/romwbw_disks). The only content
 address compiled into the app is the index that catalog starts from
 (`DEFAULT_INDEX_URL` in `data/SettingsRepository.kt`) - one URL for the whole
-app, help included, since 1.30. There is no
-pinned release tag any more: the index names every published RomWBW release and
-points at that release's own catalog, that catalog publishes a `base_url`, and
-every asset is that `base_url` plus a filename - nothing is assembled here from a
-version number. Everything fetched is measured against the size and SHA-256 the
-catalog publishes, and bytes that do not match are not kept.
+app, help included, since 1.30. There is no pinned release tag: the index names
+every published RomWBW release and points at that release's own catalog, that
+catalog publishes a `base_url`, and every asset is that `base_url` plus a
+filename, so nothing is assembled here from a version number. Everything
+fetched is measured against the size and SHA-256 the catalog publishes, and
+bytes that do not match are not kept.
 
 Three things are yours to choose, all in Settings:
 
 - **Catalog Index** - which catalog everything else comes from. Empty is the
-  default index; a URL here points CPMDroid at another index - a
-  romwbw_disks release you have not published yet, or a catalog of your own - and
-  the release list, the ROM list, the disk catalog and the in-app help all follow
-  it. Apply fetches it and says what it found, rather than storing a URL whose
-  first test would be a machine that will not start. Each index keeps its own
-  disks, ROM, NVRAM and boot config, so visiting a test catalog and coming back
-  costs nothing. `$ROMWBW_INDEX_URL` overrides it for the run, and the field says
-  so and is disabled when it is set
+  default; a URL here points CPMDroid at another index, and the release list,
+  the ROM list, the disk catalog and the in-app help all follow it. Apply
+  fetches it and says what it found rather than storing a URL whose first test
+  would be a machine that will not start. Each index keeps its own disks, ROM,
+  NVRAM and boot config. `$ROMWBW_INDEX_URL` overrides it for the run, and the
+  field says so and is disabled while it is set.
+- **RomWBW Release** - the index, filtered to the releases the emulator core
+  says it can boot. A release published later will not switch a machine by
+  itself, since that would change its disk set and its NVRAM namespace
+  underneath it; new ROMs and disks *within* the selected release arrive with
+  no app update. Each release keeps its own disk slots, NVRAM and ROM, so
+  switching is a round trip that loses nothing.
+- **ROM** - the ROMs the selected release publishes. What is stored is the
+  catalog's ID rather than a filename, because the filename carries the release.
 
-The other two are filled from whichever catalog that is, rather than from this
-build:
-
-- **RomWBW Release** - the index, filtered to the releases the emulator core says
-  it can boot. An install that has not settled on a release yet - a fresh one, or
-  one upgrading from a build that carried its own ROM - takes the index's own
-  default the first time it reads it. After that it stays where it is, and this
-  row is what moves it. A RomWBW release published later will not switch a
-  machine by itself, because that would change its disk set and its NVRAM
-  namespace under it; new ROMs and new disks *within* the selected release still
-  arrive with no app update. Each release keeps its own disk slots, NVRAM and
-  ROM, so switching is a round trip that loses nothing
-- **ROM** - the ROMs the selected release publishes (`emu_avw` and `emu_rcz80`
-  today). What is stored is the catalog's ID rather than a filename, because the
-  filename carries the release
-
-Some of what the catalog carries - the list is the selected release's, and it
-changes from one release to the next:
-
-| Disk | Description | License |
-|------|-------------|---------|
-| CP/M 2.2 | Classic Digital Research OS | Free (Lineo) |
-| ZSDOS | Enhanced CP/M with timestamps | Free |
-| NZCOM | ZCPR3 command processor | Free |
-| CP/M 3 (Plus) | Banked memory support | Free |
-| ZPM3 | Z-System CP/M 3 | Free |
-| Word processing | WordStar 4 in RomWBW 3.5.1, the Word Processing image that replaced it in 3.6.0 | Abandonware |
+What disks exist, and what each one is licensed under, are questions for the
+selected release's catalog - the app shows both, and the list changes from one
+release to the next. Between them the published releases carry CP/M 2.2,
+CP/M 3, ZSDOS, ZPM3, NZCOM and QPM, games, Infocom adventures and language
+toolchains.
 
 Downloaded ROMs and images are stored in app-specific storage and work offline.
 The exception is a fresh install: there is no ROM in the package, and a ROM
 cannot be verified without the catalog that publishes its size and hash, so the
-first launch needs one successful fetch. The app says so, with a Download button,
-rather than starting a machine on bytes it cannot check.
+first launch needs one successful fetch. The app says so, with a Download
+button, rather than starting a machine on bytes it cannot check.
 
 ## Technical Details
 
@@ -159,21 +151,23 @@ rather than starting a machine on bytes it cannot check.
 
 ### Dependencies
 
-This project uses code from sibling directories:
-- `../cpmemu/src/` - qkz80 Z80 CPU emulator
-- `../romwbw_emu/src/` - HBIOS dispatch, memory banking
+Sibling checkouts, compiled in place by `CMakeLists.txt`:
 
-### VT100 Terminal Emulation
+- `../cpmemu/src/` - the qkz80 Z80 CPU core
+- `../romwbw_emu/src/` - HBIOS dispatch and memory banking
 
-The terminal supports ANSI/VT100 escape sequences, and VT52:
+### Terminal Emulation
+
+ANSI/VT100 and VT52:
+
 - Cursor positioning (`ESC[row;colH`), movement (`ESC[A/B/C/D`) and absolute
   column/row (`ESC[G`, `ESC[d`)
-- Screen/line clearing (`ESC[2J`, `ESC[K`) and character erase (`ESC[X`)
-- Insert/delete characters (`ESC[@`, `ESC[P`) and lines (`ESC[L`, `ESC[M`)
+- Screen and line clearing (`ESC[2J`, `ESC[K`) and character erase (`ESC[X`)
+- Insert and delete characters (`ESC[@`, `ESC[P`) and lines (`ESC[L`, `ESC[M`)
 - Scrolling region (`ESC[t;br`) and scroll up/down (`ESC[S`, `ESC[T`)
 - Save/restore cursor and rendition (`ESC 7` / `ESC 8`, `ESC[s` / `ESC[u`)
-- Text colours (CGA 16-colour palette, foreground and background) and per-cell
-  bold, underline, blink and reverse (`ESC[1m`, `4m`, `5m`, `7m`)
+- Colours (CGA 16-colour palette, foreground and background) and per-cell bold,
+  underline, blink and reverse
 - Private modes: VT52/ANSI (`ESC[?2h/l`), autowrap (`?7`), cursor visibility
   (`?25`)
 - Device queries: cursor position (`ESC[6n`), device attributes (`ESC[c`)
@@ -181,65 +175,52 @@ The terminal supports ANSI/VT100 escape sequences, and VT52:
   escape (`ESC A B C F G I J K Y`); `ESC H` is VT52 home only once VT52 is
   already in force, because in ANSI that byte is HTS
 
-The deliberate divergence most visible in ordinary output: `ESC[0m` resets the
-foreground to green rather than light grey, because a green phosphor screen is
-this app's identity. It is not the only one - `ESC[1m` picks a bold face without
-brightening the colour, `ESC[104m` stays bright where the Windows port folds it
-onto `ESC[44m`, and `ESC[39m`/`ESC[49m` work here and in neither sibling.
-`todo.txt` lists all four under `[DELIBERATE]`, with the reason for each.
+Four divergences are deliberate, and `todo.txt` lists them under `[DELIBERATE]`
+with the reason for each. The one visible in ordinary output: `ESC[0m` resets
+the foreground to green rather than light grey, because a green phosphor screen
+is this app's identity.
 
 ### Disk Format
 
-Uses RomWBW hd1k format:
-- 8MB per slice
-- Up to 8 slices per disk (64MB total)
-- 1024 directory entries per slice
-- Compatible with all RomWBW disk images
+RomWBW hd1k: 8 MB per slice, up to 8 slices per disk, 1024 directory entries
+per slice.
 
 ## Building
 
-### Requirements
-- Android Studio, or just a JDK and the SDK - the tracked wrapper pins Gradle
-  8.13, and a shell build needs `JAVA_HOME` set (`gradle.properties` no longer
-  pins one, because an absolute path there broke every other host)
-- JDK 21
-- Android SDK: `compileSdk`/`targetSdk` 36, `minSdk` 24 (Android 7.0)
-- Android NDK `28.0.13004108`, which `app/build.gradle.kts` pins by version
+**Requirements:** JDK 21; Android SDK with `compileSdk`/`targetSdk` 36 and
+`minSdk` 24 (Android 7.0); Android NDK `28.0.13004108`, which
+`app/build.gradle.kts` pins by version. The tracked wrapper pins Gradle 8.13,
+and a shell build needs `JAVA_HOME` set.
 
-### Build Steps
-1. Clone sibling projects (cpmemu, romwbw_emu) beside this one - `CMakeLists.txt`
-   compiles the core in place from `../romwbw_emu/src` and `../cpmemu/src`, so
-   CMake stops with a `FATAL_ERROR` if they are missing
-2. Open project in Android Studio, or build from a shell with the wrapper -
-   `./gradlew assembleDebug` on Linux/macOS, `gradlew.bat assembleDebug` on
-   Windows. Both scripts read `gradle/wrapper/gradle-wrapper.properties`, which
-   pins Gradle 8.13 and downloads it on first run
-3. Sync Gradle
-4. Build and run
+1. Clone the sibling projects `cpmemu` and `romwbw_emu` beside this one -
+   `CMakeLists.txt` compiles the core in place from `../romwbw_emu/src` and
+   `../cpmemu/src`, and stops with a `FATAL_ERROR` if they are missing
+2. Open the project in Android Studio, or build from a shell with the wrapper:
+   `./gradlew assembleDebug`, or `gradlew.bat assembleDebug` on Windows
+3. Sync Gradle, then build and run
+
+`assembleRelease` produces an APK for sideloading. Play takes an app bundle
+from `./gradlew :app:bundleRelease` instead.
+
+## License
+
+GPLv3.
+
+### Third-Party Licenses
+
+- **CP/M**: released by Lineo for non-commercial use
+- **RomWBW**: GNU General Public License v3.0 (GPL-3.0-or-later)
+- **qkz80**: GPL v3
 
 ## Related Projects
 
-**This port is described from outside it.** `z80cpmw`'s
+`z80cpmw`'s
 [FEATURE_PARITY.md](https://github.com/avwohl/z80cpmw/blob/master/FEATURE_PARITY.md)
-carries an Android column that describes CPMDroid row by row - thirteen
-front-end features, each read out of *this source* at a recorded commit rather
-than from the CHANGELOG or the release notes. So a change made here goes stale
-there, and the person making it is the last one who could notice and the first
-one who does not. The rows this repository backs are the terminal parser and
-its escape sequences, key handling and the control strip, the fixed `Imports/`
-and `Exports/` transfer folders, the disk-catalog client and the RomWBW release it
-follows, help fetching, NVRAM autoboot, the font-size and scrollback settings, and the
-Dazzler/DSKY stubs. Touch any of those and that column needs re-reading.
-
-The commits each column was read at are recorded in that file's
-`sibling-readings` block. A script beside it used to report how far the
-checkouts had moved since; it was deleted on 2026-09-13, so the comparison is a
-`git log` in this tree:
-
-    git log --oneline <the-sha-recorded-for-cpmdroid>..origin/master
-
-Anything it lists is a change this port has taken since the column describing it
-was last read.
+carries an Android column describing this port row by row, read out of this
+source at a recorded commit. Changing the terminal parser, key handling,
+Imports/Exports, the catalog client, help fetching, NVRAM autoboot, the
+font-size and scrollback settings or the Dazzler/DSKY stubs means that column
+needs re-reading - and correcting it is an edit in z80cpmw, not here.
 
 The other repositories in and around this family:
 
