@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### The Play Store description was over Google's 4000-character limit
+
+4,131 bytes as committed — it could not be pasted into Play Console without
+someone trimming it on the spot, and nothing here said so. 3,862 now, cut from
+the two paragraphs that were carrying the least.
+
+One of them was also wrong about what this is:
+
+> This isn't a simplified simulator—it's a complete hardware-level emulator that
+> runs real CP/M software exactly as it ran on original hardware.
+
+"Complete hardware-level emulator" is the opposite of the architecture. There is
+no emulated 16550, no disk controller, no RTC and no video hardware — a guest
+reaches nothing by driving registers, and `romwbw_emu/.claude/CLAUDE.md` rule 1
+forbids adding one. What exists is Z80 instruction emulation plus the RomWBW
+HBIOS *interface* implemented in C++. It now says that: the instruction set is
+emulated, HBIOS is implemented, and the binaries are the ones real RomWBW
+hardware runs — which is the true claim and the stronger one.
+
+### Two claims the listing could not back
+
+Both also fixed in ioscpm's `docs/appstore.txt`, which carried them identically:
+
+- **"up to 4 disk units (64MB each)".** The Combo is 51,380,224 bytes — a 1MB
+  MBR prefix and six 8MB slices, 49MB. Nothing in the catalog is 64MB.
+- **"Databases: dBASE II, the foundation of modern database applications".**
+  Downloaded the default release's Combo, Games, Infocom and Word Processing
+  images and listed them: no dBASE, on any slice. None in `romwbw_disks` either,
+  and no database disk among the 24 the catalog publishes. Replaced with ZDE, TE
+  and ED, all three confirmed on slice 0 of the disk first launch installs.
+
+dBASE also appeared in the "What is CP/M?" paragraph, where it is *historically*
+true — dBASE II was a real CP/M product. It went anyway, because the sentence
+ends "Now you can run this historic software anywhere", which turns the list
+into a promise. WordStar and Turbo Pascal stayed there; they can be run.
+
+### Checked and left alone
+
+- **WordStar** — `WS.COM`, `WS.OVR` and `WSCHANGE.COM` on Combo slice 5, so it
+  is on the disk a new install already has.
+- **Zork and Colossal Cave Adventure** — `ZORK1/2/3` and `COL-CAVE.COM` on
+  `hd1k_games`, `ZORK0-3` and 20 more Infocom titles on `hd1k_infocom`.
+- **"Android 7.0 or later"** — `minSdk = 24` in `app/build.gradle.kts`.
+- **The control strip's five keys** — `ctrlButton`, `escButton`, `tabButton`,
+  `copyButton`, `pasteButton` in `activity_main.xml`.
+- **The Imports/Exports path** — matches `help_file_transfer.md`.
+
 ### docs/bug1.txt was a closed bug list nothing said was closed
 
 A user report from a physical Samsung tablet, carried in `docs/bug1.txt` since

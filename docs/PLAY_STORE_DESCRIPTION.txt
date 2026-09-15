@@ -4,17 +4,17 @@ Step back in time and experience the golden age of personal computing on your An
 
 What is CP/M?
 
-CP/M (Control Program for Microcomputers) was the dominant operating system for personal computers in the late 1970s and early 1980s, before MS-DOS and Windows. It ran on millions of machines and hosted legendary software including WordStar, dBASE, Turbo Pascal, and countless games and utilities. Now you can run this historic software anywhere.
+CP/M (Control Program for Microcomputers) was the dominant operating system for personal computers in the late 1970s and early 1980s, before MS-DOS and Windows. It ran on millions of machines and hosted legendary software including WordStar, Turbo Pascal, Zork and countless utilities. Now you can run this historic software anywhere.
 
 Authentic Emulation
 
-CPMDroid is built on the RomWBW HBIOS platform, providing accurate Z80 CPU emulation with proper instruction timing. This isn't a simplified simulator—it's a complete hardware-level emulator that runs real CP/M software exactly as it ran on original hardware.
+CPMDroid emulates the Z80 instruction set and implements the RomWBW HBIOS firmware interface, so unmodified CP/M software runs the same binaries real RomWBW hardware runs.
 
 Features
 
 • Full Z80 CPU emulation with accurate timing
 • VT100/ANSI terminal with escape sequence support
-• Multiple disk support with up to 4 disk units (64MB each)
+• Multiple disk support with up to 4 disk units - the Combo image is 49MB, six 8MB slices
 • Hardware keyboard support for Bluetooth and USB keyboards
 • Touch-friendly control strip with Ctrl, Esc, Tab, Copy, and Paste
 • ROM and disk images downloaded from the RomWBW disk catalog and checked against the size and SHA-256 it publishes - nothing is bundled in the app
@@ -24,7 +24,7 @@ Features
 Run Classic Software
 
 • Word processors: WordStar, the original "what you see is what you get" editor
-• Databases: dBASE II, the foundation of modern database applications
+• Text editors: ZDE, TE and ED, all on the disk you get on first launch
 • Programming: Turbo Pascal, Microsoft BASIC, assemblers, and compilers
 • Games: Zork, Colossal Cave Adventure, and other text adventures
 • Utilities: Thousands of public domain programs from the CP/M era
@@ -60,7 +60,7 @@ Boot different CP/M-compatible operating systems:
 
 For Enthusiasts and Learners
 
-Whether you're a retrocomputing enthusiast who remembers the original CP/M era, a computer history student wanting to experience early personal computing, or a developer interested in how software worked before modern operating systems, CPMDroid provides an authentic window into computing history.
+For retrocomputing enthusiasts who were there, students of computing history, and developers curious about how software worked before modern operating systems.
 
 Open Source
 
