@@ -216,14 +216,14 @@ A GUARD HERE THAT STANDS IN FOR A MISSING FLOOR UPSTREAM
 not, and deleting that guard is a re-sync rather than an edit to make on its own.
 android_host_path_cap_name() is this port's copy of romwbw_emu's
 emu_host_path_cap_name(), kept in step with it on purpose so a drift sweep finds
-nothing to file, and the head-keeping branch it copied backs a cut off
-continuation bytes with no floor: a component longer than EMU_HOST_NAME_MAX whose
-first 255 bytes are continuation bytes backs all the way to 0 and the function
-answers "", where emu_io.h promises in as many words that it cannot - "a result
-of "", ".", ".." or a bare drive letter is replaced by `fallback`".  Confirmed by
-compiling and running romwbw_emu's own source on 2026-09-13, g++ -std=c++17, not
-reasoned about: the head branch returns 0 bytes and the tail branch, which has
-the guard, returns 255.  Note while re-syncing that the guard's own comment calls
+nothing to file, and the head-keeping branch it copied carries the same defect
+as the shared function.  **The defect itself is romwbw_emu's and was refiled
+there on 2026-09-15** (emu_host_path_cap_name in src/emu_io_common.cc: the head
+branch has no continuation-byte floor, so a component whose first 255 bytes are
+continuation bytes backs to 0 and the function answers "", which emu_io.h
+promises it cannot).  What stays here is the conditional: when that lands,
+android_host_leaf() in app/src/main/cpp/emu_io_android.cpp needs the same fix,
+because it is a hand-kept copy rather than a call.  Note while re-syncing that the guard's own comment calls
 this copy "byte-for-byte the shared function" and it is not - the logic matches,
 the indentation and the comment wrapping do not, so diff the two by hand rather
 than trusting either sentence.
