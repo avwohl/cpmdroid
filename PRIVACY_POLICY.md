@@ -1,6 +1,6 @@
 # Privacy Policy for CPMDroid
 
-**Last Updated:** September 7, 2026
+**Last Updated:** September 15, 2026
 
 ## Overview
 
@@ -66,10 +66,19 @@ If we update this privacy policy, we will post the new policy here with an updat
 ## Contact
 
 If you have questions about this privacy policy, you can contact us by opening an issue at:
-https://github.com/avwohl/ioscpm/issues
+https://github.com/avwohl/cpmdroid/issues
 
 ## Summary
 
 - **Data collected by CPMDroid:** None
 - **Data shared with third parties:** None (though GitHub may log downloads per their policy)
-- **Permissions used:** Internet access, for downloading the ROM, disk images and help documentation. The ROM download is not optional: the app ships no ROM, so a device that has never reached the network has nothing it is allowed to boot
+- **Permissions used:** `INTERNET`, for downloading the ROM, disk images and help documentation. The ROM download is not optional: the app ships no ROM, so a device that has never reached the network has nothing it is allowed to boot
+- **Permissions declared but not used:** `READ_EXTERNAL_STORAGE`, and
+  `WRITE_EXTERNAL_STORAGE` on Android 9 and older. **Nothing in the app reads
+  or writes shared storage.** The Imports and Exports folders are the app's own
+  external directory, reached with `getExternalFilesDir()`, which has needed no
+  permission since Android 4.4; importing through the picker and receiving a
+  shared file both go through the system and need none either. They are left
+  over and are listed here because Android shows you what an app declares, not
+  what it uses - so you would otherwise see two permissions this policy did not
+  mention. `todo.txt` carries their removal

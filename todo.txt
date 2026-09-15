@@ -317,3 +317,23 @@ to copy; z80cpmw's SettingsDialogWx has the same field.
   NONE OF THIS HAS BEEN COMPILED.  It was written on a machine with no Android
 SDK, no Gradle and no JRE - /usr/bin/java is the Apple stub - so not one line of
 it has been through kotlinc.  Read it before running it.
+
+- [ANDROID] the manifest declares two storage permissions the app does not use.
+app/src/main/AndroidManifest.xml:5-7 declares READ_EXTERNAL_STORAGE with no
+maxSdkVersion and WRITE_EXTERNAL_STORAGE capped at 28.  nothing reads or writes
+shared storage: grep for getExternalStorage / Environment.getExternal across
+app/src/main/java finds nothing, the Imports and Exports folders are
+getExternalFilesDir(null) (HostTransfer.kt:76), which has needed no permission
+since API 19 and minSdk here is 24, and both the import picker and the share
+target go through the system.
+  WHY IT MATTERS is not the grant, it is the listing.  Play shows a user what an
+app DECLARES, so the store page offers storage permissions for an app whose
+privacy policy said "Permissions used: Internet access" - the policy now
+describes them instead, which is honest but is not the fix.  READ_EXTERNAL_STORAGE
+is also the permission the Data Collection section promises is not used to reach
+"your contacts, photos, or other personal files".
+  DELETE BOTH LINES and ship it.  it needs a build, an emulator run of the file
+transfer path in both directions, and a versionCode bump, which is why it is
+here and not done - none of that can happen on a machine with no Android SDK.
+NOT VERIFIED AGAINST A MERGED MANIFEST: a dependency could in principle
+re-introduce either, and only a Gradle build prints the merged result.

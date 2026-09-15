@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### The privacy policy sent Android users to the iOS repository, and understated the permissions
+
+Two defects in a document Play links from the store listing.
+
+**The contact link was `github.com/avwohl/ioscpm/issues`** — the wrong project.
+An Android user following the one link the policy offers landed on the iOS
+tracker. It is `avwohl/cpmdroid/issues` now.
+
+**"Permissions used: Internet access" — the manifest declares three.**
+`AndroidManifest.xml` has `INTERNET`, `READ_EXTERNAL_STORAGE` (no
+`maxSdkVersion`, so every API level) and `WRITE_EXTERNAL_STORAGE` capped at 28.
+Play shows a user what an app *declares*, not what it uses, so the store page
+offers storage permissions the policy did not mention — and
+`READ_EXTERNAL_STORAGE` is precisely the permission the Data Collection section
+promises is not used to reach "your contacts, photos, or other personal files".
+
+**Neither storage permission is needed.** Nothing reads or writes shared
+storage: `getExternalStorage` and `Environment.getExternal` appear nowhere under
+`app/src/main/java`. Imports and Exports are `getExternalFilesDir(null)`
+(`HostTransfer.kt:76`) — the app's own external directory, which has needed no
+permission since API 19, and `minSdk` here is 24. The import picker and the
+share target both go through the system and need none either.
+
+The policy now describes them honestly rather than omitting them, which is the
+correction available to a document; **deleting the two lines is the actual fix**
+and is `todo.txt`'s, tagged `[ANDROID]`, because it needs a build, a run of the
+file-transfer path in both directions, and a versionCode bump. Recorded there
+with the caveat that only a Gradle build prints the merged manifest, so a
+dependency re-introducing either has not been ruled out.
+
+### Checked and correct
+
+- **Help comes from the catalog index**, as the policy says: `HelpActivity`'s
+  `indexUrl` is `SettingsRepository.effectiveIndexUrl`, with no compiled-in help
+  URL — so the "one host and not two" claim holds.
+- **"Since 1.30"** — and Play serves 1.31, which `CHANGELOG.md` records as 1.30's
+  code under a number Play had not seen, so the served build behaves as
+  described. `tools/check-store-version.sh` also prints the developer as
+  **Aaron Wohl**, independently confirming the copyright correction made to
+  ioscpm's `appstore.txt` earlier today.
+
 ### The Play Store description was over Google's 4000-character limit
 
 4,131 bytes as committed — it could not be pasted into Play Console without
