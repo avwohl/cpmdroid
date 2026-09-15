@@ -28,7 +28,7 @@ A Z80/CP/M emulator for Android phones and tablets, built on the
    selected RomWBW release, then a default boot disk. Later launches work
    offline - the catalog's claim about the ROM is stored beside the file and
    re-checked against it
-2. **Open Settings** (the toolbar button labelled Settings) to configure disks and
+2. **Open Settings** (the gear icon in the toolbar) to configure disks and
    options. Stop the emulator first; Settings refuses to open while it runs
 3. **Download disk images** from the disk catalog
 4. **Press Play**
@@ -42,10 +42,12 @@ Every command is read as a line, so nothing happens until you press Enter.
 - `c` - boot CP/M 2.2 from ROM
 - `d` - list the disk devices
 - `w` - SYSCONF, where a choice can be saved as the autoboot default
-- `h` - the full menu
+- `h` - the full menu. On RomWBW 3.6.0 this lists the ROM applications too; on
+  3.5.1 they are under `l`, which 3.6.0 answers with `*** Invalid command`
 
 Units 0 and 1 are the on-board RAM and ROM memory disks and carry no operating
-system, so booting `0` answers `*** No system image on disk`.
+system, so booting `0` answers `*** No boot record` on RomWBW 3.6.0 and
+`*** No system image on disk` on 3.5.1.
 
 ### Control Strip
 
@@ -186,11 +188,11 @@ is this app's identity.
 
 ### Disk Format
 
-RomWBW hd1k: 8 MB per slice, 1024 directory entries per slice. A unit gets at
-most 8 slices, but CBIOS assigns at most 16 drive letters across every unit, so
-four fully-sliced disks cannot all be reached at once. The catalog's
-recommended image is the 51,380,224-byte six-slice combo rather than a bare
-8 MB slice.
+RomWBW hd1k: 8 MB per slice, 1024 directory entries per slice. The eight slices
+are divided among the disks you attach rather than given to each - one disk gets
+8, two get 4 each, three or four get 2 each - so adding a disk shortens the
+others. The catalog's recommended image is the 51,380,224-byte six-slice combo
+rather than a bare 8 MB slice.
 
 ## Building
 
@@ -216,9 +218,12 @@ GPLv3.
 
 ### Third-Party Licenses
 
-- **CP/M**: released by Lineo for non-commercial use
-- **RomWBW**: GNU General Public License v3.0 (GPL-3.0-or-later)
-- **qkz80**: GPL v3
+- **RomWBW**, whose code is in banks 1-15 of every ROM this app fetches:
+  GPL-3.0-or-later
+- **qkz80**, the CPU core: GPL v3
+- **The disk images** carry third-party CP/M software under their own terms.
+  Each catalog entry states what it believes it is under in its `license`
+  field, which the app displays; that field is the authority, not this file.
 
 ## Related Projects
 
