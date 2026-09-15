@@ -193,6 +193,29 @@ characters at the guest's rate - see the note at the top of this file.
 
 ---
 
+> **Sections 6-8 predate the release-resolution flow that shipped in 1.29, and
+> several of their checks have already been run.** Read this before working
+> through them.
+>
+> - `CHANGELOG.md`'s **Verified on a device** section records a round on a
+>   Samsung Galaxy Tab A8 (Android 14, upgraded in place over 1.18) that settled
+>   the catalog reach, the ROM fetch and verify, and all seven help topics. Per
+>   the rule in `CLAUDE.md` those boxes should have been deleted when that was
+>   written down, and were not.
+> - **Section 8 check 3 describes the bug, not the fix.** It says a first launch
+>   online "asks twice, and that is the design working", expecting a 3.5.1 ROM
+>   dialog followed by a second one for 3.6.0. `startMachine()` now opens with
+>   `if (!settingsRepo.hasResolvedRelease()) { resolveReleaseThenStart(...);
+>   return }`, and its comment says why: going on would "offer to fetch 3.5.1's
+>   ROM on a device the catalog would have put on 3.6.0". The release is
+>   resolved first and it asks **once**. A checker following the box as written
+>   reports a correct build as broken.
+> - Check 2's literals are the pre-1.29 wording, and check 7 predates the ROM
+>   pick being fetched inside Settings by `downloadRomThenApply()`.
+>
+> Rewrite these against the current flow before running them, or delete the ones
+> the CHANGELOG already settles.
+
 ## 6. The v0 disk-name migration, on a device that has state to lose
 
 The pass in `V0Migration.kt` renames the user's downloaded images, the copies
