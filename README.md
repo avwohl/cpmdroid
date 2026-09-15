@@ -9,7 +9,8 @@ A Z80/CP/M emulator for Android phones and tablets, built on the
 - **ANSI/VT100 terminal with VT52** - cursor motion, a scrolling region,
   save/restore, insert and delete, 16-colour SGR foreground and background,
   per-cell bold, underline, blink and reverse, and scrollback
-- **Four disk slots**, hd1k format, 8 MB slices
+- **Four disk slots**, hd1k format - a single 8 MB slice, or a multi-slice
+  combo image
 - **Nothing bundled** - the ROM and every disk image come from the interface-v0
   catalog in [romwbw_disks](https://github.com/avwohl/romwbw_disks), each
   download checked against the size and SHA-256 that catalog publishes
@@ -27,7 +28,7 @@ A Z80/CP/M emulator for Android phones and tablets, built on the
    selected RomWBW release, then a default boot disk. Later launches work
    offline - the catalog's claim about the ROM is stored beside the file and
    re-checked against it
-2. **Open Settings** (the wrench in the toolbar) to configure disks and
+2. **Open Settings** (the toolbar button labelled Settings) to configure disks and
    options. Stop the emulator first; Settings refuses to open while it runs
 3. **Download disk images** from the disk catalog
 4. **Press Play**
@@ -101,7 +102,18 @@ filename, so nothing is assembled here from a version number. Everything
 fetched is measured against the size and SHA-256 the catalog publishes, and
 bytes that do not match are not kept.
 
-Three things are yours to choose, all in Settings:
+Three things are yours to choose, all in Settings, in the order the screen
+shows them:
+
+- **ROM** - the ROMs the selected release publishes. What is stored is the
+  catalog's ID rather than a filename, because the filename carries the release.
+
+- **RomWBW Release** - the index, filtered to the releases the emulator core
+  says it can boot. A release published later will not switch a machine by
+  itself, since that would change its disk set and its NVRAM namespace
+  underneath it; new ROMs and disks *within* the selected release arrive with
+  no app update. Each release keeps its own disk slots, NVRAM and ROM, so
+  switching is a round trip that loses nothing.
 
 - **Catalog Index** - which catalog everything else comes from. Empty is the
   default; a URL here points CPMDroid at another index, and the release list,
@@ -110,14 +122,6 @@ Three things are yours to choose, all in Settings:
   would be a machine that will not start. Each index keeps its own disks, ROM,
   NVRAM and boot config. `$ROMWBW_INDEX_URL` overrides it for the run, and the
   field says so and is disabled while it is set.
-- **RomWBW Release** - the index, filtered to the releases the emulator core
-  says it can boot. A release published later will not switch a machine by
-  itself, since that would change its disk set and its NVRAM namespace
-  underneath it; new ROMs and disks *within* the selected release arrive with
-  no app update. Each release keeps its own disk slots, NVRAM and ROM, so
-  switching is a round trip that loses nothing.
-- **ROM** - the ROMs the selected release publishes. What is stored is the
-  catalog's ID rather than a filename, because the filename carries the release.
 
 What disks exist, and what each one is licensed under, are questions for the
 selected release's catalog - the app shows both, and the list changes from one
@@ -141,10 +145,10 @@ button, rather than starting a machine on bytes it cannot check.
 +-------------------------------------+
 |       EmulatorEngine (JNI)          |
 +-------------------------------------+
-|       HBIOSEmulator (C++)           |
+|   AndroidEmulatorDelegate (C++)     |
 |  +-----------+-----------------+    |
 |  |   qkz80   |  HBIOSDispatch  |    |
-|  | (Z80 CPU) |  (HBIOS calls)  |    |
+|  | (Z80 CPU) |  + banked_mem   |    |
 |  +-----------+-----------------+    |
 +-------------------------------------+
 ```
@@ -182,12 +186,16 @@ is this app's identity.
 
 ### Disk Format
 
-RomWBW hd1k: 8 MB per slice, up to 8 slices per disk, 1024 directory entries
-per slice.
+RomWBW hd1k: 8 MB per slice, 1024 directory entries per slice. A unit gets at
+most 8 slices, but CBIOS assigns at most 16 drive letters across every unit, so
+four fully-sliced disks cannot all be reached at once. The catalog's
+recommended image is the 51,380,224-byte six-slice combo rather than a bare
+8 MB slice.
 
 ## Building
 
-**Requirements:** JDK 21; Android SDK with `compileSdk`/`targetSdk` 36 and
+**Requirements:** a JDK meeting Android Gradle Plugin 8.13.2's floor, which is
+17 (the module itself compiles to Java 8); Android SDK with `compileSdk`/`targetSdk` 36 and
 `minSdk` 24 (Android 7.0); Android NDK `28.0.13004108`, which
 `app/build.gradle.kts` pins by version. The tracked wrapper pins Gradle 8.13,
 and a shell build needs `JAVA_HOME` set.
