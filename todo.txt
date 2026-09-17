@@ -17,6 +17,17 @@ What that second round could not do is watch any of it run, which is why
 MANUAL_CHECKS.md gained a section and why the first item below is new.
 
 
+- [ANY] Delete runnableRomwbwVersions and the emu_romwbw_release_supported JNI
+call once romwbw_emu drops its release gate.  The filter keys on the RomWBW
+release, which is the pairing between HBIOS and a disk image's boot slice; what
+the emulator actually depends on is the dispatch and bank-call ports plus the
+function set in hbios_dispatch.cc, and romwbw_disks already versions that as
+interface v0.  Not a bug - a client that still filters is correct, it just cannot
+see a release the macro has never heard of - but it is why publishing RomWBW
+3.7.0 would need a Play release.  The argument and the per-repo list is
+romwbw_emu/docs/RELEASE_GATE.md.
+
+
 NOBODY HAS SEEN THE NEW TERMINAL RUN
 -------------------------------------
 
