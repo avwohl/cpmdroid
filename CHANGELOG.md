@@ -2,6 +2,114 @@
 
 ## Unreleased
 
+### The RomWBW release filter is gone: every published release is offered
+
+romwbw_emu v1.44 (`a6fa3db`) deleted its compile-time release allowlist and
+`src/romwbw_pin.h` with it. `app/src/main/cpp/CMakeLists.txt` compiles
+`${ROMWBW_EMU_SRC}/emu_init.cc` **in place** out of the sibling checkout, so
+this was not a choice this repository got to make: two of the four symbols that
+core deleted were called from here - `emu_romwbw_release_supported()` and
+`emu_romwbw_supported_list()`, the two `--allow-untested-romwbw` ones never were
+- and the NDK build breaks on the day that core is pulled.
+
+**The argument, because the edits only make sense with it.** A RomWBW release
+number - 3.5.1, 3.6.0, a future 3.7.0 - is the HBIOS-to-CBIOS pairing, a fact
+about a ROM and a disk image, and the thing that enforces it is the guest
+printing `*** WARNING: HBIOS/CBIOS Version Mismatch ***`. It is not what the
+emulator core depends on. The core depends on the emulator-to-ROM interface: two
+I/O ports and the set of HBIOS functions `hbios_dispatch.cc` services. That
+interface is versioned by the catalog's own name, **v0**, and a change the core
+could not service would be published as `index-v1.json` - which this client
+ignores by name, with no rebuild. So every release a v0 index publishes is
+bootable here, and a per-entry "can this build run it?" filter could only ever
+hide a release the user could have booted. Publishing RomWBW 3.7.0 no longer
+needs a Play release.
+
+| Gone | Where |
+|---|---|
+| `nativeRomwbwReleaseSupported`, `nativeRomwbwSupportedList` | `emu_io_android.cpp` (the JNI exports), `EmulatorEngine.kt` (the `external fun`s and their wrappers) |
+| `RomwbwSupport.kt` | the whole file - it existed for those two calls and nothing else |
+| `runnableRomwbwVersions()` | `data/RomwbwIndex.kt`; a comment block stands where it was, so the next reader does not reinvent it |
+| `CatalogFailure.NoRunnableVersion` | `data/DiskCatalogRepository.kt` |
+| `onlyReleasesTheCoreAcceptsAreOffered` | `CatalogParsingTest` - it tested the filter |
+
+**`CatalogFailure.IndexEmpty` replaces `NoRunnableVersion`, and is a smaller
+claim.** "This build's core can run none of what the catalog publishes" is no
+longer a condition that exists; "the index answered, verified and parsed, and
+names no release at all" still is, and no amount of retrying fixes it either, so
+it keeps a failure of its own rather than being folded into `IndexUnavailable`.
+Settings' message changed with it: "This needs a newer CPMDroid, not a better
+connection" was advice for a condition that cannot happen now.
+
+**What the user sees.** The release picker lists every entry the index
+publishes, with nothing dropped and nothing greyed out. The Catalog Index dialog
+says "publishes N RomWBW release(s)" instead of "N release(s) this build can
+run". About says `RomWBW release: 3.6.0` where it said `3.6.0 selected, core
+supports 3.5.1, 3.6.0`, and the launch line in logcat loses its `; core supports
+...` tail. There is no honest replacement for that second fact from a constant -
+what would belong there is `emu_romwbw_release_loaded()`, the release of the ROM
+actually in bank 0, and asking it needs a new JNI export. It is in `todo.txt`,
+not in this commit.
+
+**What deliberately stayed.** `hbios.ver_byte` and `hbios.upd_byte` are still
+parsed out of every index entry into `RomwbwVersion`, and
+`DiskDownloadManager.fetchAndReadRom` still compares them against the HCB bytes
+the catalog publishes for the ROM, failing with `RomFailure.WrongRelease` before
+spending the download. Those bytes stopped being an emulator gate; they never
+stopped being the ROM-to-disk-image pairing. **That check is now the only
+comparison of those bytes anywhere** - `emu_validate_rom_hcb` still refuses a
+short image or a bad `57 A8` marker and still only warns on `CB_PLATFORM != 0`,
+but it no longer judges the release - and two doc comments that said otherwise
+(`RomInfo.WrongRelease`, `fetchAndReadRom`) were wrong the moment the core
+changed and say so now. `nativeRomwbwReleaseOfImage` also stays: it reads a
+release out of an image, which is still a real question.
+
+**`JniNameParityTest` was the trap and it was edited in the same commit.** It
+asserts by name that every `external fun native*` has a matching
+`Java_com_awohl_cpmdroid_EmulatorEngine_native*` export and the reverse; 35 on
+each side became 33. Its literal three-name list became one name plus an
+assertion that the two deleted names are absent from **both** files - so a
+half-revert (a Kotlin declaration restored without its export, or an export
+restored against a core that no longer defines the function) fails there rather
+than as an `UnsatisfiedLinkError` on a device.
+
+**Verified - and NOT BUILT, NOT RUN.** There is no Android SDK, no NDK, no
+Gradle and no Java on this machine, so nothing here was compiled as Android,
+`./gradlew :app:test` was not run, and no Kotlin file was type-checked at all.
+What was actually done:
+
+- The whole JNI translation unit type-checks against the real core headers, the
+  same check the 1.27 entry describes, with `jni.h` from the local emsdk and a
+  stub `android/log.h`:
+
+      clang++ -std=c++17 -Wall -Wextra -fsyntax-only -I<android/log.h stub> \
+        -I/Users/wohl/esrc/emsdk/upstream/emscripten/third_party/jni \
+        -I../romwbw_emu/src -I../cpmemu/src -Iapp/src/main/cpp \
+        app/src/main/cpp/emu_io_android.cpp
+
+  exit 0, no warnings. `emu_init.cc`, `hbios_dispatch.cc` and `hbios_cpu.cc` -
+  the three core files this app compiles in place - are `-Wall -Wextra
+  -fsyntax-only` clean against the same headers.
+- **A negative control, so that "it compiles" means something:** a two-line file
+  calling `emu_romwbw_release_supported()` against the same `emu_init.h` fails
+  with `use of undeclared identifier`. The symbol really is gone; the old code
+  really would not have built.
+- The parity `JniNameParityTest` asserts was re-run by hand with the test's own
+  two regexes: 33 names on each side, `kotlin - jni` empty, `jni - kotlin`
+  empty. That check matters more than usual here because the test that would
+  catch a mismatch cannot run on this machine.
+- `grep` over the whole tree for `emu_romwbw_release_supported`,
+  `emu_romwbw_supported_list`, `emu_set_allow_untested_romwbw`,
+  `emu_allow_untested_romwbw`, `romwbw_pin`, `ROMWBW_SUPPORTED_RELEASES`,
+  `runnableRomwbwVersions`, `NoRunnableVersion` and `RomwbwSupport`: every
+  surviving hit is prose explaining the removal, plus the historical CHANGELOG
+  entries below, which are a record and stay.
+
+Nobody has watched any of this run, and `MANUAL_CHECKS.md` section 7 checks 1,
+2 and 3 were rewritten rather than ticked: check 2 in particular now records
+that **no RomWBW native has a Kotlin caller at all**, so the name parity test is
+the whole of what guards the one that remains.
+
 ### Two more closed files under docs/, and one that is not what CLAUDE.md said
 
 `docs/test-invite.txt` recruited "at least 12 different testers" to unlock the

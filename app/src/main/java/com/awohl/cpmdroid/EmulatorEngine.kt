@@ -65,15 +65,16 @@ class EmulatorEngine {
     private external fun nativeClearDiskDirty(unit: Int)
     private external fun nativeGetDiskData(unit: Int): ByteArray?
 
-    // RomWBW release queries. These three read no emulator state, so they are
-    // the only natives here that answer before nativeInit() - which is what
-    // lets Settings decide which releases to offer without owning an engine.
-    // Their names must match the JNI exports in emu_io_android.cpp exactly:
+    // A RomWBW release query. It reads no emulator state, so it is the only
+    // native here that answers before nativeInit(). Two others stood beside it
+    // - nativeRomwbwReleaseSupported and nativeRomwbwSupportedList - and went
+    // when romwbw_emu v1.44 deleted the functions behind them; there is no
+    // per-release question left to ask the core, so the picker offers every
+    // release the index publishes.
+    // Its name must match the JNI export in emu_io_android.cpp exactly:
     // minification is off, JniNameParityTest compares the two lists but only
     // under `./gradlew :app:test`, which an ordinary build does not run, and a
     // mismatch surfaces as UnsatisfiedLinkError at the first call on a device.
-    private external fun nativeRomwbwReleaseSupported(verByte: Int, updByte: Int): Boolean
-    private external fun nativeRomwbwSupportedList(): String
     private external fun nativeRomwbwReleaseOfImage(romData: ByteArray): String?
 
     fun init() {
@@ -91,22 +92,6 @@ class EmulatorEngine {
         Log.i(TAG, "Loading ROM: ${romData.size} bytes")
         return nativeLoadRom(romData)
     }
-
-    /**
-     * Can this build's core boot a ROM declaring these HBIOS version bytes?
-     *
-     * ver = major<<4 | minor, upd = update<<4 | patch, exactly as a ROM carries
-     * them at 0x105/0x106 and as index-v0.json publishes them - 3.5.1 is
-     * {0x35, 0x10}. Asked rather than assumed: the core is compiled from a
-     * sibling checkout, so this binary can be newer or older than the list of
-     * releases it was written against, and a hardcoded answer is wrong in one
-     * direction or the other with no way to notice.
-     */
-    fun romwbwReleaseSupported(verByte: Int, updByte: Int): Boolean =
-        nativeRomwbwReleaseSupported(verByte, updByte)
-
-    /** The releases this core has been checked against, e.g. "3.5.1, 3.6.0". */
-    fun romwbwSupportedList(): String = nativeRomwbwSupportedList()
 
     /**
      * The RomWBW release a ROM image declares, e.g. "3.5.1", or null when the

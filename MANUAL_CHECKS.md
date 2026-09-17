@@ -299,11 +299,14 @@ know it will report it as a loss.
 1. **The first fetch, and that it is the v0 one.** Fresh install, then
    `adb logcat -d | grep -E 'MainActivity|CatalogLoader'`. Nothing logs a
    bundled ROM any more, because there is not one. Expect
-   `Selected RomWBW 3.5.1 (following the catalog); core supports 3.5.1, 3.6.0`
-   before anything is fetched - that 3.5.1 is `V0_LEGACY_ROMWBW`, the namespace
-   an upgrading user's slots were written under, and not a release this build
-   prefers - then `Following the catalog: RomWBW 3.6.0 (was 3.5.1)` once the
-   index has been read, and a `catalog fetched` line naming a generation. Then
+   `Selected RomWBW 3.5.1 (not resolved yet)` before anything is fetched - that
+   3.5.1 is `V0_LEGACY_ROMWBW`, the namespace an upgrading user's slots were
+   written under, and not a release this build prefers - then
+   `Following the catalog: RomWBW 3.6.0 (was 3.5.1)` once the index has been
+   read, and a `catalog fetched` line naming a generation. **That line used to
+   end `; core supports 3.5.1, 3.6.0` and must not any more:** the core has had
+   no list of releases since romwbw_emu v1.44, and a build still printing one
+   is a build compiled against something older than this tree. Then
    confirm no ioscpm URL is requested at all - the point of the change is that
    nothing interpolates a tag any more:
 
@@ -317,21 +320,27 @@ know it will report it as a loss.
    not either - so a binding that is wrong for any other reason is still an
    `UnsatisfiedLinkError` at the first call and nowhere earlier.
 
-   Where that first call happens has moved. `logRomwbwSelection()` runs in
-   `onCreate` and asks for `romwbwSupportedList()`, so an unbound symbol now
-   takes the app down at launch instead of waiting for somebody to open
-   Settings, and `romwbwReleaseSupported()` is asked about every index entry on
-   the first fetch. Launch, confirm the `Selected RomWBW ... core supports ...`
-   line is in logcat with no `UnsatisfiedLinkError` beside it, then open the
-   release picker, which is the cheapest thing that fetches an index.
+   **The RomWBW half of this check has nothing left to exercise.** There were
+   three release natives; two of them - `romwbwSupportedList()`, called from
+   `logRomwbwSelection()` in `onCreate`, and `romwbwReleaseSupported()`, asked
+   about every index entry on the first fetch - went when romwbw_emu v1.44
+   deleted the core functions behind them. The third,
+   `romwbwReleaseOfImage()`, has no Kotlin caller and never had one after the
+   bundled ROM was deleted. So **no RomWBW native is called anywhere in this
+   app**, and `JniNameParityTest` comparing the two source name lists is the
+   whole of what guards the one that remains.
 
-   The third, `romwbwReleaseOfImage()`, has no Kotlin caller left - it read the
-   release out of the bundled ROM - so nothing exercises it and this check can
-   say nothing about it. The name parity test still compares it in both
-   directions, and that is now all there is guarding it.
+   What is still worth doing here is the general form: launch, and confirm
+   there is no `UnsatisfiedLinkError` in logcat at all - the thirty-odd
+   emulator natives are called on every boot and they are what this check is
+   really about now.
 
 3. **The version picker, and what each row says.** Settings -> RomWBW Release
-   -> Change. Both releases must be listed. Each row reads the release's label,
+   -> Change. **Every release the index publishes must be listed, with none
+   greyed out, none missing, and no row saying anything about what this build
+   supports.** The picker used to drop entries the core would not load a ROM
+   for; romwbw_emu v1.44 removed the question, so a row missing here now means
+   the index did not publish it. Each row reads the release's label,
    then its published `status` - or `PREVIEW - not yet recommended` where the
    index says so - then `ROM will be downloaded` before that release's ROM has
    been fetched and `ROM downloaded` after. **No row may say anything about a
@@ -402,7 +411,7 @@ nothing else; `emu_avw.rom` was deleted, and `EmulatorSettings.romName`,
 is downloaded from the selected release's catalog `roms[]` and checked against
 the `size` and `sha256` that catalog publishes - on the way in, and again from
 the bytes handed to the emulator on every load afterwards. `RomSelectionTest`
-(12 tests) and `CatalogParsingTest` (24) cover which entry is chosen and what the
+(12 tests) and `CatalogParsingTest` (26) cover which entry is chosen and what the
 published documents say, on a host JVM. None of what follows can be settled that
 way: it needs the network, the device's storage, and a guest that boots.
 

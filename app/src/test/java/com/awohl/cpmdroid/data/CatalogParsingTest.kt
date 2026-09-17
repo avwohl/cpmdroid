@@ -186,26 +186,14 @@ class CatalogParsingTest {
     }
 
     //-------------------------------------------------------------------------
-    // Which releases to offer
+    // Which release is selected
+    //
+    // There is no "which releases to offer" question any more, and the test
+    // that asked it - onlyReleasesTheCoreAcceptsAreOffered - went with
+    // runnableRomwbwVersions when romwbw_emu v1.44 deleted
+    // emu_romwbw_release_supported(). Every entry the index publishes is
+    // offered; what is left to decide is which one starts out selected.
     //-------------------------------------------------------------------------
-
-    @Test
-    fun onlyReleasesTheCoreAcceptsAreOffered() {
-        val versions = parseRomwbwIndex(index())
-
-        // A core checked against 3.5.1 alone - which is every client build
-        // before romwbw_emu v1.39.
-        val only351 = runnableRomwbwVersions(versions) { ver, upd -> ver == 0x35 && upd == 0x10 }
-        assertEquals(1, only351.size)
-        assertEquals("3.5.1", only351[0].romwbwVersion)
-
-        // A core checked against both, which is what this build compiles.
-        assertEquals(2, runnableRomwbwVersions(versions) { _, _ -> true }.size)
-
-        // And a core that can run nothing published: a real condition, reported
-        // rather than papered over, because no retry fixes it.
-        assertTrue(runnableRomwbwVersions(versions) { _, _ -> false }.isEmpty())
-    }
 
     @Test
     fun theStoredChoiceWinsWhenItIsStillOnOffer() {

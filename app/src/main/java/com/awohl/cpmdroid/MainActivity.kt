@@ -675,14 +675,16 @@ class MainActivity : AppCompatActivity() {
         val versionCode = getVersionCode()
         val apkBuilt = getApkBuildTime()
 
-        // Two RomWBW facts, because they answer different questions and can
-        // disagree: which release's catalog the disk slots and the fetched ROM
-        // belong to, and which releases this build's emulator core has been
-        // checked against. A release the core cannot run is never offered, so
-        // the pair can only disagree if a pinned release outlived core support.
-        val selectedRomwbw = settingsRepo.selectedRomwbwVersion()
-        val romwbwLine = "$selectedRomwbw selected, core supports " +
-            RomwbwSupport.supportedList()
+        // One RomWBW fact now, where there were two. The second was "core
+        // supports 3.5.1, 3.6.0", read from emu_romwbw_supported_list() through
+        // JNI, and romwbw_emu v1.44 deleted it: the core carries no list of
+        // releases and forms no opinion about one, so there is nothing left for
+        // the first fact to disagree with. What belongs here instead is the
+        // release of the ROM actually in bank 0 - emu_romwbw_release_loaded() -
+        // which is a better question than either of these and is not asked
+        // anywhere yet; todo.txt owns it, with the rest of the "nothing
+        // reconciles a disk with a release" item.
+        val romwbwLine = settingsRepo.selectedRomwbwVersion()
 
         // Three separate identities, because they answer different questions.
         // "Built" is the installed file's own timestamp and settles whether an
@@ -752,17 +754,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * What release this machine is on, and what the core can run.
+     * What release this machine is on.
      *
-     * Two facts rather than three, because there is no ROM in the package to be
-     * the third. [V0_LEGACY_ROMWBW] is not among them: it is a historical
-     * namespace anchor, not a release this build prefers, so there is nothing
-     * left for it to disagree with.
+     * One fact, and it used to be two: "core supports 3.5.1, 3.6.0" came off
+     * the end of this line when romwbw_emu v1.44 deleted
+     * emu_romwbw_supported_list(). [V0_LEGACY_ROMWBW] is not here either: it is
+     * a historical namespace anchor, not a release this build prefers.
+     *
+     * Note for anyone reading logcat after a launch: this line no longer calls
+     * across JNI at all, so it is no longer the thing that would surface an
+     * unbound RomWBW native. Nothing calls one - see MANUAL_CHECKS.md section 7
+     * check 2.
      */
     private fun logRomwbwSelection() {
         Log.i(TAG, "Selected RomWBW ${settingsRepo.selectedRomwbwVersion()}" +
-            (if (settingsRepo.hasResolvedRelease()) "" else " (not resolved yet)") +
-            "; core supports " + RomwbwSupport.supportedList())
+            (if (settingsRepo.hasResolvedRelease()) "" else " (not resolved yet)"))
     }
 
     private fun checkFirstLaunchAndLoad() {
@@ -1066,7 +1072,7 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "First launch - fetching disk catalog...")
 
         lifecycleScope.launch {
-            // index -> the releases this core can run -> the selected one's
+            // index -> the releases it publishes -> the selected one's
             // catalog. Two round trips where there was one, and no tag
             // interpolated into either of them.
             val catalogResult = loadSelectedCatalog(downloadManager, settingsRepo)
@@ -1125,10 +1131,10 @@ class MainActivity : AppCompatActivity() {
             } else {
                 // Said out loud, not only logged. This is a first launch: the
                 // user is looking at an emulator with no disks, and the four
-                // reasons that can happen - no index, no catalog, a catalog that
-                // did not verify, or a build whose core can run nothing
-                // published - want four different responses from them. Only the
-                // last one is not fixed by trying again later.
+                // reasons that can happen - no index, an index that names no
+                // release, no catalog, or a catalog that did not verify - want
+                // four different responses from them. The second is the only
+                // one that trying again later cannot fix.
                 val error = catalogResult.exceptionOrNull()
                 Log.e(TAG, "Could not fetch disk catalog: ${error?.message}", error)
                 Toast.makeText(

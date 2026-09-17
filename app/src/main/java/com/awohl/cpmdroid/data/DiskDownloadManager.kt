@@ -343,10 +343,9 @@ class DiskDownloadManager(private val context: Context) {
      * catalog claimed?
      *
      * A stat, deliberately, and not a hash. It answers a label on a screen that
-     * is being drawn, and RomwbwSupport's own comment about reading 264 bytes
-     * rather than 524288 is the standard this project holds the main thread to.
-     * It is NOT a substitute for readVerifiedRom: nothing decides to load a ROM
-     * on the strength of this.
+     * is being drawn, and a 512 KB read plus a SHA-256 is not what the main
+     * thread is for. It is NOT a substitute for readVerifiedRom: nothing
+     * decides to load a ROM on the strength of this.
      */
     fun romFileLooksPresent(claim: RomClaim): Boolean {
         val file = getRomFile(claim.filename)
@@ -420,9 +419,17 @@ class DiskDownloadManager(private val context: Context) {
      * The HCB bytes are compared before any transfer starts, because the
      * catalog publishes what it read back out of the built image and the index
      * publishes what the release must declare - a document disagreeing with
-     * itself is worth catching for a comparison rather than for 512 KB. It is
-     * not a substitute for emu_validate_rom_hcb, which reads the same two bytes
-     * out of the image the emulator is actually given.
+     * itself is worth catching for a comparison rather than for 512 KB.
+     *
+     * THIS IS NOW THE ONLY CHECK OF THOSE TWO BYTES ANYWHERE. It used not to
+     * be: emu_validate_rom_hcb refused a ROM whose release was not on the
+     * core's compile-time allowlist, and this only meant the user was told
+     * before waiting for the transfer. romwbw_emu v1.44 deleted the allowlist -
+     * a release is the HBIOS-to-CBIOS pairing, not something the emulator's ROM
+     * interface is versioned by - so emu_validate_rom_hcb now checks the HCB
+     * marker and nothing about the version. The pairing this guards is real and
+     * the guest still enforces its end of it by printing
+     * *** WARNING: HBIOS/CBIOS Version Mismatch ***.
      */
     suspend fun fetchAndReadRom(
         romwbwVersion: String,

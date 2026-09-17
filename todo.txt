@@ -14,18 +14,7 @@ shim's drift from the shared original, R8's dishonest "Reading:" line, and the
 terminal's two gaps.  They are gone from here and are in CHANGELOG.md.
 
 What that second round could not do is watch any of it run, which is why
-MANUAL_CHECKS.md gained a section and why the first item below is new.
-
-
-- [ANY] Delete runnableRomwbwVersions and the emu_romwbw_release_supported JNI
-call once romwbw_emu drops its release gate.  The filter keys on the RomWBW
-release, which is the pairing between HBIOS and a disk image's boot slice; what
-the emulator actually depends on is the dispatch and bank-call ports plus the
-function set in hbios_dispatch.cc, and romwbw_disks already versions that as
-interface v0.  Not a bug - a client that still filters is correct, it just cannot
-see a release the macro has never heard of - but it is why publishing RomWBW
-3.7.0 would need a Play release.  The argument and the per-repo list is
-romwbw_emu/docs/RELEASE_GATE.md.
+MANUAL_CHECKS.md gained a section and carries the sightings this file cannot.
 
 
 - [ANY] Nothing here ever tells the user that a disk and the selected RomWBW
@@ -34,6 +23,18 @@ romwbwReleaseOfImage is exposed across the JNI boundary and has NO Kotlin caller
 anywhere in the tree; v0NameOf goes one way only and hardcodes V0_LEGACY_ROMWBW,
 so there is no inverse of z80cpmw's releaseOfV0Name to read a release back out of
 a filename.  There is also no reconciliation or back-fill of any kind.
+  Two more doors that are open and unused, both since the release filter went on
+2026-09-17.  The index's hbios.ver_byte and hbios.upd_byte are still parsed into
+RomwbwVersion and are still the ROM-to-disk-image pairing - they just stopped
+being an emulator gate - so they are what a "this image is 3.5.1 and you are
+running 3.6.0" notice would compare against; DiskDownloadManager.fetchAndReadRom
+already uses them that way for the ROM half, as RomFailure.WrongRelease.  And
+emu_romwbw_release_loaded() (romwbw_emu src/emu_init.h) reports the release of
+the ROM actually in bank 0, which is the one honest answer to "what is this
+machine running" and which nothing here asks: it would need a new JNI export, so
+it lands on the same commit as the Kotlin declaration and the JniNameParityTest
+list.  MainActivity's About dialog is where its answer belongs; it names the
+SELECTED release today and says so in a comment.
   The ordinary paths do keep slots and the selection together - scope() and
 diskSlotKey() suffix every slot with the stored release, so switching releases
 parks the old slots rather than mixing them.  But "always" is too strong, and the

@@ -185,8 +185,12 @@ sealed class RomFailure(message: String) : Exception(message) {
      * publishes the two HCB bytes it read back out of the built image, and the
      * index publishes what the release's ROM must carry, so a document that
      * disagrees with itself is visible for the cost of a comparison.
-     * `emu_validate_rom_hcb` would refuse the same image after the transfer;
-     * this only means the user is told before waiting for it.
+     *
+     * It is also the only check of those bytes left. `emu_validate_rom_hcb`
+     * used to refuse the same image after the transfer; since romwbw_emu v1.44
+     * it judges the HCB marker and not the release, so nothing downstream of
+     * this would notice. What still notices is the guest, which prints
+     * *** WARNING: HBIOS/CBIOS Version Mismatch *** and then misbehaves.
      */
     class WrongRelease(
         val romwbwVersion: String,

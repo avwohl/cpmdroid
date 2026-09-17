@@ -25,11 +25,11 @@ internal val sharedHttpClient: OkHttpClient = OkHttpClient.Builder()
  *
  * There are now two round trips where there was one, and they fail for
  * unrelated reasons: the index can be unreachable while every catalog is fine,
- * a catalog can 404 on a release the index still lists, and the version list
- * can come back whole and contain nothing this build can run. Settings showed
- * "Failed to load disk catalog. Check your internet connection." for all of
- * them, which is wrong advice for two of the three - the connection is not the
- * problem when this binary's core supports no published release.
+ * a catalog can 404 on a release the index still lists, and the index can
+ * answer, parse, and list no releases at all. Settings showed "Failed to load
+ * disk catalog. Check your internet connection." for all of them, which is
+ * wrong advice for two of the three - the connection is not the problem when
+ * the document that arrived names nothing to fetch.
  */
 sealed class CatalogFailure(message: String) : Exception(message) {
 
@@ -38,29 +38,28 @@ sealed class CatalogFailure(message: String) : Exception(message) {
         CatalogFailure("Could not read the catalog index: $reason")
 
     /**
-     * The index parsed and this build can run none of what it publishes.
+     * The index answered, parsed, and publishes no releases at all.
      *
-     * A real, reportable condition rather than an empty list to shrug at: it
-     * means romwbw_disks has stopped publishing every RomWBW release this
-     * binary's emulator core has been checked against. [coreSupports] is
-     * emu_romwbw_supported_list(), so the message names what would have to
-     * appear for the app to work again.
+     * A real, reportable condition rather than an empty list to shrug at, and
+     * the only thing left of the old NoRunnableVersion: that one said this
+     * build's emulator core could run none of what the index published, which
+     * stopped being a question anything can ask when romwbw_emu v1.44 deleted
+     * emu_romwbw_release_supported(). Every release a v0 index publishes is
+     * bootable, so the only way to end up with nothing is an index that names
+     * nothing - an empty `romwbw_versions[]`, or a document whose every entry
+     * was dropped as unparseable. Retrying does not fix either, which is why it
+     * is not folded into IndexUnavailable.
      */
-    class NoRunnableVersion(val coreSupports: String) :
-        CatalogFailure(
-            "The catalog publishes no RomWBW release this build can run " +
-                "(this build's emulator supports $coreSupports)"
-        )
+    class IndexEmpty :
+        CatalogFailure("The catalog index publishes no RomWBW releases")
 
     /**
      * The index no longer offers a release something is still asking for.
      *
-     * Distinct from NoRunnableVersion, which says this build can run nothing at
-     * all: here the index answered, this build can run some of what it
-     * publishes, and the one release being asked about is not among them -
-     * withdrawn upstream, or dropped by a core the app was rebuilt against.
-     * The disks and preferences for it are untouched; there is simply nothing
-     * to fetch for it.
+     * Distinct from IndexEmpty, which says the index names nothing at all: here
+     * the index answered with releases and the one being asked about is not
+     * among them - withdrawn upstream. The disks and preferences for it are
+     * untouched; there is simply nothing to fetch for it.
      */
     class VersionNotOffered(val romwbwVersion: String) :
         CatalogFailure("The catalog index no longer publishes RomWBW $romwbwVersion")
@@ -145,12 +144,14 @@ class DiskCatalogRepository {
     /**
      * Fetch and parse index-v0.json.
      *
-     * Returns every entry the document describes, unfiltered - deciding which
-     * of them this build can run needs the emulator core and belongs to the
-     * caller (see runnableRomwbwVersions). An index that parses to nothing is
-     * returned as an empty list rather than as a failure, because "the index
-     * answered and lists no releases" and "the index did not answer" are
-     * different conditions and the caller reports them differently.
+     * Returns every entry the document describes. Nothing filters them: since
+     * romwbw_emu v1.44 the emulator core has no opinion about a RomWBW release,
+     * and every release a v0 index publishes speaks the interface this core
+     * implements. An index that parses to nothing is returned as an empty list
+     * rather than as a failure, because "the index answered and lists no
+     * releases" and "the index did not answer" are different conditions and the
+     * caller reports them differently - as CatalogFailure.IndexEmpty and
+     * CatalogFailure.IndexUnavailable.
      */
     suspend fun fetchIndex(): Result<List<RomwbwVersion>> = withContext(Dispatchers.IO) {
         try {

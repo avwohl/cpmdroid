@@ -29,9 +29,11 @@ const val ROMWBW_STATUS_PREVIEW = "preview"
  * [verByte] and [updByte] are `hbios.ver_byte` / `hbios.upd_byte` parsed out of
  * their hex-string spelling ("0x35", "0x10") into the two bytes RomWBW actually
  * packs a version into - ver = major<<4 | minor, upd = update<<4 | patch. They
- * are what the emulator core is asked about, and what a ROM carries at 0x105
- * and 0x106, so keeping them as numbers here means nothing downstream has to
- * parse a version string to compare two versions.
+ * are what a ROM carries at 0x105 and 0x106, and what the catalog publishes for
+ * its own ROMs, so keeping them as numbers here means nothing downstream has to
+ * parse a version string to compare two versions. They describe the
+ * ROM-to-disk-image pairing; they are no longer asked of the emulator core,
+ * which has had no opinion about a release since romwbw_emu v1.44.
  *
  * Fields this app does not use are deliberately absent rather than carried:
  * `released`, `disks_xml_url`, `rom_count`, `disk_count`, `release_tag` and
@@ -132,31 +134,38 @@ fun parseRomwbwIndex(json: String): List<RomwbwVersion> {
     return versions
 }
 
-/**
- * The entries this build's emulator core will actually load a ROM for.
+/*
+ * THERE IS NO PER-ENTRY FILTER HERE, AND ADDING ONE BACK IS A REGRESSION.
  *
- * [isRunnable] is emu_romwbw_release_supported() through JNI, asked rather than
- * assumed. A client can be compiled against a newer or an older core than it
- * expects - the core is built from a sibling checkout, not a versioned
- * dependency - so a hardcoded "offer everything" list would offer a release
- * this binary refuses, and a hardcoded "offer 3.5.1" would hide one it could
- * run. Neither failure is visible until a user picks the wrong row.
+ * runnableRomwbwVersions() stood here and dropped every entry the emulator core
+ * would not load a ROM for, asking emu_romwbw_release_supported() through JNI.
+ * romwbw_emu v1.44 deleted that function, and the argument is worth keeping
+ * where the filter was: a RomWBW release number is the HBIOS-to-CBIOS pairing,
+ * a fact about a ROM and a disk image. What the core depends on is the
+ * emulator-to-ROM interface - two I/O ports and the HBIOS functions
+ * hbios_dispatch.cc services - which this catalog versions in its own name, v0.
+ * Every release a v0 index publishes speaks it; an interface change the core
+ * could not service would be published as index-v1.json, which this client
+ * ignores by name. So the filter could only ever hide a release the user could
+ * have booted, and offering every entry is the correct behaviour rather than a
+ * relaxation of a check.
+ *
+ * [RomwbwVersion.verByte] and [RomwbwVersion.updByte] stay parsed and stay
+ * used: they are the ROM-to-disk-image pairing, checked against the catalog's
+ * own HCB bytes in DiskDownloadManager.fetchAndReadRom before a ROM is
+ * downloaded (RomFailure.WrongRelease).
  */
-fun runnableRomwbwVersions(
-    all: List<RomwbwVersion>,
-    isRunnable: (verByte: Int, updByte: Int) -> Boolean
-): List<RomwbwVersion> = all.filter { isRunnable(it.verByte, it.updByte) }
 
 /**
  * Which entry to select: the one the user chose if it is still on offer, else
  * the index's own default, else the first survivor.
  *
  * The fallback chain matters in both directions. A stored selection that has
- * disappeared from the index - a release withdrawn, or a core that no longer
- * supports it - must not leave the app with no catalog at all; and 6.1 warns
- * that although the generator enforces exactly one `default: true`, a client
- * should still cope with zero or two rather than crash. Two is resolved by
- * taking the first, which is the order the index publishes.
+ * disappeared from the index - a release withdrawn upstream - must not leave
+ * the app with no catalog at all; and 6.1 warns that although the generator
+ * enforces exactly one `default: true`, a client should still cope with zero or
+ * two rather than crash. Two is resolved by taking the first, which is the
+ * order the index publishes.
  */
 fun selectRomwbwVersion(
     available: List<RomwbwVersion>,

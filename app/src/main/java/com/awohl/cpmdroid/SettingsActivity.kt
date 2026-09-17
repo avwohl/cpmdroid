@@ -44,7 +44,7 @@ class SettingsActivity : AppCompatActivity() {
     private var cachedSelection: CatalogSelection? = null
 
     /**
-     * The index entries this build can run, from the last fetch of either kind.
+     * The index entries, from the last fetch of either kind.
      *
      * Kept separately from [cachedSelection] and deliberately NOT cleared when
      * the selected release changes: this is index data, the same list whichever
@@ -222,7 +222,7 @@ class SettingsActivity : AppCompatActivity() {
             } else {
                 loadSelectedCatalog(downloadManager, settingsRepo).onSuccess {
                     cachedSelection = it
-                    knownVersions = it.runnable
+                    knownVersions = it.offered
                 }
             }
 
@@ -251,18 +251,19 @@ class SettingsActivity : AppCompatActivity() {
      * One string used to cover all of this - "Failed to load disk catalog.
      * Check your internet connection." - and with a second round trip added it
      * would now be wrong about two of the four failures. The index answering
-     * while a release's catalog does not is not a connection problem, and a
-     * core that can run nothing the catalog publishes is not one either: no
-     * amount of reconnecting fixes a build that needs replacing. CatalogFailure
-     * already carries the specific reason; this only adds what to do about it.
+     * while a release's catalog does not is not a connection problem, and an
+     * index that answers and names no release is not one either: no amount of
+     * reconnecting fixes a published document. CatalogFailure already carries
+     * the specific reason; this only adds what to do about it.
      */
     private fun catalogErrorMessage(error: Throwable?): String = when (error) {
         is CatalogFailure.IndexUnavailable ->
             "${error.message}\n\nThat is the one address this app has. " +
                 "Check your connection and try again."
 
-        is CatalogFailure.NoRunnableVersion ->
-            "${error.message}\n\nThis needs a newer CPMDroid, not a better connection."
+        is CatalogFailure.IndexEmpty ->
+            "${error.message}\n\nThat is a problem with the published catalog, not with " +
+                "this device or its connection. Anything already downloaded is untouched."
 
         is CatalogFailure.CatalogUnavailable ->
             "${error.message}\n\nThe index itself was reached, so this is that one " +
@@ -368,7 +369,7 @@ class SettingsActivity : AppCompatActivity() {
             val result = try {
                 loadSelectedCatalog(downloadManager, settingsRepo).onSuccess {
                     cachedSelection = it
-                    knownVersions = it.runnable
+                    knownVersions = it.offered
                 }
             } finally {
                 if (progress.isShowing) progress.dismiss()
@@ -476,8 +477,7 @@ class SettingsActivity : AppCompatActivity() {
      *
      * A stat of a file whose size the catalog already told us, not a hash. It
      * decides a label, and the 512 KB read and SHA-256 that would make it
-     * authoritative do not belong on a thread that is drawing a screen -
-     * RomwbwSupport reads 264 bytes rather than 524288 for exactly that reason.
+     * authoritative do not belong on a thread that is drawing a screen.
      *
      * Nothing acts on it. Selecting a release goes through
      * downloadRomThenSwitch, which verifies for real and re-fetches if it has
@@ -622,7 +622,7 @@ class SettingsActivity : AppCompatActivity() {
             result.fold(
                 onSuccess = { selection ->
                     cachedSelection = selection
-                    knownVersions = selection.runnable
+                    knownVersions = selection.offered
                     currentSettings = settingsRepo.getSettings()
                     refreshAfterCatalogIndexChange()
                     // The last line has to say which direction this went. It
@@ -641,8 +641,8 @@ class SettingsActivity : AppCompatActivity() {
                     AlertDialog.Builder(this@SettingsActivity)
                         .setTitle("Catalog Index")
                         .setMessage(
-                            "This catalog publishes ${selection.runnable.size} RomWBW " +
-                                "release(s) this build can run.\n\n" +
+                            "This catalog publishes ${selection.offered.size} RomWBW " +
+                                "release(s).\n\n" +
                                 "${selection.selected.label} is selected, with " +
                                 "${selection.catalog.disks.size} disk(s) and " +
                                 "${selection.catalog.roms.size} ROM(s) published for it.\n\n" +
@@ -704,21 +704,19 @@ class SettingsActivity : AppCompatActivity() {
             }
             result.fold(
                 onSuccess = { index ->
-                    // Ask the core which of them this binary will load a ROM
-                    // for. Offering a release it refuses would put a row in
-                    // front of the user whose only outcome is a ROM load that
-                    // fails after they have downloaded 49 MB of disks for it.
-                    val runnable = runnableRomwbwVersions(index) { verByte, updByte ->
-                        RomwbwSupport.isRunnable(verByte, updByte)
-                    }
-                    if (runnable.isEmpty()) {
-                        showRomwbwProblem(
-                            CatalogFailure.NoRunnableVersion(RomwbwSupport.supportedList())
-                        )
+                    // EVERY entry, and nothing greyed out. A per-entry filter
+                    // stood here and asked the core whether it would load a ROM
+                    // for each release; romwbw_emu v1.44 deleted the call and
+                    // the argument behind it, because the release number is the
+                    // HBIOS-to-CBIOS pairing rather than anything this
+                    // emulator's ROM interface is versioned by. All the filter
+                    // could do was hide a row the user could have booted.
+                    if (index.isEmpty()) {
+                        showRomwbwProblem(CatalogFailure.IndexEmpty())
                     } else {
-                        knownVersions = runnable
+                        knownVersions = index
                         updateRomwbwVersionDisplay()
-                        showRomwbwChoices(runnable)
+                        showRomwbwChoices(index)
                     }
                 },
                 onFailure = { showRomwbwProblem(it) }
@@ -734,20 +732,20 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showRomwbwChoices(runnable: List<RomwbwVersion>) {
+    private fun showRomwbwChoices(offered: List<RomwbwVersion>) {
         val current = settingsRepo.selectedRomwbwVersion()
-        val labels = runnable.map { romwbwChoiceLabel(it) }.toTypedArray()
+        val labels = offered.map { romwbwChoiceLabel(it) }.toTypedArray()
 
         // The stored release may not be in the list at all - it can be
-        // withdrawn upstream, or stop being runnable when the core changes - and
-        // -1 is what setSingleChoiceItems wants for "nothing checked".
-        var chosen = runnable.indexOfFirst { it.romwbwVersion == current }
+        // withdrawn upstream - and -1 is what setSingleChoiceItems wants for
+        // "nothing checked".
+        var chosen = offered.indexOfFirst { it.romwbwVersion == current }
 
         AlertDialog.Builder(this)
             .setTitle("RomWBW Release")
             .setSingleChoiceItems(labels, chosen) { _, which -> chosen = which }
             .setPositiveButton("Select") { _, _ ->
-                val entry = runnable.getOrNull(chosen) ?: return@setPositiveButton
+                val entry = offered.getOrNull(chosen) ?: return@setPositiveButton
                 if (entry.romwbwVersion == current) return@setPositiveButton
                 when {
                     // A ROM that looks present is still verified before the

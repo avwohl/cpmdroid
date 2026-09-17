@@ -1101,14 +1101,16 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
                         reinterpret_cast<uint8_t*>(data) + len);
 
     // Ask the core why a ROM is unusable, while the Java array is still
-    // mapped, so the log names the real problem: a corrupt HBIOS
-    // configuration block, or a RomWBW release the core has not been checked
-    // against (ROMWBW_SUPPORTED_RELEASES in src/romwbw_pin.h). It is no longer
-    // "other than the pinned one" - the core reads the version out of whatever
-    // ROM it loads and runs any release on that list. Before the core
-    // validated this, a bad ROM was accepted and the emulator started a CPU
-    // that produced no output at all. emu_load_rom_from_buffer runs the same
-    // check and refuses too; this only recovers the reason for the log.
+    // mapped, so the log names the real problem. There are exactly two now: an
+    // image too short to hold an HBIOS configuration block, and one whose HCB
+    // marker is not 57 A8. The RELEASE is not among them any more - romwbw_emu
+    // v1.44 deleted the compile-time allowlist and src/romwbw_pin.h with it, so
+    // any ROM carrying a readable HCB loads and the core reads the version back
+    // out of it. (CB_PLATFORM != 0 still only warns, on the core's own log.)
+    // Before the core validated any of this, a bad ROM was accepted and the
+    // emulator started a CPU that produced no output at all.
+    // emu_load_rom_from_buffer runs the same check and refuses too; this only
+    // recovers the reason for the log.
     const char* rom_problem = emu_validate_rom_hcb(
         reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(len));
     std::string rom_error = rom_problem ? rom_problem : std::string();
@@ -1133,12 +1135,18 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 //-----------------------------------------------------------------------------
 // RomWBW release queries
 //
-// These three ask the core about a RomWBW release and touch no emulator state:
-// they read g_emu nowhere, so unlike every other native below them they are
-// callable before nativeInit() and from a screen that owns no emulator at all.
-// The version picker in Settings needs exactly that - it decides which releases
-// to offer before anything has been initialised, and Settings has no engine of
-// its own.
+// This one asks the core about a RomWBW release and touches no emulator state:
+// it reads g_emu nowhere, so unlike every other native below it, it is callable
+// before nativeInit() and from a screen that owns no emulator at all.
+//
+// There were three. nativeRomwbwReleaseSupported and nativeRomwbwSupportedList
+// went with romwbw_emu v1.44, which deleted emu_romwbw_release_supported() and
+// emu_romwbw_supported_list(): a RomWBW release number is the HBIOS-to-CBIOS
+// pairing, and what this core depends on is the emulator-to-ROM interface - the
+// dispatch and bank-call ports, and the function set hbios_dispatch.cc services
+// - which the catalog versions under its own name, v0. So there is nothing left
+// to ask about a release, and the picker in Settings offers every entry the
+// index publishes.
 //
 // Kotlin's `external fun` names and these symbol names are kept in lockstep by
 // hand. Nothing else does it: minification is off (app/build.gradle.kts), so R8
@@ -1149,31 +1157,10 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 //     sed 's/.*fun //' | sort
 //   grep -oE '^Java_com_awohl_cpmdroid_EmulatorEngine_native[A-Za-z0-9_]*'
 //     emu_io_android.cpp | sed 's/.*EmulatorEngine_//' | sort
-// - 35 names on each side today. The ^ is load-bearing: every definition below
+// - 33 names on each side today. The ^ is load-bearing: every definition below
 // starts its name in column 0, and without it these comment lines match
 // themselves and come back as a name no Kotlin declaration has.
 //-----------------------------------------------------------------------------
-
-JNIEXPORT jboolean JNICALL
-Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwReleaseSupported(JNIEnv* env, jobject thiz,
-                                                                    jint verByte, jint updByte) {
-    (void)env;
-    (void)thiz;
-    // Narrowed rather than validated: the two bytes come from hbios.ver_byte /
-    // hbios.upd_byte in the published index, and a value outside a byte there
-    // is a malformed document, which simply matches no supported release.
-    emu_romwbw_release r = {static_cast<uint8_t>(verByte & 0xFF),
-                            static_cast<uint8_t>(updByte & 0xFF)};
-    return emu_romwbw_release_supported(r) ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwSupportedList(JNIEnv* env, jobject thiz) {
-    (void)thiz;
-    // "3.5.1, 3.6.0" - static storage owned by the core, copied into a Java
-    // string here and never freed by us.
-    return env->NewStringUTF(emu_romwbw_supported_list());
-}
 
 JNIEXPORT jstring JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwReleaseOfImage(JNIEnv* env, jobject thiz,

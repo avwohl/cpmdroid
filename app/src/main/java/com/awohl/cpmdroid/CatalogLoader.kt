@@ -8,7 +8,6 @@ import com.awohl.cpmdroid.data.RomFailure
 import com.awohl.cpmdroid.data.RomwbwVersion
 import com.awohl.cpmdroid.data.SettingsRepository
 import com.awohl.cpmdroid.data.claim
-import com.awohl.cpmdroid.data.runnableRomwbwVersions
 import com.awohl.cpmdroid.data.selectRom
 import com.awohl.cpmdroid.data.selectRomwbwVersion
 import kotlinx.coroutines.Dispatchers
@@ -20,19 +19,22 @@ private const val TAG = "CatalogLoader"
  * A finished catalog fetch: which releases were on offer, which one was used,
  * and its disks.
  *
- * [runnable] is carried alongside the catalog because the version picker needs
- * it and it was already paid for - the index fetch that produced the catalog
- * produced the list too, and asking for it again would be a second round trip
- * for a document that has not changed.
+ * [offered] is every entry the index publishes, carried alongside the catalog
+ * because the version picker needs it and it was already paid for - the index
+ * fetch that produced the catalog produced the list too, and asking for it
+ * again would be a second round trip for a document that has not changed. It
+ * was called `runnable` while a per-entry filter stood between the index and
+ * this field; there is no filter now, so the name would be claiming a check
+ * that is not made.
  */
 data class CatalogSelection(
-    val runnable: List<RomwbwVersion>,
+    val offered: List<RomwbwVersion>,
     val selected: RomwbwVersion,
     val catalog: DiskCatalog
 )
 
 /**
- * index -> the releases this core can run -> the selected one's catalog.
+ * index -> the releases it publishes -> the selected one's catalog.
  *
  * The whole Part B fetch path in one place, so that MainActivity's first-launch
  * download and the Settings catalog dialog cannot drift into asking two
@@ -41,15 +43,15 @@ data class CatalogSelection(
  * comes from the catalog.
  *
  * Every failure is a [CatalogFailure], and they are distinct on purpose - an
- * unreachable index, a core that can run nothing published, and an unreachable
- * or unverifiable catalog are three different things to tell a user, and until
+ * unreachable index, an index that names no release, and an unreachable or
+ * unverifiable catalog are three different things to tell a user, and until
  * this release Settings said "check your internet connection" for all of them.
  */
 suspend fun loadSelectedCatalog(
     downloadManager: DiskDownloadManager,
     settingsRepo: SettingsRepository
 ): Result<CatalogSelection> {
-    val runnable = fetchRunnableVersions(downloadManager).getOrElse { return Result.failure(it) }
+    val offered = fetchOfferedVersions(downloadManager).getOrElse { return Result.failure(it) }
 
     // Null until something has settled on a release, and then the index's own
     // `default: true` entry wins. That is what carries a fresh install - and an
@@ -58,8 +60,11 @@ suspend fun loadSelectedCatalog(
     // onto whichever release this app happened to ship a ROM for.
     val preferred = settingsRepo.preferredRomwbwVersion()
     val previous = settingsRepo.selectedRomwbwVersion()
-    val selected = selectRomwbwVersion(runnable, preferred)
-        ?: return Result.failure(CatalogFailure.NoRunnableVersion(RomwbwSupport.supportedList()))
+    // The null arm is unreachable while fetchOfferedVersions refuses an empty
+    // list, and is kept because selectRomwbwVersion returns a nullable and the
+    // compiler is right to ask. It raises the same failure that would have.
+    val selected = selectRomwbwVersion(offered, preferred)
+        ?: return Result.failure(CatalogFailure.IndexEmpty())
 
     // The resolved answer is written back, not just worked around. Disk slots
     // and NVRAM are keyed on the selected release, so leaving the pointer where
@@ -86,36 +91,34 @@ suspend fun loadSelectedCatalog(
     val catalog = fetchAndNote(downloadManager, settingsRepo, selected)
         .getOrElse { return Result.failure(it) }
 
-    return Result.success(CatalogSelection(runnable, selected, catalog))
+    return Result.success(CatalogSelection(offered, selected, catalog))
 }
 
 /**
- * The index entries this build's core will load a ROM for, or why there are
- * none.
+ * The releases the index publishes, or why there are none.
  *
- * Shared by every path that walks the index, so "ask the core rather than
- * assume" cannot be true in one place and forgotten in another. A build whose
- * core has been checked against 3.5.1 and 3.6.0 offers both; one built against
- * an older core offers whatever that core knows, and neither is knowable from
- * this side.
+ * Shared by every path that walks the index, so that one path cannot start
+ * filtering while another does not. Nothing is dropped here: this asked the
+ * emulator core about each entry until romwbw_emu v1.44 deleted
+ * emu_romwbw_release_supported(), and the reason it is not replaced by a
+ * Kotlin-side list is the same reason the JNI call existed - a release number
+ * is the HBIOS-to-CBIOS pairing, not a statement about what this emulator can
+ * run. Every release a v0 index publishes is bootable by a v0 client.
  */
-private suspend fun fetchRunnableVersions(
+private suspend fun fetchOfferedVersions(
     downloadManager: DiskDownloadManager
 ): Result<List<RomwbwVersion>> {
     val index = downloadManager.fetchIndex().getOrElse { return Result.failure(it) }
-    val runnable = runnableRomwbwVersions(index) { verByte, updByte ->
-        RomwbwSupport.isRunnable(verByte, updByte)
+    if (index.isEmpty()) {
+        // Not an empty list to shrug at. The document arrived and verified and
+        // names nothing to fetch - an empty romwbw_versions[], or every entry
+        // dropped as unparseable by the per-entry parse. No amount of retrying
+        // or reconnecting changes it, and nothing else in the app would ever
+        // say so out loud.
+        Log.e(TAG, "The catalog index parsed and lists no RomWBW releases")
+        return Result.failure(CatalogFailure.IndexEmpty())
     }
-    if (runnable.isEmpty()) {
-        // Not an empty list to shrug at. It means romwbw_disks publishes no
-        // RomWBW release this binary can boot, which no amount of retrying or
-        // reconnecting will change, and which nothing else in the app would
-        // ever say out loud.
-        Log.e(TAG, "Index lists ${index.size} release(s), none runnable by this core " +
-            "(core supports ${RomwbwSupport.supportedList()})")
-        return Result.failure(CatalogFailure.NoRunnableVersion(RomwbwSupport.supportedList()))
-    }
-    return Result.success(runnable)
+    return Result.success(index)
 }
 
 private suspend fun fetchAndNote(
@@ -178,8 +181,8 @@ suspend fun fetchRomForRelease(
             "but $wantedRomId is selected; fetching it")
     }
 
-    val runnable = fetchRunnableVersions(downloadManager).getOrElse { return Result.failure(it) }
-    val entry = runnable.firstOrNull { it.romwbwVersion == romwbwVersion }
+    val offered = fetchOfferedVersions(downloadManager).getOrElse { return Result.failure(it) }
+    val entry = offered.firstOrNull { it.romwbwVersion == romwbwVersion }
         ?: return Result.failure(CatalogFailure.VersionNotOffered(romwbwVersion))
 
     val catalog = fetchAndNote(downloadManager, settingsRepo, entry)
