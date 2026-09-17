@@ -110,12 +110,14 @@ shows them:
 - **ROM** - the ROMs the selected release publishes. What is stored is the
   catalog's ID rather than a filename, because the filename carries the release.
 
-- **RomWBW Release** - the index, filtered to the releases the emulator core
-  says it can boot. A release published later will not switch a machine by
-  itself, since that would change its disk set and its NVRAM namespace
-  underneath it; new ROMs and disks *within* the selected release arrive with
-  no app update. Each release keeps its own disk slots, NVRAM and ROM, so
-  switching is a round trip that loses nothing.
+- **RomWBW Release** - every release the index publishes, with none held back.
+  The emulator core has no list of releases to check one against: what it
+  depends on is the interface the catalog versions in its own name, v0, so a
+  release a v0 index publishes is one this app can boot. A release published
+  later will not switch a machine by itself, since that would change its disk
+  set and its NVRAM namespace underneath it; new ROMs and disks *within* the
+  selected release arrive with no app update. Each release keeps its own disk
+  slots, NVRAM and ROM, so switching is a round trip that loses nothing.
 
 - **Catalog Index** - which catalog everything else comes from. Empty is the
   default; a URL here points CPMDroid at another index, and the release list,

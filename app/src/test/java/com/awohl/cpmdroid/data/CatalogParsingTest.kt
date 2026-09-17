@@ -328,9 +328,13 @@ class CatalogParsingTest {
                 "v0-romwbw-3.6.0/emu_avw-v0-3.6.0.rom",
             avw.downloadUrl
         )
-        // hcb.version/hcb.update, the two bytes emu_validate_rom_hcb reads at
-        // 0x105/0x106. Hex strings in the document, like hbios.ver_byte, and
-        // the same values the index publishes for this release.
+        // hcb.version/hcb.update, the two bytes the catalog read back out of
+        // the built ROM at 0x105/0x106. Hex strings in the document, like
+        // hbios.ver_byte, and the same values the index publishes for this
+        // release - which is the comparison DiskDownloadManager.fetchAndReadRom
+        // makes, and since romwbw_emu v1.44 the only one anything makes:
+        // emu_validate_rom_hcb stopped reading those two bytes with the release
+        // allowlist.
         assertEquals(0x36, avw.hcbVerByte)
         assertEquals(0x00, avw.hcbUpdByte)
 

@@ -73,9 +73,14 @@ fun parseDiskCatalog(json: String): DiskCatalog? {
         if (id.isEmpty() || filename.isEmpty()) continue
 
         // hcb is optional here even though every published catalog carries it,
-        // because a missing one costs only the pre-download check - the core
-        // reads the same two bytes out of the image itself and refuses a
-        // release it has not been run against, whatever this document says.
+        // because CATALOG_SCHEMA 6.1 says an entry missing a field is still an
+        // entry. It is no longer cheap to be missing, though: a catalog that
+        // omits hcb gets NO release check at all. It used to cost only the
+        // pre-download half, because emu_validate_rom_hcb read the same two
+        // bytes back out of the image and refused a release the core had not
+        // been built against; romwbw_emu v1.44 deleted that allowlist, so the
+        // core now reads the 57 A8 marker and the platform byte and nothing at
+        // 0x105/0x106. See RomInfo's hcbVerByte/hcbUpdByte.
         val hcb = entry.optJSONObject("hcb")
 
         roms.add(

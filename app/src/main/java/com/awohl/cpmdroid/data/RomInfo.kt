@@ -14,12 +14,21 @@ package com.awohl.cpmdroid.data
  * with another release's base after a version switch.
  *
  * [hcbVerByte] and [hcbUpdByte] are the HBIOS configuration block bytes the
- * catalog read back out of the built ROM at file offsets 0x105/0x106 - the two
- * bytes `emu_validate_rom_hcb` will read for itself after the download. They
- * are hex STRINGS in the document ("0x36", "0x00"), like `hbios.ver_byte`, and
- * null here when the catalog does not publish them. Checking them costs
- * nothing and saves fetching 512 KB the core would then refuse; it does not
- * replace that refusal, which stays the last line of defence.
+ * catalog read back out of the built ROM at file offsets 0x105/0x106. They are
+ * hex STRINGS in the document ("0x36", "0x00"), like `hbios.ver_byte`, and null
+ * here when the catalog does not publish them.
+ *
+ * Comparing them against the index entry's `hbios` bytes, which
+ * DiskDownloadManager.fetchAndReadRom does before any transfer, is now the ONLY
+ * check of those bytes anywhere in this app. It used to be the cheap half of
+ * two: `emu_validate_rom_hcb` refused a ROM whose release was off the core's
+ * compile-time allowlist, and this only meant the user was told before waiting
+ * for 512 KB. romwbw_emu v1.44 deleted the allowlist - a release number is the
+ * HBIOS-to-CBIOS pairing, not something the emulator-to-ROM interface is
+ * versioned by - so emu_validate_rom_hcb reads the 57 A8 marker and the
+ * platform byte and never looks at 0x105/0x106. There is no second line of
+ * defence behind this one except the guest, which prints
+ * *** WARNING: HBIOS/CBIOS Version Mismatch *** and then misbehaves.
  *
  * `description` is read by nothing and so is not carried, the same way the
  * index entry drops the fields nothing here asks about. Dropping an unknown or

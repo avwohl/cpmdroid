@@ -110,6 +110,39 @@ Nobody has watched any of this run, and `MANUAL_CHECKS.md` section 7 checks 1,
 that **no RomWBW native has a Kotlin caller at all**, so the name parity test is
 the whole of what guards the one that remains.
 
+**Five places that describe the old behaviour without naming a deleted symbol**
+were missed on the first pass and corrected after review. How they were missed is
+worth recording: the sweep was a grep for the deleted identifiers, and not one of
+these contains one.
+
+- `README.md` described the Settings row as "the index, filtered to the releases
+  the emulator core says it can boot" - the user-facing description of the
+  behaviour that was just deleted.
+- `MANUAL_CHECKS.md` section 7's preamble, immediately above the three checks
+  that *were* rewritten, said `DiskCatalogRepository` "filters it by asking the
+  emulator core" and that the checks below need "the three new JNI calls" -
+  there is one, and nothing calls it. It also claimed `CatalogParsingTest` runs
+  20 tests where section 8 of the same file said 26; 26 is the count in the
+  source. Section 8's list of what went with the bundled ROM still named
+  `RomwbwSupport.bundledRomRelease()`, which reads as though `RomwbwSupport`
+  survives.
+- `RomInfo`'s class KDoc - the *other* comment in the file whose
+  `RomFailure.WrongRelease` comment was corrected - said `hcbVerByte` /
+  `hcbUpdByte` are "the two bytes `emu_validate_rom_hcb` will read for itself
+  after the download" and that the pre-download comparison "does not replace
+  that refusal, which stays the last line of defence". There is no such refusal
+  and no such last line.
+- `DiskCatalog.parseCatalog` said a catalog entry missing its `hcb` block "costs
+  only the pre-download check - the core reads the same two bytes out of the
+  image itself". It now costs the **only** check, which is the one thing a
+  future reader has to know before treating `hcb` as optional.
+- `CatalogParsingTest` called `hcb.version`/`hcb.update` "the two bytes
+  emu_validate_rom_hcb reads at 0x105/0x106".
+
+Measured against the core rather than assumed: `emu_validate_rom_hcb` in
+`romwbw_emu/src/emu_init.cc` touches `HCB_MARKER0`, `HCB_MARKER1` and
+`HCB_PLATFORM` and no longer reads 0x105/0x106 at all.
+
 ### Two more closed files under docs/, and one that is not what CLAUDE.md said
 
 `docs/test-invite.txt` recruited "at least 12 different testers" to unlock the

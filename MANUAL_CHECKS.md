@@ -271,13 +271,15 @@ so a `ModifiedDisks/` copy exists. Confirm it does:
 ## 7. The two-level catalog and the RomWBW release picker
 
 `DiskCatalogRepository` no longer holds a release tag. It fetches
-`index-v0.json`, filters it by asking the emulator core, fetches the selected
-release's catalog, and takes every download URL from that catalog's `base_url`.
+`index-v0.json`, fetches the selected release's catalog, and takes every download
+URL from that catalog's `base_url`. **Nothing filters the index**: it used to be
+passed entry by entry to the emulator core, and romwbw_emu v1.44 deleted the
+call, so every release the index publishes is offered.
 `app/src/test/.../CatalogParsingTest.kt` covers the parsers against byte-for-byte
-copies of the published documents and has been run - 20 tests, all passing, on a
-host JVM. None of what follows can be settled that way: it needs the network, the
-device's storage and the three new JNI calls, which nothing but a running device
-links to their C++ side.
+copies of the published documents - 26 tests on a host JVM, last run before the
+filter was removed, so the count is from the source and not from a run. None of
+what follows can be settled that way: it needs the network, the device's storage,
+and a running device to link the one remaining RomWBW native to its C++ side.
 
 **Do section 6 first if you are doing both.** These checks assume the disks on
 the device are already on `-v0-3.5.1` names.
@@ -407,10 +409,12 @@ know it will report it as a loss.
 
 There is no ROM in this package. `app/src/main/assets/` holds the help topics and
 nothing else; `emu_avw.rom` was deleted, and `EmulatorSettings.romName`,
-`RomRequirement` and `RomwbwSupport.bundledRomRelease()` went with it. Every ROM
-is downloaded from the selected release's catalog `roms[]` and checked against
-the `size` and `sha256` that catalog publishes - on the way in, and again from
-the bytes handed to the emulator on every load afterwards. `RomSelectionTest`
+`RomRequirement` and `RomwbwSupport.bundledRomRelease()` went with it. (The rest
+of `RomwbwSupport` followed on 2026-09-17, when the release filter went; there is
+no such object any more.) Every ROM is downloaded from the selected release's
+catalog `roms[]` and checked against the `size` and `sha256` that catalog
+publishes - on the way in, and again from the bytes handed to the emulator on
+every load afterwards. `RomSelectionTest`
 (12 tests) and `CatalogParsingTest` (26) cover which entry is chosen and what the
 published documents say, on a host JVM. None of what follows can be settled that
 way: it needs the network, the device's storage, and a guest that boots.
