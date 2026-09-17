@@ -28,6 +28,37 @@ see a release the macro has never heard of - but it is why publishing RomWBW
 romwbw_emu/docs/RELEASE_GATE.md.
 
 
+- [ANY] Nothing here ever tells the user that a disk and the selected RomWBW
+release disagree, and the call that could is present and unused.
+romwbwReleaseOfImage is exposed across the JNI boundary and has NO Kotlin caller
+anywhere in the tree; v0NameOf goes one way only and hardcodes V0_LEGACY_ROMWBW,
+so there is no inverse of z80cpmw's releaseOfV0Name to read a release back out of
+a filename.  There is also no reconciliation or back-fill of any kind.
+  The ordinary paths do keep slots and the selection together - scope() and
+diskSlotKey() suffix every slot with the stored release, so switching releases
+parks the old slots rather than mixing them.  But "always" is too strong, and the
+counter-example is worth writing down because it is a race and not a typo:
+MainActivity.downloadDefaultDisk runs loadSelectedCatalog, which MAY write a new
+selection, then suspends for a 49 MB download, then calls setDiskSlot, which
+resolves the scope suffix at WRITE time - so the slot can land under a release
+the download did not come from.  Resolving at write time is exactly the mechanism
+that lets it cross.
+  A second thing found while reading and not previously written down:
+loadSelectedCatalog's fallback arm overwrites a stored preference.  When the
+index no longer offers the preferred release, selectRomwbwVersion returns another
+entry and setSelectedRomwbwVersion writes it over the user's choice.  That may
+well be right - it is what keeps a machine bootable when a release is withdrawn -
+but it is undocumented, and it means a user's choice is not durable.
+  Filed because z80cpmw MEASURED the user-visible end of this family on
+2026-09-17: 3.6.0 stored against two -v0-3.5.1 disks, reported by a start-time
+notice that names no remedy.  This port would not even print the notice.
+  One correction for whoever takes it: applyRomwbwVersion fetches nothing and
+verifies nothing.  It writes the selection, re-reads settings, refreshes three
+displays and shows a Toast.  The fetch-and-verify lives in downloadRomThenSwitch
+and fetchRomForRelease, which call it only on success - so a fix that "just calls
+applyRomwbwVersion" switches the machine to a release it has no ROM for.
+
+
 NOBODY HAS SEEN THE NEW TERMINAL RUN
 -------------------------------------
 
