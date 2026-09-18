@@ -571,6 +571,44 @@ int emu_dsky_get_key() {
 }
 
 //=============================================================================
+// Sound: the four-voice hook romwbw_emu v1.47 added, and why it lands here
+//=============================================================================
+//
+// THIS PORT'S LINK BROKE WITHOUT A LINE OF IT CHANGING. hbios_dispatch.cc -
+// which CMakeLists.txt does compile - calls emu_snd_emit_tone() in three
+// places as of romwbw_emu v1.47, and the core defines it in emu_io_common.cc,
+// which this port does NOT compile (CMakeLists.txt lists three core sources;
+// romwbw_emu/DOWNSTREAM.md is what tells it to take only those). So two
+// symbols arrived undefined. z80cpmw hit the same thing the same day and
+// fixed it in its own port file; this is the Android half.
+//
+// THE PAIR IS THE POINT. The handler is a pointer rather than a symbol so a
+// front end can opt in. Defining only the emitter would link today and make
+// emu_snd_set_tone_handler() the next undefined symbol the moment anything
+// called it, so both go in together.
+//
+// The fallback is the core's own: channel 0 only. Without the channel test a
+// four-voice tune becomes four beeps in a row. emu_dsky_beep is a no-op on
+// this port today, so nothing is audible either way - but the shape has to be
+// right for the day it is not, and a silent channel must stay silent rather
+// than click.
+static emu_snd_tone_fn g_snd_tone_handler = nullptr;
+
+void emu_snd_set_tone_handler(emu_snd_tone_fn fn) {
+    g_snd_tone_handler = fn;
+}
+
+void emu_snd_emit_tone(int channel, int freq_hz, int volume, int duration_ms) {
+    if (g_snd_tone_handler) {
+        g_snd_tone_handler(channel, freq_hz, volume, duration_ms);
+        return;
+    }
+    if (channel == 0 && volume > 0 && freq_hz > 0) {
+        emu_dsky_beep(duration_ms);
+    }
+}
+
+//=============================================================================
 // Host File Transfer Implementation
 //=============================================================================
 
