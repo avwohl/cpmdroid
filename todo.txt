@@ -17,6 +17,14 @@ What that second round could not do is watch any of it run, which is why
 MANUAL_CHECKS.md gained a section and carries the sightings this file cannot.
 
 
+- [ANY] the bundled offline help under app/src/main/assets/help/ is checked by
+nothing.  romwbw_disks publishes the seven topics and ioscpm has
+tools/check-help-assets.py for its own copy; there is no Android equivalent, so a
+rewritten topic leaves this copy stale silently.  The seven files match
+romwbw_disks/help/ as of 2026-09-18 - that was measured, not assumed.
+  Refiled from romwbw_disks 2026-09-18: its CLAUDE.md names the gap and the check
+belongs beside the copy it guards.
+
 - [ANY] Nothing here ever tells the user that a disk and the selected RomWBW
 release disagree, and the call that could is present and unused.
 romwbwReleaseOfImage is exposed across the JNI boundary and has NO Kotlin caller
@@ -380,3 +388,7 @@ transfer path in both directions, and a versionCode bump, which is why it is
 here and not done - none of that can happen on a machine with no Android SDK.
 NOT VERIFIED AGAINST A MERGED MANIFEST: a dependency could in principle
 re-introduce either, and only a Gradle build prints the merged result.
+
+- [ANY] the index may now carry prerelease:true entries (RomWBW dev snapshots).
+CatalogLoader offers them like any other version; hide them behind a "show
+development snapshots" setting. romwbw_disks docs/CATALOG_SCHEMA.md 2.3.1.
