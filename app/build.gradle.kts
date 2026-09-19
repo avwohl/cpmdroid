@@ -153,9 +153,16 @@ android {
         // and compiled in place out of the sibling checkout by
         // app/src/main/cpp/CMakeLists.txt.
         //
+        // 35 / "1.33" is the first build R8 has ever run on, and it exists
+        // because Play's Console reports DEX code optimization by category and
+        // measured this app's Obfuscation at 2%, under the 25% it names as
+        // affecting "visibility and publishing capabilities". 34 is the build
+        // that was measured, so the fix needs a number of its own whatever
+        // else is true.
+        //
         // A versionCode costs nothing. A record that says the wrong thing does.
-        versionCode = 34
-        versionName = "1.32"
+        versionCode = 35
+        versionName = "1.33"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the
@@ -179,7 +186,32 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 runs, as of 1.33. It had been off since the initial commit,
+            // and CLAUDE.md listed that as the first of four reasons a green
+            // build here proves almost nothing.
+            //
+            // Play asked for it; this is not a cleanup. The Console reports DEX
+            // code optimization by category, measured Obfuscation at 2%, and
+            // says anything under 25% "may impact your visibility and
+            // publishing capabilities". That is a publishing consequence rather
+            // than a lint note, which is why this moved and why the
+            // edge-to-edge warning reported beside it did not - that one is
+            // about bytes in a library this app only takes a theme from, and
+            // CHANGELOG.md's 1.24 entry is the investigation that closed it.
+            //
+            // What it costs: R8 renames everything it is not told to keep, and
+            // JNI binds by name at the first call on a device.
+            // app/proguard-rules.pro is the whole of what it is told, and
+            // verifyJniNamesSurviveR8 below reads R8's own mapping file to
+            // check that the telling worked - because on this project nothing
+            // else can, and a build that gets this wrong is green.
+            //
+            // isShrinkResources is deliberately NOT turned on beside it. It is
+            // a separate switch, it is not what Play measured, and it fails in
+            // a different way - a resource dropped because only a layout names
+            // it is an inflate-time crash, and the layouts here are what the
+            // terminal draws into.
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -210,6 +242,197 @@ android {
     }
 
 }
+
+// A JNI name survives R8, or the app installs and dies at the first call.
+//
+// JniNameParityTest is the guard CLAUDE.md describes and it cannot see this.
+// It compares two SOURCE files, where every name is still spelled out, and
+// passes whatever R8 then does to the DEX. Since 1.33 R8 runs on release
+// builds, so there is a second place a JNI name can be lost and the parity test
+// looks at neither end of it.
+//
+// R8 writes two files this reads, both under build/outputs/mapping/release:
+//
+//   mapping.txt  what was RENAMED. It is how Play retraces a crash, so every
+//                rename is in it by construction. A name absent from it was
+//                not renamed; a name present maps to itself or it moved.
+//   usage.txt    what was REMOVED as unreachable.
+//
+// Neither alone answers the question. A native method missing from mapping.txt
+// is either untouched or gone, and the two have opposite consequences: gone is
+// harmless, because the matching export in libcpmdroid.so is then dead too and
+// no caller exists on either side, while renamed is an UnsatisfiedLinkError on
+// a device at the first call. So this accounts for every declaration against
+// both files rather than inferring from one.
+//
+// Guard on the guard, the same one JniNameParityTest carries, and three of them
+// here because a check that silently reads nothing is the failure this
+// repository keeps finding:
+//
+//   - the `external fun` list must be non-empty, or the regex stopped matching;
+//   - onOutput must be FOUND in mapping.txt, not merely unrenamed - it is the
+//     one JNI name R8 records line numbers for, so it is present in an honest
+//     mapping and absent from a misparsed one;
+//   - R8 must have renamed SOME class somewhere. If it renamed nothing this
+//     would pass a build with obfuscation off, which is the exact state Play
+//     measured at 2% and asked to have fixed.
+val verifyJniNamesSurviveR8 = tasks.register("verifyJniNamesSurviveR8") {
+    group = "verification"
+    description = "Fails a release build if R8 renamed anything JNI binds by name."
+
+    // Named rather than discovered. If AGP renames this task, Gradle throws
+    // UnknownTaskException here, which is the loud end of the two failures
+    // available - the quiet one being a check that runs before R8 and reads the
+    // previous build's mapping.
+    mustRunAfter("minifyReleaseWithR8")
+
+    val engineSource =
+        layout.projectDirectory.file("src/main/java/com/awohl/cpmdroid/EmulatorEngine.kt").asFile
+    val mappingFile = layout.buildDirectory.file("outputs/mapping/release/mapping.txt")
+    val usageFile = layout.buildDirectory.file("outputs/mapping/release/usage.txt")
+    inputs.file(engineSource)
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val mapping = mappingFile.get().asFile
+        val usage = usageFile.get().asFile
+        for (f in listOf(mapping, usage)) {
+            if (!f.isFile) {
+                throw GradleException(
+                    "R8 wrote no $f. This runs after minifyReleaseWithR8 and cannot " +
+                        "check a build that did not minify - if isMinifyEnabled was " +
+                        "turned off, remove this task with it and put the gap back in " +
+                        "CLAUDE.md rather than leaving a check that cannot run."
+                )
+            }
+        }
+
+        val declared = Regex("""external\s+fun\s+(\w+)""")
+            .findAll(engineSource.readText())
+            .map { it.groupValues[1] }
+            .toSortedSet()
+        if (declared.isEmpty()) {
+            throw GradleException(
+                "no `external fun` found in ${engineSource.name} - the regex stopped " +
+                    "matching, and this check was about to pass by comparing nothing."
+            )
+        }
+
+        val mappingLines = mapping.readLines()
+
+        // Did R8 obfuscate at all? A class line reads "<from> -> <to>:".
+        val renamedClasses = mappingLines.count { line ->
+            line.isNotEmpty() && !line.first().isWhitespace() && !line.startsWith("#") &&
+                line.endsWith(":") && line.contains(" -> ") &&
+                line.substringBefore(" -> ") != line.substringAfter(" -> ").dropLast(1)
+        }
+        if (renamedClasses == 0) {
+            throw GradleException(
+                "R8 renamed no class in $mapping. Obfuscation did not happen, which is " +
+                    "the state Play measured at 2% - a JNI check passing here would mean " +
+                    "nothing."
+            )
+        }
+
+        val classPrefix = "com.awohl.cpmdroid.EmulatorEngine -> "
+        val at = mappingLines.indexOfFirst { it.startsWith(classPrefix) }
+        if (at < 0) throw GradleException("EmulatorEngine does not appear in $mapping at all.")
+        val classNow = mappingLines[at].substringAfter(" -> ").trimEnd(':')
+        if (classNow != "com.awohl.cpmdroid.EmulatorEngine") {
+            throw GradleException(
+                "R8 renamed EmulatorEngine to $classNow. Every " +
+                    "Java_com_awohl_cpmdroid_EmulatorEngine_* export in " +
+                    "emu_io_android.cpp is unreachable in this build."
+            )
+        }
+
+        // A block is the indented lines that follow a header. A mapping member
+        // reads "<lines>:<type> <name>(<args>) -> <newName>". R8's own comment
+        // lines are taken with them - the first, "sourceFile", sits flush left
+        // directly under the class line, so stopping at the first unindented
+        // line reads every class block as empty - and they carry no " -> ", so
+        // they drop out below.
+        fun blockAfter(lines: List<String>, header: Int) =
+            lines.drop(header + 1).takeWhile {
+                it.isNotEmpty() && (it.first().isWhitespace() || it.startsWith("#"))
+            }
+
+        val renames = blockAfter(mappingLines, at).mapNotNull { line ->
+            val arrow = line.lastIndexOf(" -> ")
+            if (arrow < 0) return@mapNotNull null
+            val from = line.substring(0, arrow).substringBefore('(').trim().substringAfterLast(' ')
+            from to line.substring(arrow + 4).trim()
+        }.toMap()
+
+        // What R8 deleted. usage.txt lists a wholly removed class on its own
+        // line, and a partly emptied one as "<class>:" plus indented members.
+        val usageLines = usage.readLines()
+        if (usageLines.any { it == "com.awohl.cpmdroid.EmulatorEngine" }) {
+            throw GradleException(
+                "R8 removed EmulatorEngine entirely, per $usage. Nothing can bind to it."
+            )
+        }
+        val usageAt = usageLines.indexOfFirst { it == "com.awohl.cpmdroid.EmulatorEngine:" }
+        val dropped = if (usageAt < 0) emptySet() else blockAfter(usageLines, usageAt)
+            .map { it.substringBefore('(').trim().substringAfterLast(' ') }
+            .toSet()
+
+        if ("onOutput" in dropped) {
+            throw GradleException(
+                "R8 removed onOutput, per $usage. Nothing in Kotlin calls it - " +
+                    "emu_io_android.cpp finds it with GetMethodID - so the keep rule in " +
+                    "app/proguard-rules.pro is gone or stopped matching, and every byte " +
+                    "the guest writes would reach a null method ID."
+            )
+        }
+        val callbackNow = renames["onOutput"]
+            ?: throw GradleException(
+                "onOutput is not under EmulatorEngine in $mapping. It is the one JNI " +
+                    "name R8 records line numbers for, so this is a misparse of the " +
+                    "mapping format rather than a finding about the build."
+            )
+        if (callbackNow != "onOutput") {
+            throw GradleException(
+                "R8 renamed onOutput to $callbackNow, and GetMethodID asks for the name."
+            )
+        }
+
+        val kept = declared - dropped
+        val moved = kept.filter { renames[it] != null && renames[it] != it }
+        if (moved.isNotEmpty()) {
+            throw GradleException(
+                "R8 renamed what JNI binds by name: " +
+                    moved.joinToString(", ") { "$it -> " + renames[it] } +
+                    ". This build installs and throws UnsatisfiedLinkError at the first " +
+                    "call. Fix app/proguard-rules.pro."
+            )
+        }
+        if (kept.isEmpty()) {
+            throw GradleException(
+                "R8 removed all ${declared.size} native declarations. Nothing in this " +
+                    "build reaches the emulator."
+            )
+        }
+
+        // A dropped declaration is reported, not failed: its export in the .so
+        // is dead too. It is worth printing because JniNameParityTest goes on
+        // matching the pair in source long after R8 stopped shipping one.
+        val droppedNatives = declared.intersect(dropped)
+        val tail = if (droppedNatives.isEmpty()) "." else
+            "; " + droppedNatives.size + " dropped as unreachable (" +
+                droppedNatives.joinToString(", ") + ")."
+        logger.lifecycle(
+            "verifyJniNamesSurviveR8: EmulatorEngine and ${kept.size} of " +
+                "${declared.size} native declarations keep their names; onOutput too" + tail
+        )
+    }
+}
+
+// dependsOn rather than finalizedBy: a finalizer runs after the thing it
+// finalizes and cannot stop what follows, so bundleRelease would write the AAB
+// and only then report that it cannot be installed.
+tasks.matching { it.name == "bundleRelease" || it.name == "assembleRelease" }
+    .configureEach { dependsOn(verifyJniNamesSurviveR8) }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")

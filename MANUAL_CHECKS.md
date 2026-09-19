@@ -750,3 +750,46 @@ adb shell dumpsys package com.awohl.cpmdroid | grep primaryCpuAbi   # must say a
       put it.
 - [ ] Reinstall the ordinary way afterwards (`adb install -r` with no `--abi`)
       so the tablet goes back to `arm64-v8a`, and confirm it did.
+
+## 11. The four screens R8 could have emptied, which a script could not open
+
+`isMinifyEnabled` became `true` in 1.33, so a release build is the first one
+whose DEX has been rewritten. **Most of that question is already answered** and
+the answer is in `CHANGELOG.md` under 1.33: a release APK of that build was
+installed on a clean API 36 emulator, fetched the catalog, downloaded and
+verified the ROM and the combo disk, printed the machine banner, booted RomWBW
+3.6.0 to CP/M 2.2 and a `B>` prompt, and carried a keystroke in and 618
+characters of guest output back out. The DEX is identical on all four ABIs, so
+the emulator is a fair witness for that part and no tablet is owed for it.
+
+What is left is the four screens the driver could not reach: **Settings, Help,
+File transfer and About**. Each is its own Activity with its own layout, and R8
+removes what it believes nothing reaches - `MainActivity` opens them through
+`Intent(this, X::class.java)`, which keeps them, but nothing has confirmed that
+by looking.
+
+**Why a script cannot do this one.** `uiautomator dump` gives the toolbar's
+bounds correctly - `Settings` is `[849,73][954,178]` on a 1080x2400 screen - and
+`input tap` on the centre of them changed nothing, twice, with the app focused.
+Going around the UI is not available either, and should not be: the four
+activities are not exported, so `am start -n com.awohl.cpmdroid/.SettingsActivity`
+is refused with a `SecurityException`, which is the manifest being right. So
+this is fingers on glass.
+
+- [ ] Open **Settings**. It must inflate, and the scrollback seek bar, the
+      "Show pre release" box and the disk catalog list must all draw - the last
+      through `DiskCatalogAdapter`, a RecyclerView adapter whose `ViewHolder`
+      the framework reaches for itself. A missing class shows up as an immediate
+      crash, not as a blank row.
+- [ ] Change something that is read back elsewhere - the scrollback size or the
+      font - and confirm it takes effect in the terminal.
+- [ ] Open **Help**, and open a topic. That path fetches and parses the index's
+      help block, so it is the second `org.json` consumer after the catalog.
+- [ ] Open **File transfer** and let it list, which is the same shape again
+      through `FileTransferAdapter`.
+- [ ] Open **About**, and read the line back: it must say `1.33 (35)` with a sha
+      that has **no `+dirty` on it**. A `+dirty` sha means the artifact was built
+      from an uncommitted tree and names a commit that describes something else.
+- [ ] Anything that crashes here: the mapping file is in the AAB at
+      `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map`, and
+      `retrace` turns the stack trace back into names.

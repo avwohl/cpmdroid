@@ -27,7 +27,16 @@ review it. The one file this repository owns is
 
 Four gaps, and they compound:
 
-- `isMinifyEnabled = false` for release, so R8 checks no native binding.
+- **R8 runs on release builds as of 1.33** - `isMinifyEnabled = true`, because
+  Play's Console measured this app's DEX obfuscation at 2% and names anything
+  under 25% as affecting publishing. It renames everything it is not told to
+  keep, and JNI binds by name at the first call on a device, so a green build
+  can now be wrong in a way it could not be before. `app/proguard-rules.pro` is
+  the whole of what it is told; the Gradle task `verifyJniNamesSurviveR8` reads
+  R8's own `mapping.txt` and `usage.txt` after every release build and fails it
+  if the class, a native declaration or the `onOutput` callback moved. That task
+  is itself checked rather than assumed: deleting the `onOutput` keep rule makes
+  R8 **delete the method**, and the build fails.
 - The NDK build cannot see the Kotlin and kotlinc cannot see the C++.
 - A JNI name that does not match is an `UnsatisfiedLinkError` at the first
   call **on a device**, not at build time. Past the *name*, nothing is checked
@@ -46,6 +55,12 @@ files and compares the `native*` / `Java_com_awohl_cpmdroid_EmulatorEngine_*`
 sets in both directions, with a guard-on-the-guard asserting both lists are
 non-empty - because a regex that stopped matching would pass by comparing two
 empty sets. Run `./gradlew :app:test` before believing a JNI change.
+
+It compares two **source** files, so it cannot see R8: every name is still
+spelled out in `EmulatorEngine.kt` whatever the DEX ends up saying. That is
+`verifyJniNamesSurviveR8`'s half, and the two do not overlap - the parity test
+goes on matching a pair in source after R8 has stopped shipping one of them,
+which is why the task prints what it dropped.
 
 Two build-file decisions that are traps if reversed, both in
 `app/build.gradle.kts`: `testImplementation("org.json:json:20231013")` shadows

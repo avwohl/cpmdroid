@@ -1,5 +1,162 @@
 # Changelog
 
+## Version 1.33 (versionCode 35)
+
+**R8 has never run on this app before, and it runs now.** Play's Console reports
+DEX code optimization by category, measured this app's **Obfuscation at 2%**,
+and says anything under 25% "may impact your visibility and publishing
+capabilities" - a publishing consequence, not a lint note. `isMinifyEnabled` had
+been `false` since the initial commit, and `CLAUDE.md` opened its list of
+reasons a green build here proves almost nothing with exactly that line.
+
+It is not a free switch. R8 renames everything it is not told to keep, and this
+app reaches its emulator through JNI, which binds **by name** - the runtime
+mangles the package, the class and the method into
+`Java_com_awohl_cpmdroid_EmulatorEngine_nativeRun` and asks `libcpmdroid.so` for
+that symbol. The `.so` is compiled from `emu_io_android.cpp` and cannot be
+renamed alongside the Kotlin, so a rename on this side is an
+`UnsatisfiedLinkError` at the first call on a device.
+
+The bundle went from 9,093,832 bytes to 7,085,119, and
+`BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` now travels
+inside it, so Play retraces crash reports without anything being uploaded by
+hand.
+
+### The one keep rule nothing else provides, and what happens without it
+
+`proguard-android-optimize.txt` - the default file, which Gradle extracts into
+`build/` - already carries
+`-keepclasseswithmembernames,includedescriptorclasses class * { native <methods>; }`,
+so the 33 `external fun` declarations were never the exposed half. **The
+callback was.**
+
+`emu_io_android.cpp` does `GetMethodID(clazz, "onOutput", "([B)V")` on the
+object it is handed, and nothing in Kotlin calls `onOutput` - it carries
+`@Suppress("unused")` for that reason. To R8 that is an unreachable public
+method, and the rule in `app/proguard-rules.pro` is the only thing standing
+between it and deletion.
+
+Measured rather than reasoned about: with that rule commented out, R8 **deletes
+`onOutput`** - `usage.txt` lists it by name - and nothing in
+`emu_io_android.cpp` checks `GetMethodID`'s answer, so every byte the guest
+wrote would reach `CallVoidMethod` with a null method ID. The app would have
+built, signed, installed and shown a black terminal.
+
+### What R8 removed, which is a finding of its own
+
+`usage.txt` names three members of `EmulatorEngine` that nothing reaches, and a
+grep of `app/src/main/java` agrees with all three:
+
+- `nativeQueueInputString(String)` and its wrapper `queueInputString`
+- `nativeRomwbwReleaseOfImage(byte[])` and its wrapper `romwbwReleaseOfImage`
+- `isRunning()`
+
+Removing them is correct and costs nothing: a native declaration R8 drops leaves
+its export in the `.so` dead too, and no caller exists on either side. It is
+worth writing down because **`JniNameParityTest` will go on matching those two
+pairs in source forever** - it compares `EmulatorEngine.kt` against
+`emu_io_android.cpp`, where both halves are still spelled out, and has no view
+of what shipped.
+
+### verifyJniNamesSurviveR8, which is the DEX end of that check
+
+A new Gradle task in `app/build.gradle.kts`, which `bundleRelease` and
+`assembleRelease` depend on - `dependsOn` rather than `finalizedBy`, because a
+finalizer cannot stop what follows and an AAB that cannot be installed would be
+written before the report arrived.
+
+It reads both files R8 writes, because neither answers the question alone:
+
+- **`mapping.txt`** is what was renamed. Play retraces crashes with it, so every
+  rename is in it by construction, and a name absent from it was not renamed.
+- **`usage.txt`** is what was removed.
+
+A native method missing from `mapping.txt` is either untouched or gone, and the
+two have opposite consequences, so every declaration is accounted for against
+both. Three guards on the guard, in the shape `JniNameParityTest` already uses:
+the `external fun` list must be non-empty; `onOutput` must be **found** in the
+mapping rather than merely unrenamed, since it is the one JNI name R8 records
+line numbers for; and R8 must have renamed *some* class somewhere, or the check
+would be passing a build with obfuscation off - the exact state Play measured.
+
+It reports what it did rather than passing silently:
+
+    verifyJniNamesSurviveR8: EmulatorEngine and 31 of 33 native declarations
+    keep their names; onOutput too; 2 dropped as unreachable
+    (nativeQueueInputString, nativeRomwbwReleaseOfImage).
+
+A release build that did not minify fails it rather than skipping it, so turning
+R8 back off is something someone has to do on purpose.
+
+### Verified on an emulator, which is the half that mattered
+
+The DEX is the same on all four ABIs, so this is a question an emulator can
+answer. A release-signed APK of this build, on a **fresh install** of
+`Medium_Phone_API_36.1` (API 36, x86_64 - the 1.29 debug build that was on it
+was uninstalled, so this was the first-launch path with no stored state):
+
+- The catalog was fetched and parsed: 24 disks, generation 2. That is the
+  `org.json` path, which has no keep rules of its own and would have been the
+  other place to worry.
+- `emu_avw-v0-3.6.0.rom` was chosen from the 2 ROMs published, downloaded and
+  verified, and `hd1k_combo-v0-3.6.0.img` downloaded behind a progress dialog
+  that drew correctly.
+- The machine banner printed `CPMDroid v1.33 (35) <sha>+dirty`, `Starting
+  RomWBW 3.6.0`, `Disk 0: hd1k_combo-v0-3.6.0.img` - the 1.32 feature, seen
+  running for the first time.
+- RomWBW 3.6.0 reached its boot loader, `C` echoed at the prompt, and Enter
+  booted `CBIOS v3.6.0 [WBW]` through `A:=MD0:0` .. `J:=HDSK0:7` to `CP/M-80
+  v2.2, 54.0K TPA` and a `B>` prompt.
+
+That exercises both directions of the JNI surface in the minified build:
+`nativeQueueInput` carried the keystroke in, and logcat's `nativeRun: sending
+618 chars to Java` is `onOutput` carrying the guest's output back. No
+`UnsatisfiedLinkError`, no `NoSuchMethodError`, nothing in logcat from the app
+at all.
+
+**Not verified, and it is in `MANUAL_CHECKS.md`:** Settings, Help, File transfer
+and About. Scripted taps on the toolbar did not open them - `uiautomator` gives
+the right bounds and `input tap` on them changed nothing - and the four
+activities are correctly not exported, so `am start` is refused with a
+`SecurityException`. That is the harness, not the app, and it is the same
+warning the file already carries about driven runs.
+
+### The edge-to-edge warning in the same report is not fixed, on purpose
+
+Play reported `Window.setStatusBarColor` and `setNavigationBarColor` beside the
+obfuscation number, naming `BottomSheetDialog.onCreate`,
+`EdgeToEdgeUtils.applyEdgeToEdge` and `SheetDialog.onCreate`. **That is the investigation and the decision under
+Version 1.24 (versionCode 25), *Play's edge-to-edge warning: not acted on,
+deliberately*, and nothing about it has changed.** All three classes are Material's, none is reachable, the
+app builds no sheet of any kind and takes only a theme parent from
+`com.google.android.material`; upgrading Material was checked by extracting the
+1.12.0, 1.13.0 and 1.14.0 AARs and all three carry the same references; and on
+`targetSdk` 36 the platform forces the bars transparent and ignores the setters,
+so the warning describes bytes rather than behaviour. Only removing Material
+clears it, and five of the six attributes `themes.xml` uses do not exist in
+AppCompat.
+
+What R8 does to those three classes is now measured on this build rather than
+predicted, and it is not nothing: **`BottomSheetDialog` and `SheetDialog` are
+gone entirely** - `usage.txt` lists both - and `EdgeToEdgeUtils` appears in
+`mapping.txt` as `R8$$REMOVED$$CLASS$$148`, which is the class being deleted by
+inlining into `MaterialDatePicker`. That is exactly the shape the 1.24 entry
+described, and `MaterialDatePicker` survives for the reason it gave: it is a
+keep root seeded by fragment's own consumer rules.
+
+So two of the three origins Play named are no longer in the bundle and the third
+is inlined into one that is. Whether the Console still reports it, and under
+which name once it has deobfuscated with the mapping this bundle now carries, is
+a question only the next upload answers - and nothing here changes either way.
+`todo.txt` carries it as `[DELIBERATE, do not report this as a gap again]` so
+the next reader does not open the investigation a third time.
+
+### Resource shrinking is deliberately not turned on beside it
+
+`isShrinkResources` is a separate switch, it is not what Play measured, and it
+fails differently: a resource dropped because only a layout names it is an
+inflate-time crash, and the layouts here are what the terminal draws into.
+
 ## Version 1.32 (versionCode 34)
 
 **Seven commits of application code that no Play user has, and one fix that is
