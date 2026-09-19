@@ -21,7 +21,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_SCROLLBACK_LINES = "scrollback_lines"
         private const val KEY_FIRST_LAUNCH_DONE = "first_launch_done"
         private const val KEY_WARN_MANIFEST_WRITES = "warn_manifest_writes"
-        private const val KEY_SOUND_ENABLED = "sound_enabled"
+        private const val KEY_SHOW_PRERELEASE = "show_prerelease"
+    private const val KEY_SOUND_ENABLED = "sound_enabled"
         private const val KEY_PREFS_VERSION = "prefs_version"
         private const val CURRENT_PREFS_VERSION = 3
         private const val KEY_NVRAM = "nvram"
@@ -477,8 +478,28 @@ class SettingsRepository(context: Context) {
         }
     }
 
-    fun setDiskSlot(slot: Int, filename: String?) {
-        val key = diskSlotKey(slot, selectedRomwbwVersion())
+    /**
+     * Point slot [slot] at [filename], under [romwbwVersion]'s namespace.
+     *
+     * THE RELEASE IS A PARAMETER BECAUSE RESOLVING IT HERE IS A RACE. This used
+     * to read selectedRomwbwVersion() at write time, which is right only when
+     * nothing has moved the selection since the caller decided what it was
+     * writing. MainActivity.downloadDefaultDisk is the case where something
+     * does: it calls loadSelectedCatalog(), which MAY write a new selection,
+     * then suspends for a 49 MB download, then lands the slot - and a write-time
+     * read there files the downloaded disk under whichever release won the race
+     * rather than the one it was downloaded for.
+     *
+     * The default keeps every other caller reading as it did: they write a slot
+     * the user just picked, on a screen that cannot change the release under
+     * them, so "now" and "when I decided" are the same instant.
+     */
+    fun setDiskSlot(
+        slot: Int,
+        filename: String?,
+        romwbwVersion: String = selectedRomwbwVersion()
+    ) {
+        val key = diskSlotKey(slot, romwbwVersion)
         prefs.edit {
             if (filename != null) {
                 putString(key, filename)
@@ -503,6 +524,28 @@ class SettingsRepository(context: Context) {
 
     fun setWarnManifestWritesEnabled(enabled: Boolean) {
         prefs.edit { putBoolean(KEY_WARN_MANIFEST_WRITES, enabled) }
+    }
+
+    /**
+     * Whether the release picker offers RomWBW PRE-RELEASES - index entries
+     * carrying `prerelease: true`, which upstream has not released at all.
+     *
+     * False is the required default, not a taste: CATALOG_SCHEMA.md 2.3 says a
+     * client "MUST NOT offer a prerelease entry by default", so false is also
+     * what an absent key reads as and what every install written before this
+     * says about itself.
+     *
+     * TURNING IT OFF MOVES A MACHINE THAT IS ON ONE. selectRomwbwVersion stops
+     * honouring a stored pre-release preference while this is false, so such a
+     * machine returns to the index default. z80cpmw shipped the other reading
+     * first - the setting governed visibility only - and reversed it when a user
+     * found a -dev release still selected with the box unticked.
+     */
+    fun showPrerelease(): Boolean =
+        prefs.getBoolean(KEY_SHOW_PRERELEASE, false)
+
+    fun setShowPrerelease(show: Boolean) {
+        prefs.edit { putBoolean(KEY_SHOW_PRERELEASE, show) }
     }
 
     fun isSoundEnabled(): Boolean =

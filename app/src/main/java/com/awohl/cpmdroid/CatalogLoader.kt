@@ -63,7 +63,12 @@ suspend fun loadSelectedCatalog(
     // The null arm is unreachable while fetchOfferedVersions refuses an empty
     // list, and is kept because selectRomwbwVersion returns a nullable and the
     // compiler is right to ask. It raises the same failure that would have.
-    val selected = selectRomwbwVersion(offered, preferred)
+    // The opt-in is read here rather than in the picker so that the automatic
+    // choice and the list the user is shown cannot disagree about one machine.
+    // With the box off, a stored pre-release preference is not honoured and this
+    // returns the index default - which is what MOVES a machine off a snapshot
+    // on the next catalog read, with nobody touching a control.
+    val selected = selectRomwbwVersion(offered, preferred, settingsRepo.showPrerelease())
         ?: return Result.failure(CatalogFailure.IndexEmpty())
 
     // The resolved answer is written back, not just worked around. Disk slots

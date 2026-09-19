@@ -140,6 +140,18 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
+        // Show pre release checkbox.
+        //
+        // Set from storage and given its own listener, because this one commits
+        // on toggle rather than in saveSettings() - see onShowPrereleaseToggled.
+        // isPressed is what distinguishes a user's tap from this very line:
+        // setChecked() fires the listener too, and without the guard restoring
+        // the stored value would run the whole move-the-machine path at startup.
+        binding.showPrereleaseCheckbox.isChecked = settingsRepo.showPrerelease()
+        binding.showPrereleaseCheckbox.setOnCheckedChangeListener { button, checked ->
+            if (button.isPressed) onShowPrereleaseToggled(checked)
+        }
+
         // Wrap lines checkbox
         binding.wrapLinesCheckbox.isChecked = currentSettings.wrapLines
 
@@ -711,12 +723,23 @@ class SettingsActivity : AppCompatActivity() {
                     // HBIOS-to-CBIOS pairing rather than anything this
                     // emulator's ROM interface is versioned by. All the filter
                     // could do was hide a row the user could have booted.
-                    if (index.isEmpty()) {
+                    //
+                    // isOffered() is NOT that filter coming back, and the axis is
+                    // the difference: it asks whether upstream has released an
+                    // entry at all, not whether this build could run it. The same
+                    // call decides the automatic choice in selectRomwbwVersion(),
+                    // so the list and the machine cannot disagree.
+                    val offered = index.filter { isOffered(it, settingsRepo.showPrerelease()) }
+                    if (offered.isEmpty()) {
+                        // Either the document names nothing, or it names nothing
+                        // but pre-releases with the box off. Both look the same
+                        // to a user in front of an empty picker, and neither is
+                        // fixed by reconnecting.
                         showRomwbwProblem(CatalogFailure.IndexEmpty())
                     } else {
-                        knownVersions = index
+                        knownVersions = offered
                         updateRomwbwVersionDisplay()
-                        showRomwbwChoices(index)
+                        showRomwbwChoices(offered)
                     }
                 },
                 onFailure = { showRomwbwProblem(it) }
@@ -942,6 +965,80 @@ class SettingsActivity : AppCompatActivity() {
                 onFailure = { showRomwbwProblem(it) }
             )
         }
+    }
+
+    /**
+     * The "Show pre release" box.
+     *
+     * COMMITTED WHEN IT IS TOGGLED, not in saveSettings() at onPause like every
+     * other checkbox on this screen. Two reasons, and the second is the one that
+     * makes it necessary rather than merely nicer: toggling it rearranges the
+     * release picker in front of the user, so it has plainly taken effect before
+     * any commit boundary; and the picker is on THIS screen, so a value that did
+     * not land until onPause would leave the list disagreeing with the box above
+     * it. z80cpmw held its equivalent until OK and a user lost the choice twice.
+     *
+     * TURNING IT OFF MOVES THE MACHINE. A pre-release that stays selected while
+     * the box says pre-releases are hidden is a machine in a state its own
+     * Settings screen denies - which is what a user reported against z80cpmw.
+     * selectRomwbwVersion() already refuses to honour a stored pre-release
+     * preference while the setting is off, so the switch here is what makes the
+     * change visible now rather than at the next catalog read.
+     *
+     * THE SETTING IS COMMITTED BEFORE THE SWITCH THAT CAN FAIL, deliberately. A
+     * failed ROM download leaves the box off and the machine still on the
+     * pre-release for as long as this screen is open, which is the state the
+     * paragraph above says must not exist - and the alternative is worse: the
+     * preference is the user's, not the network's, and reverting the box because
+     * GitHub was unreachable would discard a choice they made and would have to
+     * un-tick a control under their finger. The next loadSelectedCatalog()
+     * closes the window on its own, because selectRomwbwVersion() will not
+     * return a pre-release with the box off.
+     */
+    private fun onShowPrereleaseToggled(show: Boolean) {
+        settingsRepo.setShowPrerelease(show)
+
+        val current = knownVersions.firstOrNull {
+            it.romwbwVersion == settingsRepo.selectedRomwbwVersion()
+        }
+        if (show || current == null || !current.isPrerelease) {
+            // Nothing to move. Only the list changes, and it is rebuilt from the
+            // index already in hand rather than re-fetched: hiding rows is a
+            // filter over data this screen has, and a network round trip behind
+            // a checkbox can fail and leave the two disagreeing.
+            updateRomwbwVersionDisplay()
+            return
+        }
+
+        // On a pre-release with the box now off. The index default is where such
+        // a machine belongs, and downloadRomThenSwitch is the same path the
+        // Change button uses - so the ROM is fetched and verified before the
+        // switch, exactly as it is when the user picks a release by hand. That
+        // is also why nothing here can fall back to another release's ROM: no
+        // path reaches applyRomwbwVersion without a verified ROM for the release
+        // it names.
+        val fallback = knownVersions.firstOrNull { it.isDefault && !it.isPrerelease }
+            ?: knownVersions.firstOrNull { !it.isPrerelease }
+        if (fallback == null) {
+            // An index of nothing but pre-releases. Hiding every row and
+            // stranding the machine are different things; the setting is kept
+            // and the machine is left where it is, said out loud.
+            Toast.makeText(
+                this,
+                "This catalog publishes only pre-releases, so there is nothing to " +
+                    "fall back to. Staying on ${current.label}.",
+                Toast.LENGTH_LONG
+            ).show()
+            updateRomwbwVersionDisplay()
+            return
+        }
+
+        // No preference to clear: the stored release IS the preference here
+        // (KEY_SELECTED_ROMWBW), and applyRomwbwVersion writes the release it
+        // lands on, so the switch below is what moves it. Clearing the key would
+        // also flip hasResolvedRelease() back to false, which means something
+        // else entirely on this port.
+        downloadRomThenSwitch(fallback)
     }
 
     /**

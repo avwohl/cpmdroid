@@ -28,6 +28,7 @@ import androidx.lifecycle.lifecycleScope
 import com.awohl.cpmdroid.data.DiskDownloadManager
 import com.awohl.cpmdroid.data.EmulatorSettings
 import com.awohl.cpmdroid.data.RomFailure
+import com.awohl.cpmdroid.data.releaseOfV0Name
 import com.awohl.cpmdroid.data.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -612,6 +613,69 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * What to say when a mounted image belongs to another RomWBW release.
+     *
+     * Nothing said this before. The release is in every v0 filename and the
+     * selected one is in preferences, so the disagreement was always visible
+     * from here - there was simply no releaseOfV0Name() to read the first out of
+     * a filename, and no line of output that compared the two. A machine could
+     * therefore sit on 3.6.0 with 3.5.1 disks mounted, boot every time, and be
+     * told only by the guest's own CBIOS banner. z80cpmw measured exactly that
+     * state on a real machine on 2026-09-17.
+     *
+     * It is a NOTICE and not a refusal, for the reason the sibling gives: the
+     * pairing is legal, it is what an upgrade leaves behind, and the guest is
+     * what finally says so - this just says it first, somewhere the user can act
+     * on it.
+     *
+     * AND IT NAMES THE REMEDY, which is the half the sibling's version lacks.
+     * When every mismatched disk carries the same release, that release is the
+     * answer and this says so; when they disagree with each other there is no
+     * single right answer and it says that instead rather than inventing one.
+     *
+     * Reading loadedDiskFilenames rather than the settings slots is deliberate:
+     * this reports what is MOUNTED, and a slot whose file was missing or failed
+     * to load is not mounted and has nothing to disagree about.
+     *
+     * A pre-release cannot be named here with its suffix and is not meant to be:
+     * releaseOfV0Name() reads the release out of the FILENAME, which carries the
+     * whole string the catalog published - so a 3.7.0-dev.14 image compares as
+     * 3.7.0-dev.14 and matches a machine on it exactly.
+     */
+    private fun createReleaseMismatchNotice(): ByteArray {
+        val running = settingsRepo.selectedRomwbwVersion()
+        val text = StringBuilder()
+        val disagreeing = mutableListOf<String>()
+
+        loadedDiskFilenames.forEachIndexed { unit, filename ->
+            if (filename == null) return@forEachIndexed
+            val release = releaseOfV0Name(filename) ?: return@forEachIndexed
+            if (release == running) return@forEachIndexed
+            disagreeing.add(release)
+            // Hand-wrapped to 80 columns. processOutput writes these straight
+            // through, so a longer line is folded by the terminal mid-word.
+            text.append("Disk $unit: $filename\r\n")
+            text.append("  is a RomWBW $release image, and this machine is set to " +
+                "RomWBW $running.\r\n")
+            text.append("  The guest will report an HBIOS/CBIOS version mismatch.\r\n")
+        }
+
+        if (disagreeing.isEmpty()) return ByteArray(0)
+
+        val agreed = disagreeing.distinct().singleOrNull()
+        if (agreed != null) {
+            text.append("  Every mismatched disk is RomWBW $agreed. " +
+                "Settings > RomWBW Release\r\n")
+            text.append("  switches to it, fetching that release's ROM first.\r\n")
+        } else {
+            text.append("  These name more than one release, so there is no single " +
+                "right\r\n")
+            text.append("  answer. Settings > RomWBW Release has the picker.\r\n")
+        }
+        return text.toString().toByteArray()
+    }
+
+    /**
      * Load disks from settings, configure slice counts and manifest flags.
      * Shared by loadRomAndDisks() and reloadDisksFromSettings().
      */
@@ -1110,7 +1174,14 @@ class MainActivity : AppCompatActivity() {
                     result.fold(
                         onSuccess = { file ->
                             Log.i(TAG, "Downloaded disk: ${file.absolutePath} (${file.length()} bytes)")
-                            settingsRepo.setDiskSlot(0, defaultDisk.filename)
+                            // The release this disk was fetched FOR, not whichever
+                            // one is selected now. loadSelectedCatalog() above may
+                            // have moved the selection, and the download between
+                            // the two suspends for 49 MB, so letting setDiskSlot
+                            // re-resolve here files the image under the wrong
+                            // release's slots and it comes back as an empty drive.
+                            settingsRepo.setDiskSlot(
+                                0, defaultDisk.filename, selection.selected.romwbwVersion)
                             settingsRepo.markFirstLaunchDone()
                             Toast.makeText(this@MainActivity,
                                 "Downloaded ${defaultDisk.name}", Toast.LENGTH_SHORT).show()
@@ -1122,7 +1193,8 @@ class MainActivity : AppCompatActivity() {
                     )
                 } else if (defaultDisk != null) {
                     Log.i(TAG, "Default disk already downloaded: ${defaultDisk.filename}")
-                    settingsRepo.setDiskSlot(0, defaultDisk.filename)
+                    settingsRepo.setDiskSlot(
+                        0, defaultDisk.filename, selection.selected.romwbwVersion)
                     settingsRepo.markFirstLaunchDone()
                 } else {
                     Log.w(TAG, "No default disk found in catalog (defaultSlot=0)")
@@ -1283,6 +1355,7 @@ class MainActivity : AppCompatActivity() {
 
                     mainHandler.post {
                         terminalView.processOutput(createVersionBanner())
+                        terminalView.processOutput(createReleaseMismatchNotice())
 
                         // updateStatus() repaints both the text and the colour,
                         // which is what takes the orange "ROM needed" state off
@@ -1373,6 +1446,7 @@ class MainActivity : AppCompatActivity() {
                 terminalView.scrollbackLines = settings.scrollbackLines
 
                 terminalView.processOutput(createVersionBanner())
+                terminalView.processOutput(createReleaseMismatchNotice())
                 startEmulation()
 
                 terminalView.post { terminalView.requestFocus() }

@@ -123,6 +123,32 @@
         "NVRAM checksums do not validate across a version change: RomWBW's NVSW_CHECKSUM XORs the version bytes into the seed, so a blob saved under 3.5.1 silently resets under a 3.6.0 ROM. Clients must namespace their NVRAM store per RomWBW version.",
         "Do NOT build from a v3.6.0-dev snapshot. romwbw_emu's archive/romwbw-v3.6.0/SBC_simh_std_v360.rom was deleted 2026-09-05 for this reason: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
       ]
+    },
+    {
+      "romwbw_version": "3.7.0-dev.14",
+      "label": "RomWBW 3.7.0-dev.14 (development snapshot)",
+      "status": "snapshot",
+      "default": false,
+      "released": "2026-09-08",
+      "hbios": {
+        "major": 3,
+        "minor": 7,
+        "update": 0,
+        "patch": 0,
+        "ver_byte": "0x37",
+        "upd_byte": "0x00",
+        "sysver_de": "0x3700"
+      },
+      "release_tag": "v0-romwbw-3.7.0-dev.14",
+      "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.14/catalog-v0-3.7.0-dev.14.json",
+      "catalog_sha256": "127e60953c8bdf4339d048a23744dfef0eee1b372c672824ec36303685461365",
+      "catalog_size": 13262,
+      "generation": 1,
+      "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.14/disks-v0-3.7.0-dev.14.xml",
+      "rom_count": 2,
+      "disk_count": 22,
+      "notes": [],
+      "prerelease": true
     }
   ]
 }

@@ -52,7 +52,23 @@ data class RomwbwVersion(
     val catalogUrl: String,
     val catalogSha256: String,
     val catalogSize: Long,
-    val generation: Int
+    val generation: Int,
+    /**
+     * `prerelease` - upstream does not call this a release.
+     *
+     * True only for a RomWBW pre-release the publisher carries deliberately, and
+     * ABSENT - not false - on every real release, which is why it is read with a
+     * defaulting accessor. CATALOG_SCHEMA.md 2.3 requires that: the field is
+     * emitted only when true, so a released version's index entry stays byte
+     * identical to the one already on its immutable tag, and a reader that
+     * demanded the key would drop every stable release ever published.
+     *
+     * NOT the same thing as [isPreview], which reads `status`. `status` is free
+     * text - section 6 says so - and a client that hid entries by matching
+     * status words would break the first time a new word was published. This has
+     * exactly one meaning and is safe to branch on.
+     */
+    val isPrerelease: Boolean = false
 ) {
     /** True for a release published as not-yet-recommended, which the UI marks. */
     val isPreview: Boolean get() = status.equals(ROMWBW_STATUS_PREVIEW, ignoreCase = true)
@@ -119,6 +135,9 @@ fun parseRomwbwIndex(json: String): List<RomwbwVersion> {
                 // it. Only the preview comparison branches on it.
                 status = entry.optString("status"),
                 isDefault = entry.optBoolean("default", false),
+                // Absent means false, which is what every real release says
+                // about itself - see the note on isPrerelease.
+                isPrerelease = entry.optBoolean("prerelease", false),
                 verByte = verByte,
                 updByte = updByte,
                 catalogUrl = catalogUrl,
@@ -169,11 +188,50 @@ fun parseRomwbwIndex(json: String): List<RomwbwVersion> {
  */
 fun selectRomwbwVersion(
     available: List<RomwbwVersion>,
-    preferred: String?
+    preferred: String?,
+    showPrerelease: Boolean = false
 ): RomwbwVersion? {
     if (available.isEmpty()) return null
+
+    // The user's own choice wins while the index still publishes it AND while it
+    // is a release they have asked to be offered. The second half is what makes
+    // turning the setting off MOVE a machine that is sitting on a pre-release,
+    // rather than leaving it on a release its own picker will not list. It is
+    // applied here rather than at the call sites so that nothing can forget it.
     if (preferred != null) {
-        available.firstOrNull { it.romwbwVersion == preferred }?.let { return it }
+        available.firstOrNull { it.romwbwVersion == preferred && isOffered(it, showPrerelease) }
+            ?.let { return it }
     }
+
+    // Both fallbacks run over the OFFERED entries. The index promises `default`
+    // is never on a pre-release - romwbw_disks' own tools refuse that
+    // combination - so this changes nothing about a well-formed document. It is
+    // here because a fallback is exactly where a pre-release would become
+    // somebody's release by accident.
+    available.firstOrNull { it.isDefault && isOffered(it, showPrerelease) }?.let { return it }
+    available.firstOrNull { isOffered(it, showPrerelease) }?.let { return it }
+
+    // Nothing offered at all: an index of nothing but pre-releases, with the
+    // setting off. Hiding a row from a picker and refusing to run are different
+    // answers, and returning null here would be the second - a hard failure over
+    // a document that is publishing perfectly good pre-releases. So the filter
+    // yields and the ordinary rules decide.
     return available.firstOrNull { it.isDefault } ?: available.first()
 }
+
+/**
+ * Is this entry offered to the user at all?
+ *
+ * A PRE-RELEASE IS NOT, UNLESS ASKED FOR. CATALOG_SCHEMA.md 2.3: a client "MUST
+ * NOT offer a prerelease entry by default - hide it behind an explicit opt-in".
+ *
+ * One place, so the picker and the automatic choice cannot disagree about one
+ * machine - which is the failure the deleted release filter kept producing.
+ *
+ * This is NOT the per-entry filter the comment above selectRomwbwVersion's
+ * predecessor forbids, and the difference is the axis. That one asked whether
+ * this build could run a release the index published, which it always could.
+ * This one asks whether upstream has released it at all.
+ */
+fun isOffered(entry: RomwbwVersion, showPrerelease: Boolean): Boolean =
+    !entry.isPrerelease || showPrerelease

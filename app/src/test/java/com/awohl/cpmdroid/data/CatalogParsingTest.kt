@@ -69,9 +69,16 @@ class CatalogParsingTest {
     //-------------------------------------------------------------------------
 
     @Test
-    fun bothPublishedReleasesAreParsed() {
+    fun everyPublishedEntryIsParsed() {
         val versions = parseRomwbwIndex(index())
-        assertEquals(2, versions.size)
+        // Three since 2026-09-18: 3.5.1, 3.6.0 and the 3.7.0-dev.14 pre-release.
+        // A pre-release is PARSED like any other entry and is not dropped here -
+        // hiding it is isOffered()'s decision, one layer up, and a parser that
+        // discarded it would leave the opt-in with nothing to show.
+        assertEquals(3, versions.size)
+        assertTrue(versions[2].isPrerelease)
+        assertFalse(versions[0].isPrerelease)
+        assertFalse(versions[1].isPrerelease)
 
         val older = versions[0]
         assertEquals("3.5.1", older.romwbwVersion)
@@ -143,7 +150,7 @@ class CatalogParsingTest {
         document.getJSONArray("romwbw_versions").getJSONObject(0).remove("hbios")
 
         val versions = parseRomwbwIndex(document.toString())
-        assertEquals(1, versions.size)
+        assertEquals(2, versions.size)
         assertEquals("3.6.0", versions[0].romwbwVersion)
     }
 
@@ -153,7 +160,7 @@ class CatalogParsingTest {
         document.getJSONArray("romwbw_versions").getJSONObject(1).remove("catalog_url")
 
         val versions = parseRomwbwIndex(document.toString())
-        assertEquals(1, versions.size)
+        assertEquals(2, versions.size)
         assertEquals("3.5.1", versions[0].romwbwVersion)
     }
 
@@ -167,7 +174,7 @@ class CatalogParsingTest {
         entry.getJSONObject("hbios").put("platform_name", "SBC")
 
         val versions = parseRomwbwIndex(document.toString())
-        assertEquals(2, versions.size)
+        assertEquals(3, versions.size)
         assertEquals(0x35, versions[0].verByte)
     }
 
@@ -186,14 +193,76 @@ class CatalogParsingTest {
     }
 
     //-------------------------------------------------------------------------
-    // Which release is selected
-    //
-    // There is no "which releases to offer" question any more, and the test
-    // that asked it - onlyReleasesTheCoreAcceptsAreOffered - went with
-    // runnableRomwbwVersions when romwbw_emu v1.44 deleted
-    // emu_romwbw_release_supported(). Every entry the index publishes is
-    // offered; what is left to decide is which one starts out selected.
+    // Which releases to offer
     //-------------------------------------------------------------------------
+
+    // onlyReleasesTheCoreAcceptsAreOffered() stood here until 2026-09-18. It put
+    // the index through runnableRomwbwVersions against three fake cores, and
+    // both the function and the core symbol behind it are gone - romwbw_emu
+    // v1.44 deleted emu_romwbw_release_supported() because a release number was
+    // never a statement about what the core can execute. Every release a v0
+    // index publishes is offered now, and the ONE kind of entry held back is a
+    // pre-release, which is a different axis entirely.
+
+    @Test
+    fun aPrereleaseIsNotOfferedUnlessAskedFor() {
+        val stable = version("3.6.0", isDefault = true)
+        val snapshot = version("3.7.0-dev.14", isPrerelease = true)
+
+        // A real release is offered whatever the setting says: the opt-in is
+        // about pre-releases and must not become a second way to hide releases.
+        assertTrue(isOffered(stable, showPrerelease = false))
+        assertTrue(isOffered(stable, showPrerelease = true))
+
+        // CATALOG_SCHEMA.md 2.3's "MUST NOT offer a prerelease entry by default".
+        assertFalse(isOffered(snapshot, showPrerelease = false))
+        assertTrue(isOffered(snapshot, showPrerelease = true))
+    }
+
+    @Test
+    fun aStoredPrereleaseChoiceIsHonouredOnlyWhileTheSettingIsOn() {
+        val all = listOf(version("3.6.0", isDefault = true), version("3.7.0-dev.14", isPrerelease = true))
+
+        assertEquals("3.7.0-dev.14",
+            selectRomwbwVersion(all, "3.7.0-dev.14", showPrerelease = true)?.romwbwVersion)
+
+        // THE REVERSAL, and the check that would fail if the old rule came back:
+        // with the setting off, a machine stored on a pre-release returns to the
+        // index default rather than sitting on a release its own picker will not
+        // list. z80cpmw shipped the other reading and had a user report it.
+        assertEquals("3.6.0",
+            selectRomwbwVersion(all, "3.7.0-dev.14", showPrerelease = false)?.romwbwVersion)
+
+        // An ordinary stored release is untouched by any of this.
+        assertEquals("3.6.0", selectRomwbwVersion(all, "3.6.0", showPrerelease = false)?.romwbwVersion)
+    }
+
+    @Test
+    fun anIndexOfNothingButPrereleasesStillYieldsOne() {
+        // Hiding a row from a picker and refusing to run are different answers;
+        // null here would be a hard failure over a perfectly good document.
+        val only = listOf(version("3.7.0-dev.14", isPrerelease = true))
+        assertEquals("3.7.0-dev.14", selectRomwbwVersion(only, null, showPrerelease = false)?.romwbwVersion)
+    }
+
+    /** A minimal entry, so these cases do not depend on the fixture's contents. */
+    private fun version(
+        v: String,
+        isDefault: Boolean = false,
+        isPrerelease: Boolean = false
+    ) = RomwbwVersion(
+        romwbwVersion = v,
+        label = "RomWBW $v",
+        status = if (isPrerelease) "snapshot" else "stable",
+        isDefault = isDefault,
+        verByte = 0x36,
+        updByte = 0x00,
+        catalogUrl = "https://example.invalid/catalog-v0-$v.json",
+        catalogSha256 = "0".repeat(64),
+        catalogSize = 1,
+        generation = 1,
+        isPrerelease = isPrerelease
+    )
 
     @Test
     fun theStoredChoiceWinsWhenItIsStillOnOffer() {

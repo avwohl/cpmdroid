@@ -105,6 +105,33 @@
             android:textSize="12sp"
             android:layout_marginTop="4dp" />
 
+        <!-- The opt-in CATALOG_SCHEMA.md 2.3 requires: romwbw_disks publishes
+             RomWBW pre-releases beside the releases, and a client "MUST NOT
+             offer a prerelease entry by default - hide it behind an explicit
+             opt-in". Directly under the release picker because it decides what
+             that picker may list.
+
+             Unlike every other checkbox on this screen it commits when it is
+             TOGGLED rather than in saveSettings() at onPause - see
+             SettingsActivity. Toggling it rearranges the picker in front of the
+             user, so it has plainly taken effect before any commit boundary. -->
+        <CheckBox
+            android:id="@+id/showPrereleaseCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Show pre release"
+            android:textColor="#AAFFAA"
+            android:buttonTint="#00FF00" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Pre-releases are not releases. Unticking this returns the machine to the catalog default, and the ROM and disks follow."
+            android:textColor="#666666"
+            android:textSize="12sp"
+            android:layout_marginStart="32dp" />
+
         <!-- Catalog index: the one URL this build compiles in, made changeable.
              Everything else - which releases exist, which ROMs and disks each
              has, where they live and what they hash to - is read out of a

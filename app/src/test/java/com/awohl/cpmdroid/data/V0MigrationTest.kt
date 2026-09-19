@@ -312,4 +312,74 @@ class V0MigrationTest {
         assertEquals(publishedPairs.take(4).map { it.second }, result.slots)
         assertEquals(4, result.renamed)
     }
+
+    /*
+     * releaseOfV0Name: the inverse, which this app did not have.
+     *
+     * The cases that matter are the ones where a wrong answer is worse than no
+     * answer, because the caller turns a non-null result into a line of output
+     * telling the user their disk is the wrong release. A false positive there
+     * is a lie about a file the app has no opinion on.
+     */
+
+    @Test
+    fun releaseComesBackOutOfAPublishedName() {
+        assertEquals("3.5.1", releaseOfV0Name("hd1k_combo-v0-3.5.1.img"))
+        assertEquals("3.6.0", releaseOfV0Name("hd1k_games-v0-3.6.0.img"))
+    }
+
+    @Test
+    fun releaseIsReadForStemsTheRenamePassWillNotTouch() {
+        // hd1k_msx exists only under 3.6.0 and is deliberately absent from
+        // CATALOG_DISK_STEMS. Restricting releaseOfV0Name to that set would make
+        // every 3.6.0-only disk answer "no release" and skip the check.
+        // A PRE-RELEASE TAG, which is a hyphen and three letters more than a
+        // release. This answered null until 2026-09-18 - the check was digits
+        // and dots - so the mismatch notice was off for every 3.7.0-dev.14
+        // image, which is the one release where a user cannot see the
+        // difference by eye.
+        assertEquals("3.7.0-dev.14", releaseOfV0Name("hd1k_combo-v0-3.7.0-dev.14.img"))
+        assertEquals("3.7.0-dev.14", releaseOfV0Name("hd1k_games-v0-3.7.0-dev.14.img"))
+        // And a stem that is not a release at all is still refused.
+        assertNull(releaseOfV0Name("hd1k_combo-v0-notarelease.img"))
+
+        assertEquals("3.6.0", releaseOfV0Name("hd1k_msx-v0-3.6.0.img"))
+        assertEquals("3.6.0", releaseOfV0Name("hd1k_infocom-v0-3.6.0.img"))
+    }
+
+    @Test
+    fun roundTripsWithTheForwardDirection() {
+        publishedPairs.forEach { (_, v0) ->
+            assertEquals(V0_LEGACY_ROMWBW, releaseOfV0Name(v0))
+        }
+    }
+
+    @Test
+    fun aNameCarryingNoReleaseAnswersNull() {
+        assertNull(releaseOfV0Name("hd1k_combo.img"))
+        assertNull(releaseOfV0Name("hd1k_combo-v0-.img"))
+        assertNull(releaseOfV0Name("hd1k_combo-v0-3.5.1.bin"))
+        assertNull(releaseOfV0Name("hd1k_combo-v0-3.5.1"))
+        assertNull(releaseOfV0Name(".img"))
+        assertNull(releaseOfV0Name(""))
+    }
+
+    @Test
+    fun aUserNamedFileIsNotReportedAsARelease() {
+        // The false-positive guard. Without the digits-and-dots rule these read
+        // as the releases "mine", "backup" and "3.5.1b", and the user is then
+        // told their own file is the wrong RomWBW version.
+        assertNull(releaseOfV0Name("hd1k_combo-v0-mine.img"))
+        assertNull(releaseOfV0Name("hd1k_combo-v0-backup.img"))
+        assertNull(releaseOfV0Name("hd1k_combo-v0-3.5.1b.img"))
+        assertNull(releaseOfV0Name("hd1k_combo-v0-.3.5.1.img"))
+        assertNull(releaseOfV0Name("hd1k_combo-v0-3.5.1..img"))
+    }
+
+    @Test
+    fun theLastMarkerWins() {
+        // Same rule as the forward direction, which appends its own marker: a
+        // stem that already contains one must not shadow it.
+        assertEquals("3.6.0", releaseOfV0Name("hd1k-v0-3.5.1-v0-3.6.0.img"))
+    }
 }

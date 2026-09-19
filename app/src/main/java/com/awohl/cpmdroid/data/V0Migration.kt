@@ -134,6 +134,75 @@ fun v0NameOf(storedName: String): String? {
 }
 
 /**
+ * The RomWBW release [storedName] carries, or null when it names none.
+ *
+ * The inverse of [v0NameOf], and the thing this file did not have. v0NameOf
+ * goes one way only and hardcodes [V0_LEGACY_ROMWBW], so until now nothing in
+ * this app could read a release back out of a filename - which meant nothing
+ * could notice that a mounted image belongs to a different release than the
+ * machine is set to. z80cpmw has carried the same function as
+ * `diskv0::releaseOfV0Name` for exactly that reason.
+ *
+ * Deliberately NOT restricted to [CATALOG_DISK_STEMS]. That set is the twenty
+ * stems the rename pass may TOUCH, which is a far narrower question than which
+ * names carry a release: `hd1k_msx-v0-3.6.0.img` is not in it and is a
+ * perfectly ordinary 3.6.0 catalog image. Restricting here would make every
+ * 3.6.0-only disk answer "carries no release" and silently skip the check that
+ * this function exists to make possible.
+ *
+ * The release must be digits and dots, starting and ending with a digit. A
+ * user's own `hd1k_combo-v0-mine.img` otherwise reads as the release "mine" and
+ * is then reported as disagreeing with every real one, which is a false alarm
+ * about a file the app has no business having an opinion on.
+ */
+fun releaseOfV0Name(storedName: String): String? {
+    val dot = storedName.lastIndexOf('.')
+    if (dot <= 0 || dot == storedName.length - 1) return null
+    if (storedName.substring(dot) != DISK_EXTENSION) return null
+
+    val stem = storedName.substring(0, dot)
+    // The LAST marker, matching the forward direction, so a stem that itself
+    // contains "-v0-" cannot shadow the one this function appended.
+    val marker = stem.lastIndexOf(V0_INFIX)
+    if (marker <= 0) return null
+
+    val release = stem.substring(marker + V0_INFIX.length)
+    if (release.isEmpty()) return null
+
+    // DIGITS AND DOTS IS TOO NARROW, and it was silently wrong rather than
+    // loudly wrong. A RomWBW release tag is whatever upstream published, and
+    // since 2026-09-18 that includes a PRE-RELEASE: "3.7.0-dev.14", which
+    // carries a hyphen and three letters. The old test rejected it, so every
+    // hd1k_*-v0-3.7.0-dev.14.img answered null and every caller silently
+    // concluded the file was not a v0 name at all - which switches OFF the
+    // release-mismatch notice this function exists to feed, on exactly the
+    // release where a mismatch is hardest for a user to spot by eye.
+    //
+    // Still anchored on a digit, because that is what distinguishes a release
+    // from a stem that happens to contain the marker; the rest is deliberately
+    // permissive, since the tag is upstream's to shape and not this app's to
+    // predict. CATALOG_SCHEMA.md 2.3.1 says of it: "romwbw_version carries the
+    // full upstream tag - but do not parse it as three numbers."
+    // SEMVER-SHAPED, and the hyphen is what does the work. The core version is
+    // digits and dots; everything after the FIRST hyphen is a pre-release
+    // identifier, which is how 3.7.0-dev.14 differs from a user's 3.5.1b.
+    val hyphen = release.indexOf('-')
+    val core = if (hyphen < 0) release else release.substring(0, hyphen)
+    val suffix = if (hyphen < 0) "" else release.substring(hyphen + 1)
+
+    if (core.isEmpty()) return null
+    if (!core.all { it.isDigit() || it == '.' }) return null
+    if (!core.first().isDigit() || !core.last().isDigit()) return null
+
+    // A bare trailing hyphen names no pre-release, and a suffix is otherwise
+    // upstream's to shape - 2.3.1 says the tag is not to be parsed as numbers.
+    if (hyphen >= 0 && (suffix.isEmpty() || !suffix.all { it.isLetterOrDigit() || it == '.' })) {
+        return null
+    }
+    return release
+}
+
+/**
  * What one run of [migrateDiskNames] did.
  *
  * [complete] is the only field the caller must act on: it is false when
