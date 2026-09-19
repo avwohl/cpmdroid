@@ -406,6 +406,20 @@ against the 3.6.0 catalog, and this app has no metered-connection awareness at
 all - no ConnectivityManager, no isActiveNetworkMetered - while showDownloadConfirmation
 already asks before fetching a single disk.  z80cpmw downloads silently.  Ask
 once naming the size is the house style here.
+  THE FOUR RULES THE DELETED HELPER GOT RIGHT, written down because the code is
+gone and these are the part worth keeping.  (1) Name the disks BY CATALOG ID -
+hd1k_combo then hd1k_games - and never by filename: the filename is the part that
+moves, hd1k_combo-v0-3.5.1.img becoming hd1k_combo-v0-3.7.0-dev.14.img the moment
+the release changes, and CATALOG_SCHEMA.md 6.1 asks a client to key on the id for
+exactly that reason.  Both ids exist in all three published releases, measured
+2026-09-18.  (2) Fill EMPTY slots only; an occupied slot is left exactly as it is,
+which is the rule a version switch must never break.  (3) An image that is not
+downloaded is NAMED, not fetched - that is what the question above is about.
+(4) The catalog nominates no default DISK to read this from: a roms[] entry
+carries default:true, a disks[] entry carries no equivalent in the schema or in
+any published document, so the list is this application's own and has to be
+written down rather than derived.  See the next item for the field that looks
+like it would answer this and does not.
 
 - [ANDROID DEVICE] Start names no RomWBW release in the terminal; it goes to
 Logcat only.  createReleaseMismatchNotice() now prints when a MOUNTED image
@@ -423,3 +437,25 @@ JNI export, so it lands on the same commit as the Kotlin declaration and the
 JniNameParityTest list.  A pre-release cannot be named from it either way: the
 two HCB bytes spell 3.7.0 for a 3.7.0-dev.14 ROM, so the suffix exists only in
 the catalog string and in the v0 filename releaseOfV0Name() reads.
+
+- [ANY] the first-launch path reads defaultSlot as "this is the starter disk",
+and that is not what the field means.  MainActivity picks the disk with
+catalog.disks.find { it.defaultSlot == 0 } and mounts it in slot 0.
+romwbw_disks docs/CATALOG_SCHEMA.md 3.3 is explicit: defaultSlot "is the slice a
+client should boot from when it mounts this image with no other instruction", an
+index INSIDE hd1k_combo, and it says nothing about which disk is a starter or
+which drive anything belongs in.  It exists only on hd1k_combo and its only
+published value is 0, so the find lands on hd1k_combo - the right outcome for the
+wrong reason.
+  The failure this would produce is NOT the one the sibling has, and that is
+worth knowing before fixing either: ioscpm reads the same field as a DRIVE number
+and a published 3 would mount combo in drive 3 leaving drive 0 empty (filed in
+that port's todo.txt, 2026-09-18).  Here a published value other than 0 - combo
+gaining a different boot slice, which the schema permits since the field's whole
+purpose is to name one - makes find return null, and a first launch then
+nominates no starter disk at all and downloads nothing.  The comment above the
+call already says "no entry carrying it is a catalog that simply nominates no
+starter disk, not an error", which is true of an ABSENT field and would silently
+become the behaviour for a PRESENT one.
+  What it should key on instead is the id, hd1k_combo, the same way the item
+above says to - not a slice index that happens to be zero.
