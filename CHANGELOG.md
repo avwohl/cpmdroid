@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+### "Show pre release": the index publishes development snapshots, and they are opt-in
+
+romwbw_disks published `3.7.0-dev.14` with `prerelease: true` on 2026-09-08, and
+`CATALOG_SCHEMA.md` 2.3 says a client **MUST NOT** offer such an entry by default
+- "hide it behind an explicit opt-in". With the release filter gone (the entry
+below) this app offered it like any other release, which is the one thing the
+schema forbids.
+
+`RomwbwVersion.isPrerelease` reads the key with a defaulting accessor, because it
+is emitted only when true: a released version's index entry has to stay byte
+identical to the one already on its immutable tag, so a reader that demanded the
+key would drop every stable release ever published. `isOffered(entry,
+showPrerelease)` is the single gate, and both the picker and
+`selectRomwbwVersion()` go through it - one place, so the list a user is shown
+and the release the app picks on its own cannot disagree about one machine, which
+is the failure the deleted filter kept producing.
+
+**It is NOT the release filter coming back, and the axis is the difference.**
+That one asked whether this build could run a release the index published, which
+it always could. This asks whether upstream has released it at all.
+
+**Unticking MOVES the machine.** `selectRomwbwVersion()` refuses to honour a
+stored pre-release preference while the setting is off, so a machine left on a
+snapshot returns to the index default at the next catalog read with nobody
+touching a control; `onShowPrereleaseToggled` does it immediately as well, through
+the same `downloadRomThenSwitch` the Change button uses, so the ROM is fetched and
+verified first and no release ever runs against another's ROM. z80cpmw shipped the
+other reading - the box governed visibility only - and reversed it two builds
+later when a user found a `-dev` release still selected with the box off. The
+setting is committed on the tap rather than at a Save boundary, because the list
+it rearranges is on the same screen; z80cpmw held its equivalent until OK and a
+user lost the choice twice.
+
+The one deliberate exception, commented where it lives: if the index publishes
+nothing but pre-releases, the final fallback takes one rather than returning no
+release at all. Hiding a row from a picker and refusing to boot are different
+answers, and the second would be a hard failure over a document that is
+publishing perfectly good pre-releases.
+
+**A start-up notice when a mounted disk belongs to another release.**
+`releaseOfV0Name()` reads the release out of a v0 filename - the inverse of
+`v0NameOf` that did not exist - and `createReleaseMismatchNotice()` compares it
+against the selected release for every MOUNTED image, printing before the guest
+takes the screen. It names the remedy when every mismatched disk agrees on one
+release, and says there is no single answer when they do not. A notice and not a
+refusal: the pairing is legal and is what an upgrade leaves behind, and until now
+the only thing that said so was the guest's own `*** WARNING: HBIOS/CBIOS Version
+Mismatch ***`.
+
+**The first-launch disk download now pins the slot to the release it fetched
+for.** `setDiskSlot` grew a third parameter defaulting to the current selection;
+the first-launch path passes the release from the catalog it just read, because
+`loadSelectedCatalog()` can move the selection across a 49 MB download and
+re-resolving afterwards files the image under the wrong release's slot keys,
+where it comes back as an empty drive.
+
+**BUILT AND UNIT-TESTED ON THIS MACHINE; NOT RUN ON A DEVICE, AND NOT SEEN BY A
+PERSON.** `:app:test` and `assembleDebug` both ran here, so kotlinc and the NDK
+have seen every line - but no APK from this tree has been installed, nothing
+below has been watched happening, and `MANUAL_CHECKS.md` section 7 check 3a is
+the whole of what stands in for that. The entry below was written on a machine
+that had no Android SDK at all and says so; that is still true of the work it
+describes and is why this note is here rather than as an edit to it.
+
+**Reconciled from two independent implementations.** This tree and `origin/master`
+both deleted the release filter on 2026-09-18, in different sessions that could
+not see each other. The pushed side was the more complete removal and is what
+survived; this entry is the part only the local side had. What the local side also
+had and is NOT here: a second spelling of `CatalogFailure.IndexEmpty`, a
+`fetchVersions` that `origin` had already renamed, its own copy of the two sound
+symbols, and `fillEmptySlotsWithDefaults()` - which was dead code as written and
+is in `todo.txt` with the measurement that says why.
+
 ### The RomWBW release filter is gone: every published release is offered
 
 romwbw_emu v1.44 (`a6fa3db`) deleted its compile-time release allowlist and
@@ -42,7 +115,9 @@ Settings' message changed with it: "This needs a newer CPMDroid, not a better
 connection" was advice for a condition that cannot happen now.
 
 **What the user sees.** The release picker lists every entry the index
-publishes, with nothing dropped and nothing greyed out. The Catalog Index dialog
+publishes, with nothing greyed out - less a `prerelease` entry, which the
+"Show pre release" opt-in below holds back and which is a different question
+entirely: not "can this build run it" but "has upstream released it". The Catalog Index dialog
 says "publishes N RomWBW release(s)" instead of "N release(s) this build can
 run". About says `RomWBW release: 3.6.0` where it said `3.6.0 selected, core
 supports 3.5.1, 3.6.0`, and the launch line in logcat loses its `; core supports

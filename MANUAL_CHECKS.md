@@ -340,9 +340,14 @@ know it will report it as a loss.
 3. **The version picker, and what each row says.** Settings -> RomWBW Release
    -> Change. **Every release the index publishes must be listed, with none
    greyed out, none missing, and no row saying anything about what this build
-   supports.** The picker used to drop entries the core would not load a ROM
-   for; romwbw_emu v1.44 removed the question, so a row missing here now means
-   the index did not publish it. Each row reads the release's label,
+   supports - EXCEPT a `prerelease` entry, which is absent until "Show pre
+   release" is ticked.** The picker used to drop entries the core would not load
+   a ROM for; romwbw_emu v1.44 removed the question, so a row missing here now
+   means either the index did not publish it or it is a pre-release with the box
+   off. The published index carries one today - 3.7.0-dev.14 - so this check has
+   a live example of each: with the box off the list is 3.5.1 and 3.6.0, with it
+   on the snapshot joins them. A row that is greyed out rather than absent is a
+   regression; so is a stable release that disappears when the box is unticked. Each row reads the release's label,
    then its published `status` - or `PREVIEW - not yet recommended` where the
    index says so - then `ROM will be downloaded` before that release's ROM has
    been fetched and `ROM downloaded` after. **No row may say anything about a
@@ -357,6 +362,25 @@ know it will report it as a loss.
 
    Read the note under the row before opening the dialog, too. It says whether
    this release's ROM is on the device and which file it boots.
+
+3a. **"Show pre release", both directions, and NOBODY HAS RUN THIS.** Settings.
+   With the box off, open the picker and confirm 3.7.0-dev.14 is absent. Tick the
+   box - the box commits on the tap, not at a Save boundary, so leaving the screen
+   must not be needed - reopen the picker, confirm the snapshot is there, and
+   select it. Confirm the ROM is fetched and verified before the switch, exactly
+   as for any other release, and that the About dialog then names 3.7.0-dev.14.
+   **Now untick the box.** The machine must MOVE to the index default, fetching
+   that release's ROM first; a machine left on a snapshot with the box off is the
+   defect this behaviour exists to prevent, and it is what a user reported against
+   z80cpmw. Then tick it again and confirm the snapshot's disk slots are still
+   there - slots are keyed per release and nothing is deleted, so leaving and
+   returning must be lossless.
+   Two things that cannot be checked on this machine and want watching: a failed
+   ROM download while unticking leaves the box off and the machine still on the
+   snapshot until the next catalog read, which is deliberate and documented on
+   `onShowPrereleaseToggled`; and an index publishing nothing BUT pre-releases
+   should leave the machine where it is and say so in a toast rather than strand
+   it.
 
 4. **A release switch loses nothing.** With all four slots assigned under the
    release the device is on, switch to the other one - 3.6.0 to 3.5.1, on a

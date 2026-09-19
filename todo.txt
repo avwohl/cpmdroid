@@ -389,6 +389,37 @@ here and not done - none of that can happen on a machine with no Android SDK.
 NOT VERIFIED AGAINST A MERGED MANIFEST: a dependency could in principle
 re-introduce either, and only a Gradle build prints the merged result.
 
-- [ANY] the index may now carry prerelease:true entries (RomWBW dev snapshots).
-CatalogLoader offers them like any other version; hide them behind a "show
-development snapshots" setting. romwbw_disks docs/CATALOG_SCHEMA.md 2.3.1.
+- [ANDROID DEVICE] a release switch fills no empty disk slot, and the code that
+was written to do it could not have.  fillEmptySlotsWithDefaults() and
+DEFAULT_DISK_IDS were written on 2026-09-18 and are NOT in the tree, deliberately:
+the helper reads cachedSelection and applyRomwbwVersion clears it one line before
+calling, so it returned an empty list on every call and no slot was ever filled -
+and reordering those two lines does not fix it.  Every write of cachedSelection
+comes from loadSelectedCatalog(), which loads the catalog of the release that is
+selected NOW; applyRomwbwVersion sets the new release first, so the guard
+comparing the cached selection against the release being switched TO can only
+match if the new release's catalog has already been fetched.  Doing this properly
+means an async catalog load on the switch path, which is the work.
+  Then the question that was left open before any of it: a switch that fetches
+what is missing spends 49 MB (hd1k_combo) or 57 MB with hd1k_games, measured
+against the 3.6.0 catalog, and this app has no metered-connection awareness at
+all - no ConnectivityManager, no isActiveNetworkMetered - while showDownloadConfirmation
+already asks before fetching a single disk.  z80cpmw downloads silently.  Ask
+once naming the size is the house style here.
+
+- [ANDROID DEVICE] Start names no RomWBW release in the terminal; it goes to
+Logcat only.  createReleaseMismatchNotice() now prints when a MOUNTED image
+disagrees with the selected release, which is the case that matters, but a
+machine whose disks agree is told nothing.  The About dialog names the selected
+release and logRomwbwSelection() writes it to Logcat, and neither is somewhere a
+user looks at boot.
+
+- [ANY] the About dialog and createReleaseMismatchNotice() both name the SELECTED
+release, and neither asks what is actually in bank 0.  emu_romwbw_release_loaded()
+(romwbw_emu src/emu_init.h) reports the release of the ROM the machine booted,
+which is the one honest answer to "what is this machine running" and the only one
+that would catch a ROM that verified against the wrong release.  It needs a new
+JNI export, so it lands on the same commit as the Kotlin declaration and the
+JniNameParityTest list.  A pre-release cannot be named from it either way: the
+two HCB bytes spell 3.7.0 for a 3.7.0-dev.14 ROM, so the suffix exists only in
+the catalog string and in the v0 filename releaseOfV0Name() reads.
