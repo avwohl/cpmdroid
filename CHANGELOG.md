@@ -93,13 +93,19 @@ Built with no override, from a clean tree, and checked rather than trusted:
   `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` is in it, so
   Play retraces crashes with no hand upload.
 
-**One thing this tree cannot answer: whether Play has already SEEN versionCode
-36.** The unsigned bundle at 36 was built to be uploaded, and an upload Play
-refused for want of a signature may still have registered the number - the
-Console's App bundle explorer is the only place that says, and
-`check-store-version.sh` cannot, because it reads what Play SERVES. If 36 is
-refused as already seen, the answer is 37 and a new entry, not a second attempt
-at this one.
+**36 was free, and it is spent now.** The open question here was whether Play
+had already seen the number: the unsigned bundle at 36 was built to be uploaded,
+and a refused upload may still register one. It had not. The signed bundle was
+accepted on **2026-09-19** and the Console reports it processing for release, so
+the App bundle explorer never had to be consulted and 37 is the next free
+number.
+
+**Processing is not serving.** Measured the same day, after the upload was
+accepted: `tools/check-store-version.sh` reports Play serving **1.31**,
+versionCode 33 - so 1.32, 1.33 and 1.34 have reached no user. Uploaded is not
+released, released is not rolled out, and rolled out is not installed. What
+moves this record is that script's output on a later day and nothing written
+here; `todo.txt` holds the item until it reads 1.34.
 
 ## Version 1.33 (versionCode 35)
 

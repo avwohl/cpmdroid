@@ -71,21 +71,21 @@ applyRomwbwVersion" switches the machine to a release it has no ROM for.
 NOBODY HAS SEEN THE NEW TERMINAL RUN
 -------------------------------------
 
-- [ANY, NEEDS NETWORK] 1.34 / versionCode 36 HAS NOT BEEN SERVED BY PLAY and
-nothing in this tree may say it shipped until it is.  Uploaded is not released,
-released is not rolled out, and rolled out is not installed.  The measurement is
-the only thing allowed to move the record:
+- [ANY, NEEDS NETWORK] 1.34 / versionCode 36 WENT INTO PLAY PROCESSING ON
+2026-09-19 and nothing in this tree may say it shipped until Play serves it.
+Uploaded is not released, released is not rolled out, and rolled out is not
+installed.  The measurement is the only thing allowed to move the record:
 
     sh tools/check-store-version.sh
 
-While it still reports 1.31 there is nothing to do.  When it reports 1.34, this
-file loses this item and CHANGELOG.md's 1.34 entry stops saying nothing here
-says it shipped.  Nothing else is owed, and there used to be: the script
-compared its measurement against a shipped: field in another repository's
-document, which is gone as of 2026-09-13 along with every reader of it.  The
-script says so where the comparison used to stand - grep it for "is NOT
-consulted".  The reading is the whole answer and the date it was taken is the
-whole of its authority.
+Measured 2026-09-19, after the upload was accepted: it reports 1.31.  While it
+still does there is nothing to do.  When it reports 1.34, this file loses this
+item and CHANGELOG.md's 1.34 entry stops saying nothing here says it shipped.
+Nothing else is owed, and there used to be: the script compared its measurement
+against a shipped: field in another repository's document, which is gone as of
+2026-09-13 along with every reader of it.  The script says so where the
+comparison used to stand - grep it for "is NOT consulted".  The reading is the
+whole answer and the date it was taken is the whole of its authority.
 
   34 and 35 are skipped rather than served.  34 was built and signed on
 2026-09-19 and Play's Console reported its DEX obfuscation at 2% the same day,
@@ -100,12 +100,11 @@ both and says which is which.  Do not "fix" the build file over the unsigned
 one: nothing in it selects that, the state came from a -P override on the
 command line.
 
-  BEFORE UPLOADING 36, check the App bundle explorer.  An unsigned bundle at
-this versionCode was built to be uploaded, and Play refuses a number it has
-merely SEEN - which a refused upload may or may not have made it.  This is not
-measurable from here and check-store-version.sh cannot answer it: it reads what
-Play SERVES.  If 36 is refused, take 37 and write a new entry rather than
-retrying this one.
+  That item is closed rather than deleted, because the answer is the useful
+part: this file said to check the App bundle explorer before uploading 36, since
+the unsigned bundle built at that number might have made Play SEE it.  It had
+not - the signed bundle was accepted on 2026-09-19.  So a refused upload did not
+spend the number, which is one data point and not a rule.  37 is next.
 
   The predecessor of this item closed on measurement, and the closing is worth
 keeping: 1.31 went into review on 2026-09-10 against a reading of 1.25, and the
