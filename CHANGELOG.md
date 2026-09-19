@@ -2,13 +2,15 @@
 
 ## Version 1.34 (versionCode 36)
 
-**1.33's code under a number Play has not seen, built unsigned on purpose.** No
-app code changed and no test moved: 79 tests, 0 failures, and
-`verifyJniNamesSurviveR8` reports the same 31 of 33 native declarations kept
-with `onOutput` beside them. The number moved because 35 was built and handed
-over, and whether Play has *seen* it is not answerable from this tree - the
-store check reads what Play SERVES, and a versionCode it has merely seen is
-invisible to that reading and fatal to an upload.
+**1.33's code under a number Play has not seen, built twice at one
+versionCode - unsigned first, on purpose, and then signed.** The signed bundle
+is the one that goes to Play; the unsigned one is below because what it took to
+build it found a defect. No app code changed and no test moved: 79 tests, 0
+failures, and `verifyJniNamesSurviveR8` reports the same 31 of 33 native
+declarations kept with `onOutput` beside them. The number moved because 35 was
+built and handed over, and whether Play has *seen* it is not answerable from
+this tree - the store check reads what Play SERVES, and a versionCode it has
+merely seen is invisible to that reading and fatal to an upload.
 
 ### An unsigned bundle was not buildable, and the reason was worth finding
 
@@ -75,6 +77,29 @@ commit builds signed with the override dropped:
 The identity in the artifact does not move with the signature:
 `BuildConfig.GIT_SHA` and `SOURCE_DATE` come from git, so the signed rebuild of
 this commit is the same build wearing a signature.
+
+### The signed bundle, which is the one to upload
+
+Built with no override, from a clean tree, and checked rather than trusted:
+
+- `:app:signingReport` reports the release variant on
+  `C:\aw\keys\amwoh-android.keystore`, alias **amwoh**, SHA-256
+  `0E:F5:68:FE:0F:04:74:7E:F2:42:0C:FB:8E:83:00:1D:AF:76:22:D6:DB:C0:52:94:C8:63:0E:E1:86:B7:20:70`.
+- `jarsigner -verify` says **jar verified**, signed by
+  `CN=amwoh, OU=Personal, O=amwoh, L=Unknown, ST=Unknown, C=US`. The PKIX and
+  self-signed warnings beside it are what an upload key looks like and are not a
+  finding.
+- All four ABIs are present, and
+  `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` is in it, so
+  Play retraces crashes with no hand upload.
+
+**One thing this tree cannot answer: whether Play has already SEEN versionCode
+36.** The unsigned bundle at 36 was built to be uploaded, and an upload Play
+refused for want of a signature may still have registered the number - the
+Console's App bundle explorer is the only place that says, and
+`check-store-version.sh` cannot, because it reads what Play SERVES. If 36 is
+refused as already seen, the answer is 37 and a new entry, not a second attempt
+at this one.
 
 ## Version 1.33 (versionCode 35)
 
