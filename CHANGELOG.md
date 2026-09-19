@@ -17,7 +17,7 @@ that symbol. The `.so` is compiled from `emu_io_android.cpp` and cannot be
 renamed alongside the Kotlin, so a rename on this side is an
 `UnsatisfiedLinkError` at the first call on a device.
 
-The bundle went from 9,093,832 bytes to 7,085,119, and
+The bundle went from 9,093,832 bytes to 7,085,113, and
 `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` now travels
 inside it, so Play retraces crash reports without anything being uploaded by
 hand.
