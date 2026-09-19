@@ -613,6 +613,78 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * What this machine is about to run, said before it runs.
+     *
+     * PARITY WITH z80cpmw, whose MainWindow::startEmulator prints
+     * "Starting RomWBW <release> - <rom>" and then one "  Disk N: <file>" line
+     * per mounted unit, after its own screen clear and before the core starts.
+     * Until this existed the only thing CPMDroid said at boot was its own
+     * version, and the release, the ROM and the four slots went to Logcat -
+     * where a user cannot see them and a bug report does not carry them.
+     *
+     * THE SELECTED RELEASE, NOT THE ROM'S OWN CLAIM, and that is deliberate
+     * rather than a shortcut. The two HCB bytes in a ROM spell three numbers, so
+     * a machine on 3.7.0-dev.14 would report "3.7.0" if this asked the bytes -
+     * the suffix exists only in the catalog string and in the v0 filename.
+     * z80cpmw prefers its configured tag for the same reason and says so.
+     * Asking what is actually in bank 0 is emu_romwbw_release_loaded(), which
+     * has no JNI export here; todo.txt owns that and it must land with its
+     * Kotlin declaration and its JniNameParityTest entry, not folded in here.
+     *
+     * ONE SOURCE FOR THE RELEASE. This reads settingsRepo.selectedRomwbwVersion(),
+     * the same call [createReleaseMismatchNotice] makes, so the two blocks cannot
+     * put different release numbers on one screen three lines apart.
+     * lastRomwbwVersion is NOT that source: it records the release the loaded
+     * BYTES are for, which is a different question.
+     *
+     * Two of z80cpmw's rules have no counterpart here and are deliberately not
+     * ported. It reduces each disk to a basename because one of its slots may
+     * hold a path the user browsed to; a slot here is always a bare stored name,
+     * so there is nothing to reduce. And it suppresses the whole line when no
+     * release is known - unreachable here, because selectedRomwbwVersion() falls
+     * back to V0_LEGACY_ROMWBW and, more to the point, nothing reaches this
+     * function without a ROM that a claim for that release verified.
+     *
+     * Reading loadedDiskFilenames rather than the settings slots, for the reason
+     * [createReleaseMismatchNotice] gives: this reports what is MOUNTED. A slot
+     * naming a file that did not load is not in the machine and is skipped -
+     * indistinguishable here from an empty slot, which is the one thing this
+     * says less than Logcat does.
+     *
+     * Empty slots are skipped rather than listed, matching z80cpmw: three of the
+     * four are empty on a default machine and naming them costs three lines of a
+     * 24-line screen to say nothing.
+     *
+     * Hand-wrapped to 80 columns like every other notice on this screen, and the
+     * budget is harder here than on the sibling: with wrapLines off this port
+     * TRUNCATES at the buffer edge rather than folding, so an over-long line
+     * loses its tail silently. The longest real case measured 2026-09-19 -
+     * "Starting RomWBW 3.7.0-dev.14 - emu_avw-v0-3.7.0-dev.14.rom" - is 58
+     * columns, and a disk line is 40.
+     */
+    private fun createMachineBanner(): ByteArray {
+        val release = settingsRepo.selectedRomwbwVersion()
+        val text = StringBuilder()
+
+        // The ROM file is named only if a claim for this release actually holds
+        // one. Printing the release alone beats printing the word "null", and
+        // naming ANOTHER release's ROM is the thing this port must never do.
+        val romFile = settingsRepo.romClaim(release)?.filename
+        if (release.isNotBlank()) {
+            text.append("Starting RomWBW $release")
+            if (!romFile.isNullOrBlank()) text.append(" - $romFile")
+            text.append("\r\n")
+        }
+
+        loadedDiskFilenames.forEachIndexed { unit, filename ->
+            if (filename == null) return@forEachIndexed
+            text.append("  Disk $unit: $filename\r\n")
+        }
+
+        return text.toString().toByteArray()
+    }
+
+    /**
      * What to say when a mounted image belongs to another RomWBW release.
      *
      * Nothing said this before. The release is in every v0 filename and the
@@ -1355,6 +1427,7 @@ class MainActivity : AppCompatActivity() {
 
                     mainHandler.post {
                         terminalView.processOutput(createVersionBanner())
+                        terminalView.processOutput(createMachineBanner())
                         terminalView.processOutput(createReleaseMismatchNotice())
 
                         // updateStatus() repaints both the text and the colour,
@@ -1446,6 +1519,7 @@ class MainActivity : AppCompatActivity() {
                 terminalView.scrollbackLines = settings.scrollbackLines
 
                 terminalView.processOutput(createVersionBanner())
+                terminalView.processOutput(createMachineBanner())
                 terminalView.processOutput(createReleaseMismatchNotice())
                 startEmulation()
 

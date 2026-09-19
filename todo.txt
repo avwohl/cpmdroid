@@ -421,13 +421,6 @@ any published document, so the list is this application's own and has to be
 written down rather than derived.  See the next item for the field that looks
 like it would answer this and does not.
 
-- [ANDROID DEVICE] Start names no RomWBW release in the terminal; it goes to
-Logcat only.  createReleaseMismatchNotice() now prints when a MOUNTED image
-disagrees with the selected release, which is the case that matters, but a
-machine whose disks agree is told nothing.  The About dialog names the selected
-release and logRomwbwSelection() writes it to Logcat, and neither is somewhere a
-user looks at boot.
-
 - [ANY] the About dialog and createReleaseMismatchNotice() both name the SELECTED
 release, and neither asks what is actually in bank 0.  emu_romwbw_release_loaded()
 (romwbw_emu src/emu_init.h) reports the release of the ROM the machine booted,

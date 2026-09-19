@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+### Start says what it is running: the release, the ROM and the mounted disks
+
+Parity with z80cpmw, whose `MainWindow::startEmulator` has printed this since
+before the v0 migration. Until now the only thing CPMDroid said at boot was its
+own version line, and the release, the ROM filename and the four slots went to
+Logcat - where a user cannot see them and a bug report does not carry them.
+
+`createMachineBanner()` emits, between the version banner and the mismatch
+notice, at both start call sites:
+
+    CPMDroid v1.31 (33) <sha> <build time>
+    Starting RomWBW 3.7.0-dev.14 - emu_avw-v0-3.7.0-dev.14.rom
+      Disk 0: hd1k_combo-v0-3.7.0-dev.14.img
+
+**The SELECTED release, not the ROM's own claim**, matching the sibling and for
+the reason the sibling gives: the two HCB bytes in a ROM spell three numbers, so
+a machine on `3.7.0-dev.14` would report `3.7.0` if this asked the bytes. The
+suffix exists only in the catalog string and in the v0 filename. Asking what is
+actually in bank 0 is `emu_romwbw_release_loaded()`, which has no JNI export
+here; `todo.txt` still owns that and it must land with its Kotlin declaration and
+its `JniNameParityTest` entry rather than being folded in.
+
+**One source for the release.** It reads `selectedRomwbwVersion()`, the same call
+`createReleaseMismatchNotice()` makes, so the two blocks cannot put different
+release numbers on one screen three rows apart. `lastRomwbwVersion` is not that
+source - it records the release the loaded BYTES are for, a different question.
+
+**Mounted disks only, by unit number, empty slots skipped**, all three matching
+z80cpmw. It reads `loadedDiskFilenames` rather than the settings slots, for the
+reason the mismatch notice already gives: a slot naming a file that did not load
+is not in the machine. Two of the sibling's rules were deliberately NOT ported
+and the KDoc says why - it reduces each disk to a basename because one of its
+slots may hold a browsed-to path, and a slot here is always a bare stored name;
+and it suppresses the line when no release is known, which is unreachable here.
+
+**The 80-column budget is harder on this port than on the sibling.** With
+`wrapLines` off this terminal TRUNCATES at the buffer edge rather than folding,
+so an over-long line loses its tail silently instead of wrapping. Measured
+2026-09-19: the longest real ROM line is 58 columns and a disk line is 40.
+
+**VERIFIED ON A DEVICE, and it settles a question the sibling left open.** Built
+and installed on the Galaxy Tab A8 (SM-X200, Android 14, `R9YT30ZLAVT`) and
+launched: the three lines appear, and the RomWBW boot loader then prints
+`RetroBrew SBC [SBC_simh_std] Boot Loader` BELOW them rather than clearing them.
+z80cpmw carries the same claim with an explicit caveat that its evidence is a
+static scan of two artifacts' string tables and not a capture of the live byte
+stream. This is that capture, on real hardware, against the 3.7.0-dev.14 ROM and
+`hd1k_combo`. The pre-release suffix survives whole in both the ROM name and the
+disk name, which is the case a truncating banner would have got wrong.
+
+`./gradlew :app:test` passes 79 tests, 0 failures, in both the debug and release
+variants. This is unreleased: `versionCode` is unchanged at 33 and nothing here
+has been through Play.
+
 ### "Show pre release": the index publishes development snapshots, and they are opt-in
 
 romwbw_disks published `3.7.0-dev.14` with `prerelease: true` on 2026-09-08, and
