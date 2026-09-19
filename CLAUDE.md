@@ -154,10 +154,21 @@ reusing one.
 `assembleRelease` APK is for sideloading; uploading one gets a rejection rather
 than an error worth reading.
 
-Signing credentials resolve from **outside** the checkout. A release build with
-nothing resolved comes out **unsigned and still succeeds** - run
-`./gradlew :app:signingReport` and check the alias and SHA-256 rather than
-trusting exit 0.
+Signing credentials resolve from **outside** the checkout, and what happens when
+nothing resolves is not one answer but two - measured 2026-09-19 on AGP 8.13.2,
+because the sentence that used to stand here gave only the first:
+
+- `assembleRelease` **succeeds and the APK is unsigned.** That is the trap: exit
+  0 says nothing, so run `./gradlew :app:signingReport` and read the alias and
+  SHA-256.
+- `bundleRelease` - the one Play takes - **fails**, with a bare
+  `NullPointerException` from `FinalizeBundleTask` that does not mention signing
+  at all. If you see that, it is your credentials, not the bundle.
+
+Both of those were the behaviour of an *empty* signing config. `release` now
+takes `null` instead when nothing resolved, so an unsigned bundle is buildable
+on purpose - 1.34 is one - and the NPE is gone. `signingReport` is still the
+only thing that says which you got.
 
 ## What z80cpmw says about this repo
 

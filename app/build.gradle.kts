@@ -160,9 +160,15 @@ android {
         // that was measured, so the fix needs a number of its own whatever
         // else is true.
         //
+        // 36 / "1.34" is 35's code under a number Play has not seen, built
+        // UNSIGNED on purpose - see CHANGELOG.md's 1.34 entry. Nothing in the
+        // app changed. The number moved because 35 was built and handed over
+        // and this tree cannot know whether Play has seen it, and a
+        // versionCode it has merely SEEN is fatal to an upload.
+        //
         // A versionCode costs nothing. A record that says the wrong thing does.
-        versionCode = 35
-        versionName = "1.33"
+        versionCode = 36
+        versionName = "1.34"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the
@@ -216,7 +222,20 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            // Assigned only when credentials actually resolved, because an
+            // EMPTY signing config is not the same as no signing config and
+            // the difference only shows on the path Play takes. An unresolved
+            // config gives assembleRelease an unsigned APK - which is the trap
+            // CLAUDE.md has always described - but gives bundleRelease a
+            // NullPointerException out of FinalizeBundleTask, with no message
+            // and no mention of signing. Measured on 2026-09-19 with AGP
+            // 8.13.2 while building 1.34 deliberately unsigned.
+            //
+            // null here means "do not sign", which bundletool handles, so the
+            // AAB comes out unsigned and the build succeeds. A checkout with
+            // the properties file in place is unaffected.
+            signingConfig =
+                if (keystorePropertiesFile.exists()) signingConfigs.getByName("release") else null
         }
     }
 

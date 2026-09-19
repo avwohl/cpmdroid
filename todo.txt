@@ -71,15 +71,15 @@ applyRomwbwVersion" switches the machine to a release it has no ROM for.
 NOBODY HAS SEEN THE NEW TERMINAL RUN
 -------------------------------------
 
-- [ANY, NEEDS NETWORK] 1.33 / versionCode 35 HAS NOT BEEN SERVED BY PLAY and
+- [ANY, NEEDS NETWORK] 1.34 / versionCode 36 HAS NOT BEEN SERVED BY PLAY and
 nothing in this tree may say it shipped until it is.  Uploaded is not released,
 released is not rolled out, and rolled out is not installed.  The measurement is
 the only thing allowed to move the record:
 
     sh tools/check-store-version.sh
 
-While it still reports 1.31 there is nothing to do.  When it reports 1.33, this
-file loses this item and CHANGELOG.md's 1.33 entry stops saying nothing here
+While it still reports 1.31 there is nothing to do.  When it reports 1.34, this
+file loses this item and CHANGELOG.md's 1.34 entry stops saying nothing here
 says it shipped.  Nothing else is owed, and there used to be: the script
 compared its measurement against a shipped: field in another repository's
 document, which is gone as of 2026-09-13 along with every reader of it.  The
@@ -87,18 +87,24 @@ script says so where the comparison used to stand - grep it for "is NOT
 consulted".  The reading is the whole answer and the date it was taken is the
 whole of its authority.
 
-  34 is skipped rather than served.  It was built and signed on 2026-09-19 and
-Play's Console reported its DEX obfuscation at 2% the same day, so 35 carries
-the R8 change instead.  Whether 34 was ever uploaded is not answerable from
-here - the script reads what Play SERVES, and a versionCode it has merely SEEN
-is both invisible to that reading and fatal to an upload.  Treat 34 as spent.
+  34 and 35 are skipped rather than served.  34 was built and signed on
+2026-09-19 and Play's Console reported its DEX obfuscation at 2% the same day,
+so 35 carries the R8 change; 35 was built and handed over the same day and 36
+follows it.  Whether either was ever uploaded is not answerable from here - the
+script reads what Play SERVES, and a versionCode it has merely SEEN is both
+invisible to that reading and fatal to an upload.  Treat both as spent.
+
+  36's bundle is UNSIGNED, deliberately, and Play does not accept one.  See
+CHANGELOG.md's 1.34 entry for how it was built and for the one command that
+builds the same commit signed.  Do not "fix" the build file: nothing in it
+changed, the unsigned state came from a -P override on the command line.
 
   The predecessor of this item closed on measurement, and the closing is worth
 keeping: 1.31 went into review on 2026-09-10 against a reading of 1.25, and the
 script did not report Play serving it until 2026-09-15 - five days in which the
 tree would have been wrong had anything written it down early.
 
-Do NOT pre-emptively write 35 into anything that records what users have, to
+Do NOT pre-emptively write 36 into anything that records what users have, to
 save a trip.  That is the exact failure the script was built to catch, in
 z80cpmw, where a changelog was wrong by two releases and had already sent a
 re-read to the wrong commit.

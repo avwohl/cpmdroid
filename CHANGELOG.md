@@ -1,5 +1,81 @@
 # Changelog
 
+## Version 1.34 (versionCode 36)
+
+**1.33's code under a number Play has not seen, built unsigned on purpose.** No
+app code changed and no test moved: 79 tests, 0 failures, and
+`verifyJniNamesSurviveR8` reports the same 31 of 33 native declarations kept
+with `onOutput` beside them. The number moved because 35 was built and handed
+over, and whether Play has *seen* it is not answerable from this tree - the
+store check reads what Play SERVES, and a versionCode it has merely seen is
+invisible to that reading and fatal to an upload.
+
+### An unsigned bundle was not buildable, and the reason was worth finding
+
+`app/build.gradle.kts` resolves signing credentials from **outside** the
+checkout, and `CLAUDE.md` has described what happens when nothing resolves since
+the credentials moved out in 1.24: the build "comes out **unsigned and still
+succeeds**", so `:app:signingReport` is what you check rather than exit 0.
+
+**That was true of the APK and false of the bundle**, which is the one Play
+takes. Measured on AGP 8.13.2 while making this build: with the three sources
+missed and `signingConfigs.release` left *empty*, `assembleRelease` does produce
+an unsigned APK - but `bundleRelease` fails at `:app:signReleaseBundle` with
+
+    A failure occurred while executing
+    com.android.build.gradle.internal.tasks.FinalizeBundleTask$BundleToolRunnable
+      > java.lang.NullPointerException (no error message)
+
+which names no key, no alias and no signing. A checkout with no credentials has
+therefore never been able to build the artifact Play accepts, and the message it
+got instead pointed nowhere.
+
+The fix is one line, and it is the distinction the failure was made of: an
+**empty** signing config is not the same as **no** signing config.
+
+    signingConfig =
+        if (keystorePropertiesFile.exists()) signingConfigs.getByName("release") else null
+
+`null` means "do not sign", which bundletool handles; the empty config meant
+"sign with these", which it could not. A checkout that resolves its credentials
+is unaffected and still signs.
+
+### How this one was built, and how it was confirmed unsigned
+
+    ./gradlew :app:bundleRelease -PcpmdroidKeystoreProperties=C:/nonexistent/none.properties
+
+`-P` beats the `cpmdroidKeystoreProperties` line in `~/.gradle/gradle.properties`,
+`CPMDROID_KEYSTORE_PROPERTIES` is unset, and there is no `keystore.properties`
+in the repository root, so all three sources miss. The override is a
+command-line argument and nothing in the tree records it: the next ordinary
+`./gradlew :app:bundleRelease` here builds this same commit **signed**.
+
+Confirmed rather than assumed, all under the same override:
+
+- `:app:signingReport` reports the release variant with `Store: null` and
+  `Alias: null`, and prints no fingerprints at all.
+- `jarsigner -verify` answers `no manifest.` - there is no `META-INF/MANIFEST.MF`
+  to verify against.
+- The bundle carries no `META-INF` signature entries whatsoever.
+- It is **54,013 bytes smaller than this same commit built signed** - 7,031,098
+  against 7,085,111 - and that difference is the signature block. Both were
+  measured before the commit, so both carry the six extra characters of a
+  `+dirty` sha; the difference between them does not.
+
+### Google Play does not accept an unsigned bundle
+
+Recorded because the section above otherwise reads as a release procedure. Play
+requires an upload signed with the upload key, and refuses an unsigned artifact
+at upload time rather than in review. If that is what the Console says, the same
+commit builds signed with the override dropped:
+
+    ./gradlew :app:signingReport        # alias amwoh, SHA-256 0E:F5:...:70
+    ./gradlew :app:bundleRelease
+
+The identity in the artifact does not move with the signature:
+`BuildConfig.GIT_SHA` and `SOURCE_DATE` come from git, so the signed rebuild of
+this commit is the same build wearing a signature.
+
 ## Version 1.33 (versionCode 35)
 
 **R8 has never run on this app before, and it runs now.** Play's Console reports
