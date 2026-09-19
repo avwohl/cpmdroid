@@ -136,9 +136,26 @@ android {
         // The two are not the same question and only one of them is
         // measurable from outside.
         //
+        // 34 / "1.32" is the first number since 33 that Play has not served.
+        // Measured rather than assumed again, with tools/check-store-version.sh
+        // on 2026-09-19: Play serves 1.31, versionCode 33 - the same number
+        // this tree was carrying, so the tree could not be uploaded at all
+        // until this line moved. That is the case the paragraph above does not
+        // cover: 28 through 32 were numbers spent on builds that reached
+        // nobody, and 33 is the first that reached users.
+        //
+        // What 34 carries, per tools/unreleased.sh: the start-time machine
+        // banner, the "Show pre release" opt-in, the removal of the RomWBW
+        // release filter, the two sound symbols romwbw_emu v1.47 made this
+        // build need, and two emu_io_android corrections. It also carries a
+        // user-visible fix no commit here made - the guest RTC overflow past
+        // January 2038 on the two 32-bit ABIs, fixed in romwbw_emu's e41f686
+        // and compiled in place out of the sibling checkout by
+        // app/src/main/cpp/CMakeLists.txt.
+        //
         // A versionCode costs nothing. A record that says the wrong thing does.
-        versionCode = 33
-        versionName = "1.31"
+        versionCode = 34
+        versionName = "1.32"
 
         // Source identity - see the gitOutput() comment above for why this is a
         // commit rather than a clock. SOURCE_DATE is the commit's date, not the

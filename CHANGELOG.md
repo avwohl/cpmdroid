@@ -1,6 +1,28 @@
 # Changelog
 
-## Unreleased
+## Version 1.32 (versionCode 34)
+
+**Seven commits of application code that no Play user has, and one fix that is
+not in this repository at all.** `tools/check-store-version.sh`, run 2026-09-19,
+reports Play serving **1.31**, versionCode 33 - the number this tree was itself
+carrying, so the tree could not be uploaded at all until the number moved. That
+is the first time the measurement and the tree have agreed since 1.25: 28
+through 32 were spent on builds that reached nobody, and 33 is the one that
+reached users.
+
+`tools/unreleased.sh` names what moves with the number: the start-time machine
+banner, the "Show pre release" opt-in, the removal of the RomWBW release filter,
+the two sound symbols romwbw_emu v1.47 made this build need, and two
+`emu_io_android.cpp` corrections. The RTC overflow below is none of those - it
+is romwbw_emu's `e41f686`, compiled in place out of the sibling checkout, and it
+is the section this entry opens with for that reason.
+
+Built as an app bundle - `./gradlew :app:bundleRelease` - because that is what
+Play takes; the README's `assembleRelease` APK is for sideloading and adb.
+**Nothing here says 1.32 shipped.** Uploaded is not released, released is not
+rolled out, and rolled out is not installed; the only thing allowed to move that
+record is a later run of `check-store-version.sh`, and `todo.txt` holds the item
+until it reports 1.32.
 
 ### A core fix this app shipped: the guest RTC overflowed on two of its four ABIs
 
@@ -52,7 +74,7 @@ Logcat - where a user cannot see them and a bug report does not carry them.
 `createMachineBanner()` emits, between the version banner and the mismatch
 notice, at both start call sites:
 
-    CPMDroid v1.31 (33) <sha> <build time>
+    CPMDroid v1.32 (34) <sha> <build time>
     Starting RomWBW 3.7.0-dev.14 - emu_avw-v0-3.7.0-dev.14.rom
       Disk 0: hd1k_combo-v0-3.7.0-dev.14.img
 
@@ -493,7 +515,7 @@ item is filed where the work would happen, and git has the original.
 
 ## Version 1.31 (versionCode 33)
 
-**The same code as 1.30, under a number Play has not seen.** Nothing in the app
+**The same code as 1.30, under a number Play had not seen.** Nothing in the app
 changed. This is the build that is actually uploaded, and it gets its own number
 because 1.30's never was - along with 1.26, 1.27, 1.28 and 1.29, which is five
 consecutive versionCodes spent on builds that reached no user.
@@ -506,9 +528,11 @@ and never promoted is invisible to the measurement and fatal to the upload. Only
 one of those two questions can be answered from outside, and it is not the one
 that decides whether an upload is accepted.
 
-Uploaded is not released, and released is not installed. When this reaches the
-store, the line to correct is the one in that script's output, by re-running it
-rather than by editing anything here.
+It reached the store. `tools/check-store-version.sh` reported Play serving
+**1.31** on 2026-09-15 and again on 2026-09-19 - which is how the sentence above
+came to be in the past tense, and the only way it was allowed to get there. The
+paragraph before it is left as it was written: a measurement is a reading with a
+date on it, and 2026-09-10's reading was 1.25.
 
 Built as an app bundle - `./gradlew :app:bundleRelease` - because that is what
 Play takes. The README's `assembleRelease` APK is for sideloading and adb, and
