@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### A core fix this app shipped: the guest RTC overflowed on two of its four ABIs
+
+No code here changed, and that is exactly why it is written down.
+`app/src/main/cpp/CMakeLists.txt` compiles `hbios_dispatch.cc` **in place** out
+of the sibling `romwbw_emu` checkout, so that repository's `e41f686`
+(2026-09-19) changes this application with nothing here to review it - the case
+`CLAUDE.md` opens by warning about.
+
+`HBIOSDispatch` keeps the guest's RTC offset as seconds from a fixed epoch, and
+counted them in `long`. On LP64 - Linux, macOS - that is 64 bits and nothing was
+wrong. On **32-bit Android it is 32 bits**, so `days * 86400` passed `INT32_MAX`
+in January 2038: for 2084, `41666 * 86400 = 3,599,942,400` wrapped to
+`-695,024,896`. A guest that set a date past January 2038 read back a different
+one, `BF_RTCSETTIM` appeared to take and did not, and a second set added to the
+first instead of replacing it. It is `long long` now.
+
+**Which of this app's users had it.** `abiFilters` is `arm64-v8a`,
+`armeabi-v7a`, `x86_64`, `x86`; the two 32-bit entries were affected and the two
+64-bit ones never were. So it reached real devices and could not have been seen
+on a modern 64-bit phone or tablet.
+
+**Nothing in this repository needed changing, and that was checked rather than
+assumed.** `emu_io_android.cpp` is the one file this repository owns on that
+side, and it carries no seconds-since-epoch arithmetic at all - its
+`emu_get_time()` reads `time(nullptr)` into `localtime()` and copies the fields
+out. romwbw_emu's `DOWNSTREAM.md` asks ports to check exactly that shape, and
+the answer here is that there is none.
+
+**How it survived, which is the part worth keeping.** `tests/rtc_settim.cc` has
+been portable since it was written and had simply never been compiled by a
+Windows compiler - the MSVC CI job ran two tests by name while the suite grew to
+nine underneath it. Five portable tests were running only where a 32-bit `long`
+does not exist. That is a lesson about where tests run, not about the RTC.
+
+**NOT RE-TESTED, and the obvious way to try would prove nothing.**
+`MANUAL_CHECKS.md` section 10 carries the check and the trap: the tablet this is
+developed against installs `arm64-v8a`, where the bug never reproduced, so it
+has to be pushed the `armeabi-v7a` library with `adb install --abi` before any
+result means anything.
+
 ### Start says what it is running: the release, the ROM and the mounted disks
 
 Parity with z80cpmw, whose `MainWindow::startEmulator` has printed this since

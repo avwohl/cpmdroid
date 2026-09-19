@@ -713,3 +713,40 @@ and push that onto the device's Imports folder.
       typed. A run that shows the absolute path instead is not a pass, it is
       the race landing the other way. Worth knowing how often it does.
 
+
+## 10. The RTC past 2038, on a 32-bit ABI, which this tablet is not
+
+romwbw_emu `e41f686` (2026-09-19) fixed an overflow that **this app shipped**:
+`HBIOSDispatch` counted the guest's RTC offset in `long`, and `long` is 32 bits
+on 32-bit Android, so `days * 86400` passed `INT32_MAX` in January 2038. Its
+`DOWNSTREAM.md` names the affected builds as z80cpmw and **cpmdroid's
+`armeabi-v7a` and `x86`** ABIs. There is nothing to change here - the core is
+compiled in place out of the sibling checkout, so the fix arrives by rebuilding -
+but nobody has watched the fixed code run, and the arithmetic that was wrong is
+the guest's, not this app's.
+
+**The trap in checking this is the device.** The Galaxy Tab A8 reports
+`arm64-v8a,armeabi-v7a,armeabi` and installs `arm64-v8a`, where `long` is 64
+bits, so **the bug never reproduced there and the fix cannot be confirmed there
+either**. A pass on that tablet says nothing at all. Force the 32-bit library
+onto it instead - the ABI list says it will run:
+
+```
+adb install -r --abi armeabi-v7a app/build/outputs/apk/release/app-release.apk
+adb shell dumpsys package com.awohl.cpmdroid | grep primaryCpuAbi   # must say armeabi-v7a
+```
+
+- [ ] Confirm `primaryCpuAbi=armeabi-v7a` before believing anything below. On
+      `arm64-v8a` every one of these passes whether the fix is present or not.
+- [ ] Boot, and at the RomWBW loader take `W` (RomWBW Configure) or boot CP/M
+      and use the date utility - whichever this ROM offers - to **set a date
+      past January 2038**. 2084 is what `romwbw_emu/tests/rtc_settim.cc` uses on
+      purpose, because it is also a leap day.
+- [ ] **Read it back.** Before the fix the guest got a DIFFERENT date than it
+      set: `41666 * 86400 = 3,599,942,400` wrapped to `-695,024,896`.
+- [ ] **Set it twice.** The reported symptom was that `BF_RTCSETTIM` appeared to
+      take and did not, and that a second set ADDED to the first rather than
+      replacing it. Two sets in a row must leave the clock where the second one
+      put it.
+- [ ] Reinstall the ordinary way afterwards (`adb install -r` with no `--abi`)
+      so the tablet goes back to `arm64-v8a`, and confirm it did.
