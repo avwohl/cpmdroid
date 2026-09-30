@@ -235,3 +235,5 @@ seen, so shipping anything it reports starts with moving the number.
 unreleased, 2 only when it could not measure. This repository has no CI at all
 as of 2026-09-13; do not rebuild one out of this.
 
+## README stays short
+README.md is at most 150 lines. New detail goes in docs/<topic>.md with a one-line link from the README; never add sections to the README.

@@ -50,7 +50,7 @@ private const val SHARED_TEXT_NAME = "shared.txt"
  * getExternalFilesDir(null) really can return null - an unmounted or otherwise
  * unavailable volume - and the whole transfer tree hangs off it, so the null
  * has to stay visible instead of being papered over. There is deliberately no
- * fallback to filesDir: README documents these folders as the literal
+ * fallback to filesDir: docs/usage.md documents these folders as the literal
  * Android/data/com.awohl.cpmdroid/files/Imports and .../Exports paths and tells
  * the user to stage files into Imports with a file manager, and /data/data is
  * unreachable by any file manager on an unrooted device. A silent redirect

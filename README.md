@@ -32,169 +32,8 @@ A Z80/CP/M emulator for Android phones and tablets, built on the
    options. Stop the emulator first; Settings refuses to open while it runs
 3. **Download disk images** from the disk catalog
 4. **Press Play**
-5. At the boot menu, type `2` and Enter to boot the first hard disk
-
-### Boot Menu Keys
-
-Every command is read as a line, so nothing happens until you press Enter.
-
-- `2` - boot the first hard disk, slice 0; `2.3` for slice 3
-- `c` - boot CP/M 2.2 from ROM
-- `d` - list the disk devices
-- `w` - SYSCONF, where a choice can be saved as the autoboot default
-- `h` - the full menu. On RomWBW 3.6.0 this lists the ROM applications too; on
-  3.5.1 they are under `l`, which 3.6.0 answers with `*** Invalid command`
-
-Units 0 and 1 are the on-board RAM and ROM memory disks and carry no operating
-system, so booting `0` answers `*** No boot record` on RomWBW 3.6.0 and
-`*** No system image on disk` on 3.5.1.
-
-### Control Strip
-
-- **Ctrl** - toggle control key mode (the next key becomes a control character)
-- **Esc** - send escape
-- **Tab** - send tab
-- **Copy** - copy the screen to the clipboard
-- **Paste** - paste the clipboard as keyboard input
-
-## File Transfer (R8/W8)
-
-`R8` and `W8` are CP/M programs that live on the disk, and only the
-`hd1k_combo` image carries them - boot a single-OS image and there is no `R8`
-or `W8` to run.
-
-- **Imports folder**: `Android/data/com.awohl.cpmdroid/files/Imports/`
-- **Exports folder**: `Android/data/com.awohl.cpmdroid/files/Exports/`
-
-Since Android 11 the stock Files app does not show `Android/data` at all, so
-those are where the files live rather than somewhere you can browse to. Use the
-**File transfer** button in the toolbar, which is the app's own view of both
-folders.
-
-To import a file into CP/M:
-
-1. **File transfer > Import file...**, and pick it. Or share it to CPMDroid
-   from another app. Either way it is renamed to something CP/M can address -
-   `My Long Archive.tar.gz` becomes `my-long-.gz` - and the app tells you which
-   name it got
-2. In CP/M, run `R8 MY-LONG-.GZ`
-
-To export a file from CP/M:
-
-1. In CP/M, run `W8 FILENAME.EXT`. It prints the full host path it wrote to
-2. **File transfer**, then **Save as...** to put it anywhere on the device, or
-   **Share** to send it to another app
-
-Staging a file into `Imports/` by hand with a third-party file manager still
-works.
-
-## ROMs and Disk Images
-
-**Nothing is bundled.** The APK carries the emulator core and an offline copy
-of the help topics; it carries no ROM and no disk image.
-
-Both come from the interface-v0 catalog in
-[romwbw_disks](https://github.com/avwohl/romwbw_disks). The only content
-address compiled into the app is the index that catalog starts from
-(`DEFAULT_INDEX_URL` in `data/SettingsRepository.kt`) - one URL for the whole
-app, help included, since 1.30. There is no pinned release tag: the index names
-every published RomWBW release and points at that release's own catalog, that
-catalog publishes a `base_url`, and every asset is that `base_url` plus a
-filename, so nothing is assembled here from a version number. Everything
-fetched is measured against the size and SHA-256 the catalog publishes, and
-bytes that do not match are not kept.
-
-Three things are yours to choose, all in Settings, in the order the screen
-shows them:
-
-- **ROM** - the ROMs the selected release publishes. What is stored is the
-  catalog's ID rather than a filename, because the filename carries the release.
-
-- **RomWBW Release** - every release the index publishes, with none held back.
-  The emulator core has no list of releases to check one against: what it
-  depends on is the interface the catalog versions in its own name, v0, so a
-  release a v0 index publishes is one this app can boot. A release published
-  later will not switch a machine by itself, since that would change its disk
-  set and its NVRAM namespace underneath it; new ROMs and disks *within* the
-  selected release arrive with no app update. Each release keeps its own disk
-  slots, NVRAM and ROM, so switching is a round trip that loses nothing.
-
-- **Catalog Index** - which catalog everything else comes from. Empty is the
-  default; a URL here points CPMDroid at another index, and the release list,
-  the ROM list, the disk catalog and the in-app help all follow it. Apply
-  fetches it and says what it found rather than storing a URL whose first test
-  would be a machine that will not start. Each index keeps its own disks, ROM,
-  NVRAM and boot config. `$ROMWBW_INDEX_URL` overrides it for the run, and the
-  field says so and is disabled while it is set.
-
-What disks exist, and what each one is licensed under, are questions for the
-selected release's catalog - the app shows both, and the list changes from one
-release to the next. Between them the published releases carry CP/M 2.2,
-CP/M 3, ZSDOS, ZPM3, NZCOM and QPM, games, Infocom adventures and language
-toolchains.
-
-Downloaded ROMs and images are stored in app-specific storage and work offline.
-The exception is a fresh install: there is no ROM in the package, and a ROM
-cannot be verified without the catalog that publishes its size and hash, so the
-first launch needs one successful fetch. The app says so, with a Download
-button, rather than starting a machine on bytes it cannot check.
-
-## Technical Details
-
-### Architecture
-
-```
-+-------------------------------------+
-|         Android UI (Kotlin)         |
-+-------------------------------------+
-|       EmulatorEngine (JNI)          |
-+-------------------------------------+
-|   AndroidEmulatorDelegate (C++)     |
-|  +-----------+-----------------+    |
-|  |   qkz80   |  HBIOSDispatch  |    |
-|  | (Z80 CPU) |  + banked_mem   |    |
-|  +-----------+-----------------+    |
-+-------------------------------------+
-```
-
-### Dependencies
-
-Sibling checkouts, compiled in place by `CMakeLists.txt`:
-
-- `../cpmemu/src/` - the qkz80 Z80 CPU core
-- `../romwbw_emu/src/` - HBIOS dispatch and memory banking
-
-### Terminal Emulation
-
-ANSI/VT100 and VT52:
-
-- Cursor positioning (`ESC[row;colH`), movement (`ESC[A/B/C/D`) and absolute
-  column/row (`ESC[G`, `ESC[d`)
-- Screen and line clearing (`ESC[2J`, `ESC[K`) and character erase (`ESC[X`)
-- Insert and delete characters (`ESC[@`, `ESC[P`) and lines (`ESC[L`, `ESC[M`)
-- Scrolling region (`ESC[t;br`) and scroll up/down (`ESC[S`, `ESC[T`)
-- Save/restore cursor and rendition (`ESC 7` / `ESC 8`, `ESC[s` / `ESC[u`)
-- Colours (CGA 16-colour palette, foreground and background) and per-cell bold,
-  underline, blink and reverse
-- Private modes: VT52/ANSI (`ESC[?2h/l`), autowrap (`?7`), cursor visibility
-  (`?25`)
-- Device queries: cursor position (`ESC[6n`), device attributes (`ESC[c`)
-- VT52 mode, entered by `ESC[?2l` or auto-detected from any VT52-*exclusive*
-  escape (`ESC A B C F G I J K Y`); `ESC H` is VT52 home only once VT52 is
-  already in force, because in ANSI that byte is HTS
-
-Four divergences are deliberate, and `todo.txt` lists them under `[DELIBERATE]`
-with the reason for each. The one visible in ordinary output: `ESC[0m` resets
-the foreground to green rather than light grey, because a green phosphor screen
-is this app's identity.
-
-### Disk Format
-
-RomWBW hd1k: 8 MB per slice, 1024 directory entries per slice. The eight slices
-are divided among the disks you attach rather than given to each - one disk gets
-8, two get 4 each, three or four get 2 each - so adding a disk shortens the
-others. The catalog's recommended image is the 51,380,224-byte six-slice combo
-rather than a bare 8 MB slice.
+5. At the boot menu, type `2` and Enter to boot the first hard disk.
+   [docs/usage.md](docs/usage.md) lists the other boot menu keys
 
 ## Building
 
@@ -213,6 +52,14 @@ and a shell build needs `JAVA_HOME` set.
 
 `assembleRelease` produces an APK for sideloading. Play takes an app bundle
 from `./gradlew :app:bundleRelease` instead.
+
+## Documentation
+
+- [docs/usage.md](docs/usage.md) - boot menu keys, the control strip, and R8/W8 file transfer with the Imports and Exports folders
+- [docs/roms_and_disks.md](docs/roms_and_disks.md) - where the ROM and the disk images come from, and the ROM, RomWBW Release and Catalog Index settings
+- [docs/technical_details.md](docs/technical_details.md) - architecture, sibling dependencies, terminal emulation, disk format
+- [docs/midi.md](docs/midi.md) - MIDI support research notes
+- [CHANGELOG.md](CHANGELOG.md) - what changed in each version
 
 ## License
 
