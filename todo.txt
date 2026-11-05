@@ -473,3 +473,6 @@ starter disk, not an error", which is true of an ABSENT field and would silently
 become the behaviour for a PRESENT one.
   What it should key on instead is the id, hd1k_combo, the same way the item
 above says to - not a slice index that happens to be zero.
+
+- [ANDROID] add the GDB stub: a setting (off by default) and port, reached with `adb forward`,
+  and a native thread, since nativeRun runs 50000-instruction batches. romwbw_emu docs/GDB.md.
