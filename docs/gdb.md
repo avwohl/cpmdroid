@@ -83,16 +83,23 @@ program, and the program is not in memory at connect time. Give the debugger
 the length and the SHA-256 of the program, or the first bytes. The stub then
 stops when the program starts.
 
-With udb80, use `--wait-program`. With GDB, type this at the GDB prompt, and
-then type `continue`:
+With udb80, use `--wait-program`. udb80 reads the length and the SHA-256 of
+the program from the `.dbg` file. Then start the program from the CP/M prompt
+in the terminal on the device.
+
+With GDB, `monitor wait-program` alone does not stop: GDB continues past the
+stop with no message. Give GDB a breakpoint of its own at 0100H in bank 8EH:
 
 ```
-monitor wait-program sha256 LENGTH HEX64
+(gdb) monitor break-bank 8E
+(gdb) break *0x100
+(gdb) continue
 ```
 
-LENGTH is the length of the `.COM` file in decimal. A `.dbg` file from
-`ul80 --debug-info` has both values. When the stop comes, start the program
-from the CP/M prompt in the terminal on the device.
+Then start the program at the CP/M prompt. GDB stops at the first program
+that CP/M starts at 0100H. The romwbw_emu document
+[GDB.md, Find the program with GDB](https://github.com/avwohl/romwbw_emu/blob/main/docs/GDB.md#find-the-program-with-gdb) gives the reasons and the
+measurements.
 
 ## What happens while the debugger holds the machine
 

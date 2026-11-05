@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**docs/gdb.md: the GDB steps for a CP/M program are break-bank 8E and
+break \*0x100.** The page said to type `monitor wait-program` and `continue`.
+Measured with GDB 18.1 on romwbw_emu (the same stub and target) on
+2026-11-05, that never stops: GDB set no breakpoint at 0100H, so it continues
+past the stub's `T05swbreak`. The page now gives `monitor break-bank 8E`,
+`break *0x100` and `continue`, and links romwbw_emu's `docs/GDB.md`.
+
 **A GDB debug stub, off by default, compiled and not run on a device.** Settings
 has **Enable GDB debug stub**, a port field (1234) and **Allow connections from
 the network** (off), with a warning under the last one that the stub has no
