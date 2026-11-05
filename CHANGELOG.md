@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**docs/gdb.md: monitor wait-program now stops GDB.** docs/gdb.md: GDB finds a CP/M program with `monitor wait-program` and
+`continue`, with a build that compiled cpmemu `365dfc2` or later: the stub's
+rule stop is now a plain `T05`, which GDB reports as a SIGTRAP, where the old
+`T05swbreak` made GDB continue. The three-command form (`break-bank 8E`,
+`break *0x100`) stays for an older build. udb80 needs um80 0.4.2 or later.
+Measured on romwbw_emu, which has the same stub and target files.
+
 **docs/gdb.md: the GDB steps for a CP/M program are break-bank 8E and
 break \*0x100.** The page said to type `monitor wait-program` and `continue`.
 Measured with GDB 18.1 on romwbw_emu (the same stub and target) on
