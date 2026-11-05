@@ -58,6 +58,7 @@ from `./gradlew :app:bundleRelease` instead.
 - [docs/usage.md](docs/usage.md) - boot menu keys, the control strip, and R8/W8 file transfer with the Imports and Exports folders
 - [docs/roms_and_disks.md](docs/roms_and_disks.md) - where the ROM and the disk images come from, and the ROM, RomWBW Release and Catalog Index settings
 - [docs/technical_details.md](docs/technical_details.md) - architecture, sibling dependencies, terminal emulation, disk format
+- [docs/gdb.md](docs/gdb.md) - debug a program with GDB or udb80: the GDB stub setting, `adb forward`, and the network switch
 - [docs/midi.md](docs/midi.md) - MIDI support research notes
 - [CHANGELOG.md](CHANGELOG.md) - what changed in each version
 

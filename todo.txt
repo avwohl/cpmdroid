@@ -474,5 +474,10 @@ become the behaviour for a PRESENT one.
   What it should key on instead is the id, hd1k_combo, the same way the item
 above says to - not a slice index that happens to be zero.
 
-- [ANDROID] add the GDB stub: a setting (off by default) and port, reached with `adb forward`,
-  and a native thread, since nativeRun runs 50000-instruction batches. romwbw_emu docs/GDB.md.
+- [ANDROID] build and run the GDB stub (CHANGELOG.md, Unreleased; docs/gdb.md). The
+  native code compiles with the NDK and passed a host test, but the Kotlin
+  (EmulatorEngine, SettingsRepository, SettingsActivity, MainActivity, the
+  Settings layout) was never compiled. A machine with the Android SDK must build
+  debug and release, run `./gradlew :app:test` (JniNameParityTest now expects 35
+  names) and `verifyJniNamesSurviveR8`, then run MANUAL_CHECKS.md section 12:
+  `adb forward tcp:1234 tcp:1234` and `target remote :1234` from GDB 18.1.

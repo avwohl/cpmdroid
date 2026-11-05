@@ -39,6 +39,11 @@ class EmulatorEngine {
     private external fun nativeIsDiskLoaded(unit: Int): Boolean
     private external fun nativeCloseDisk(unit: Int)
 
+    // GDB debug stub (docs/gdb.md). Configure takes effect at the next
+    // completeInit() or reset(); Status is one line for the status bar.
+    private external fun nativeGdbConfigure(enabled: Boolean, port: Int, allowNetwork: Boolean)
+    private external fun nativeGdbStatus(): String
+
     // Host file transfer native methods
     private external fun nativeGetHostFileState(): Int
     private external fun nativeGetHostFileReadName(): String
@@ -158,6 +163,10 @@ class EmulatorEngine {
 
     // Unmount a disk unit (also clears it from the reboot cache)
     fun closeDisk(unit: Int) = nativeCloseDisk(unit)
+
+    fun gdbConfigure(enabled: Boolean, port: Int, allowNetwork: Boolean) =
+        nativeGdbConfigure(enabled, port, allowNetwork)
+    fun gdbStatus(): String = nativeGdbStatus()
 
     fun isRunning(): Boolean = running.get()
     fun isWaitingForInput(): Boolean = nativeIsWaitingForInput()

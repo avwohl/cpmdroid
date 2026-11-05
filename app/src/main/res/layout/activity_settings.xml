@@ -538,6 +538,54 @@
             android:textSize="12sp"
             android:layout_marginStart="32dp" />
 
+        <!-- GDB debug stub (docs/gdb.md). Off by default. The network switch
+             is a second setting, also off by default, and the warning under it
+             is the user's only notice that the stub has no password. -->
+        <CheckBox
+            android:id="@+id/gdbEnabledCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Enable GDB debug stub"
+            android:textColor="#AAFFAA"
+            android:buttonTint="#00FF00" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Lets GDB or udb80 debug the program that runs here. At the next Boot the machine waits for the debugger before it runs. The status bar shows the address to connect to."
+            android:textColor="#666666"
+            android:textSize="12sp"
+            android:layout_marginStart="32dp" />
+
+        <EditText
+            android:id="@+id/gdbPortEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="32dp"
+            android:hint="GDB port (default 1234)"
+            android:inputType="number"
+            android:maxLength="5"
+            android:textColor="#AAFFAA"
+            android:textColorHint="#666666" />
+
+        <CheckBox
+            android:id="@+id/gdbNetworkCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Allow connections from the network"
+            android:textColor="#AAFFAA"
+            android:buttonTint="#00FF00" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Off: only this device can connect (use adb forward from a computer). On: any device on your network can connect. WARNING: the stub has no password. Anyone who can reach the port can read and write the memory of the emulated machine and control it. Use this only on a network you trust, and only while you debug."
+            android:textColor="#FF8800"
+            android:textSize="12sp"
+            android:layout_marginStart="32dp" />
+
         <!-- Enable Sound Checkbox -->
         <CheckBox
             android:id="@+id/soundEnabledCheckbox"

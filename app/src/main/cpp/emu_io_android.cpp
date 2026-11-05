@@ -18,11 +18,19 @@
 #include <random>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <csignal>
+#include <pthread.h>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <netinet/in.h>
 
 #include "hbios_cpu.h"
 #include "hbios_dispatch.h"
 #include "emu_init.h"
 #include "romwbw_mem.h"
+#include "romwbw_gdb.h"   // the GDB stub (docs/gdb.md); gdbstub.cc is cpmemu's
 
 #define LOG_TAG "CPMDroid"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -1049,6 +1057,216 @@ static void register_reset_callback() {
 }
 
 //=============================================================================
+// GDB debug stub (docs/gdb.md)
+//
+// OFF unless Kotlin called nativeGdbConfigure(true, ...).  The stub is
+// cpmemu's gdbstub.cc and romwbw_emu's romwbw_gdb.cc, compiled from the sibling
+// checkouts (CMakeLists.txt); the sockets are romwbw_emu's gdb_platform.cc.
+//
+// Threads.  Kotlin runs nativeRun on its executor, 50000 instructions a call,
+// and Stub::serve() does not return while the debugger holds the program, so
+// serve() runs on a thread of its own (gdb_thread_main).  While a session is
+// waiting for a debugger or has one attached, nativeRun does not run the CPU:
+// the stub thread is the only thread that does, one instruction per
+// gdb_step(), under g_cpu_mutex.  nativeRun still flushes the output queues,
+// so the terminal keeps drawing.  When the debugger detaches, the state goes
+// to GDB_RELEASED and nativeRun runs the CPU again.  One debugger per start of
+// the machine: nativeReset and nativeCompleteInit start a new session.
+//=============================================================================
+
+enum GdbState {
+    GDB_OFF = 0,        // not configured
+    GDB_WAITING = 1,    // listening; the CPU has not run
+    GDB_ATTACHED = 2,   // a debugger is connected; the stub thread runs the CPU
+    GDB_RELEASED = 3,   // the debugger let go; nativeRun runs the CPU again
+    GDB_FAILED = 4      // could not listen; nativeRun runs the CPU
+};
+
+struct GdbSession {
+    RomwbwTarget target;
+    gdb::Tracker tracker;
+    gdb::Stub stub;
+    GdbSession(qkz80& cpu, banked_mem& mem, volatile bool* stop)
+        : target(cpu, mem, stop), stub(target, tracker) {
+        target.stub = &stub;
+        target.tracker = &tracker;
+    }
+};
+
+static bool g_gdb_wanted = false;
+static int g_gdb_port = 1234;
+static bool g_gdb_network = false;
+static GdbSession* g_gdb = nullptr;
+static std::thread g_gdb_thread;
+static std::atomic<int> g_gdb_state{GDB_OFF};
+static std::atomic<bool> g_gdb_done{true};
+static volatile bool g_gdb_abort = false;   // RomwbwTarget::check_signals() reads it
+static std::mutex g_cpu_mutex;              // whoever executes the CPU holds it
+static std::mutex g_gdb_text_mutex;
+static std::string g_gdb_text;
+
+static bool gdb_cpu_held() {
+    int s = g_gdb_state.load();
+    return s == GDB_WAITING || s == GDB_ATTACHED;
+}
+
+static void gdb_set_text(const std::string& text) {
+    std::lock_guard<std::mutex> lock(g_gdb_text_mutex);
+    g_gdb_text = text;
+}
+
+static std::string gdb_text() {
+    std::lock_guard<std::mutex> lock(g_gdb_text_mutex);
+    return g_gdb_text;
+}
+
+// The IPv4 address a debugger on the network should use: the Wi-Fi interface
+// if there is one, else any other interface that is up.  Empty if none found.
+static std::string gdb_lan_address() {
+    struct ifaddrs* list = nullptr;
+    if (getifaddrs(&list) != 0) return "";
+    std::string best;
+    for (struct ifaddrs* a = list; a; a = a->ifa_next) {
+        if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET) continue;
+        if (!(a->ifa_flags & IFF_UP) || (a->ifa_flags & IFF_LOOPBACK)) continue;
+        char text[INET_ADDRSTRLEN];
+        const struct sockaddr_in* in = reinterpret_cast<const struct sockaddr_in*>(a->ifa_addr);
+        if (!inet_ntop(AF_INET, &in->sin_addr, text, sizeof text)) continue;
+        if (a->ifa_name && strncmp(a->ifa_name, "wlan", 4) == 0) {
+            best = text;
+            break;
+        }
+        if (best.empty()) best = text;
+    }
+    freeifaddrs(list);
+    return best;
+}
+
+// One instruction for the stub.  The order of checks is nativeRun's.  When
+// nothing can run (the guest waits for a key, an export waits for the UI, the
+// system has halted) no instruction runs, and ev.poll tells the stub to look
+// at its socket for ^C.
+static void gdb_step(gdb::StepEvents& ev) {
+    ev = gdb::StepEvents();
+    if (g_gdb_abort) throw GdbRunEnd{false};
+    bool idle = false;
+    {
+        std::lock_guard<std::mutex> lock(g_cpu_mutex);
+        if (g_gdb_abort || !g_emu) throw GdbRunEnd{false};
+        hbios_cpu* cpu = g_emu->cpu;
+        HBIOSDispatch* hbios = g_emu->hbios;
+        ev.exec_pc = cpu->regs.PC.get_pair16();
+        ev.exec_sp = cpu->regs.SP.get_pair16();
+        if (hbios->getState() == HBIOS_HALTED) {
+            ev.halt = true;     // nothing more runs; the debugger gets the stop
+        } else {
+            if (hbios->isWaitingForInput()) {
+                if (emu_console_has_input()) hbios->clearWaitingForInput();
+                else idle = true;
+            }
+            if (!idle && emu_host_file_get_state() == HOST_FILE_WRITE_READY) idle = true;
+            if (!idle) {
+                cpu->execute();
+                if (hbios->getState() == HBIOS_HALTED) ev.halt = true;
+            }
+        }
+    }
+    if (idle) {
+        ev.poll = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+}
+
+static void gdb_thread_main(GdbSession* s) {
+    try {
+        if (s->stub.accept()) {
+            g_gdb_state.store(GDB_ATTACHED);
+            gdb_set_text("GDB: debugger connected");
+            LOGI("GDB debugger connected");
+            s->stub.serve();
+        }
+    } catch (const GdbRunEnd&) {
+        // gdb_stop() asked for the end
+    }
+    if (!g_gdb_abort) {
+        gdb_set_text("GDB: debugger gone, machine running");
+        LOGI("GDB debugger gone; the CPU runs again");
+        g_gdb_state.store(GDB_RELEASED);
+    }
+    g_gdb_done.store(true);
+}
+
+// A signal only to interrupt a blocking accept() or poll() of the stub thread
+// (EINTR).  The handler does nothing, and has no SA_RESTART.
+static void gdb_wake_handler(int) {}
+
+static void gdb_stop() {
+    if (g_gdb_thread.joinable()) {
+        g_gdb_abort = true;
+        romwbw_gdb_note_signal(SIGURG);   // platform::termination_requested()
+        pthread_t h = g_gdb_thread.native_handle();
+        for (int i = 0; i < 500 && !g_gdb_done.load(); i++) {
+            pthread_kill(h, SIGURG);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (g_gdb_done.load()) {
+            g_gdb_thread.join();
+        } else {
+            // Cannot happen unless a socket call ignores the signal.  Freeing
+            // the session under the thread would be worse than leaking it.
+            LOGE("GDB thread did not stop; leaking the session");
+            g_gdb_thread.detach();
+            g_gdb = nullptr;
+        }
+    }
+    delete g_gdb;
+    g_gdb = nullptr;
+    g_gdb_state.store(GDB_OFF);
+    gdb_set_text("");
+}
+
+// Stops any session, and starts a new one if the setting is on.  Needs g_emu.
+static void gdb_start() {
+    gdb_stop();
+    if (!g_gdb_wanted || !g_emu) return;
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = gdb_wake_handler;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGURG, &sa, nullptr);
+
+    romwbw_gdb_note_signal(0);
+    g_gdb_abort = false;
+    g_gdb = new GdbSession(*g_emu->cpu, *g_emu->memory, &g_gdb_abort);
+    g_gdb->target.step_fn = gdb_step;
+
+    // Off the network: 127.0.0.1.  On: every interface.
+    const uint32_t addr = g_gdb_network ? 0u : gdb::kLoopback;
+    char text[96];
+    if (!g_gdb->stub.listen(addr, g_gdb_port, nullptr)) {
+        delete g_gdb;
+        g_gdb = nullptr;
+        snprintf(text, sizeof text, "GDB: cannot listen on port %d", g_gdb_port);
+        gdb_set_text(text);
+        g_gdb_state.store(GDB_FAILED);
+        LOGE("%s", text);
+        return;
+    }
+    std::string host = "127.0.0.1";
+    if (g_gdb_network) {
+        host = gdb_lan_address();
+        if (host.empty()) host = "(phone address)";
+    }
+    snprintf(text, sizeof text, "GDB: connect to %s:%d", host.c_str(), g_gdb_port);
+    gdb_set_text(text);
+    LOGI("%s%s", text, g_gdb_network ? " (every interface)" : " (this device only)");
+    g_gdb_state.store(GDB_WAITING);
+    g_gdb_done.store(false);
+    g_gdb_thread = std::thread(gdb_thread_main, g_gdb);
+}
+
+//=============================================================================
 // JNI Interface
 //=============================================================================
 
@@ -1097,6 +1315,7 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeDestroy(JNIEnv* env, jobject thiz) 
     LOGI("Destroying emulator engine");
 
     g_running = false;
+    gdb_stop();   // before g_emu goes: the session points into it
 
     if (g_callback_obj) {
         env->DeleteGlobalRef(g_callback_obj);
@@ -1195,7 +1414,7 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 //     sed 's/.*fun //' | sort
 //   grep -oE '^Java_com_awohl_cpmdroid_EmulatorEngine_native[A-Za-z0-9_]*'
 //     emu_io_android.cpp | sed 's/.*EmulatorEngine_//' | sort
-// - 33 names on each side today. The ^ is load-bearing: every definition below
+// - 35 names on each side today. The ^ is load-bearing: every definition below
 // starts its name in column 0, and without it these comment lines match
 // themselves and come back as a name no Kotlin declaration has.
 //-----------------------------------------------------------------------------
@@ -1316,6 +1535,10 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject t
     log_drive_map();
     init_cpu_start_state();
 
+    // A GDB session, if the setting is on: the machine then waits for the
+    // debugger before the first instruction.
+    gdb_start();
+
     LOGI("Emulator ready to run");
 }
 
@@ -1328,46 +1551,54 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeRun(JNIEnv* env, jobject thiz,
         return;
     }
 
-    // Check if we're blocked waiting for input (CIOIN/VDAKRD called with no data)
-    if (g_emu->hbios->isWaitingForInput()) {
-        if (emu_console_has_input()) {
-            // Input arrived - clear waiting flag so CPU will process it
-            g_emu->hbios->clearWaitingForInput();
-        } else {
-            // No input available - skip execution entirely (power saving)
-            // Just flush any pending output below and return
-            goto flush_output;
+    // The CPU runs here unless the GDB stub holds it (gdb_cpu_held()), and
+    // g_cpu_mutex is what keeps this batch and a stub step apart.
+    {
+        std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
+        bool skip = gdb_cpu_held();
+
+        // Check if we're blocked waiting for input (CIOIN/VDAKRD called with no data)
+        if (!skip && g_emu->hbios->isWaitingForInput()) {
+            if (emu_console_has_input()) {
+                // Input arrived - clear waiting flag so CPU will process it
+                g_emu->hbios->clearWaitingForInput();
+            } else {
+                // No input available - skip execution entirely (power saving)
+                // Just flush any pending output below and return
+                skip = true;
+            }
+        }
+
+        if (!skip) {
+            g_running = true;
+
+            for (int i = 0; i < instructionCount && g_running; i++) {
+                g_emu->cpu->execute();
+
+                // Check if CPU is now waiting for input
+                if (g_emu->hbios->isWaitingForInput()) {
+                    break;  // Stop executing until input is provided
+                }
+                // Pause after a completed W8 export until the UI drains it: a queued
+                // second W8 in the same batch would otherwise clobber the write
+                // buffer before checkHostFileState ever sees it.
+                if (emu_host_file_get_state() == HOST_FILE_WRITE_READY) {
+                    break;
+                }
+                if (g_emu->hbios->getState() == HBIOS_HALTED) {
+                    g_running = false;
+                    break;
+                }
+            }
+
+            // Debug: log PC after batch
+            if (++g_run_count <= 5) {
+                LOGI("nativeRun #%d: PC=0x%04X after %d instructions",
+                     g_run_count, g_emu->cpu->regs.PC.get_pair16(), instructionCount);
+            }
         }
     }
 
-    g_running = true;
-
-    for (int i = 0; i < instructionCount && g_running; i++) {
-        g_emu->cpu->execute();
-
-        // Check if CPU is now waiting for input
-        if (g_emu->hbios->isWaitingForInput()) {
-            break;  // Stop executing until input is provided
-        }
-        // Pause after a completed W8 export until the UI drains it: a queued
-        // second W8 in the same batch would otherwise clobber the write
-        // buffer before checkHostFileState ever sees it.
-        if (emu_host_file_get_state() == HOST_FILE_WRITE_READY) {
-            break;
-        }
-        if (g_emu->hbios->getState() == HBIOS_HALTED) {
-            g_running = false;
-            break;
-        }
-    }
-
-    // Debug: log PC after batch
-    if (++g_run_count <= 5) {
-        LOGI("nativeRun #%d: PC=0x%04X after %d instructions",
-             g_run_count, g_emu->cpu->regs.PC.get_pair16(), instructionCount);
-    }
-
-flush_output:
     // Flush output queue (from direct port 0x01 writes)
     std::vector<uint8_t> output;
     {
@@ -1380,7 +1611,12 @@ flush_output:
 
     // Also flush HBIOS output buffer (from CIOOUT calls via port 0xEF dispatch)
     if (g_emu->hbios) {
-        std::vector<uint8_t> hbios_output = g_emu->hbios->getOutputChars();
+        std::vector<uint8_t> hbios_output;
+        {
+            // The stub thread may be running the CPU, which fills this buffer.
+            std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
+            hbios_output = g_emu->hbios->getOutputChars();
+        }
         if (!hbios_output.empty() && g_run_count <= 5) {
             LOGI("nativeRun: got %zu chars from HBIOS buffer", hbios_output.size());
         }
@@ -1398,6 +1634,27 @@ flush_output:
         env->CallVoidMethod(g_callback_obj, g_on_output_method, arr);
         env->DeleteLocalRef(arr);
     }
+}
+
+// The GDB stub setting, from Kotlin.  Takes effect at the next
+// nativeCompleteInit or nativeReset; it does not start a session itself.
+JNIEXPORT void JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGdbConfigure(JNIEnv* env, jobject thiz,
+                                                            jboolean enabled, jint port,
+                                                            jboolean allowNetwork) {
+    (void)env;
+    (void)thiz;
+    g_gdb_wanted = (enabled == JNI_TRUE);
+    g_gdb_port = (port >= 1 && port <= 65535) ? static_cast<int>(port) : 1234;
+    g_gdb_network = (allowNetwork == JNI_TRUE);
+}
+
+// One line for the status bar: where to connect, or what went wrong.  Empty
+// when the stub is off.
+JNIEXPORT jstring JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeGdbStatus(JNIEnv* env, jobject thiz) {
+    (void)thiz;
+    return env->NewStringUTF(gdb_text().c_str());
 }
 
 JNIEXPORT void JNICALL
@@ -1447,6 +1704,9 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
     LOGI("Emulator reset: destroying and recreating state");
 
     g_running = false;
+
+    // The GDB session points into the state deleted below.
+    gdb_stop();
 
     // Clear console queues
     emu_console_clear_queue();
@@ -1511,6 +1771,9 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeReset(JNIEnv* env, jobject thiz) {
     register_reset_callback();
     log_drive_map();
     init_cpu_start_state();
+
+    // The new machine gets a new GDB session (it has not run yet).
+    gdb_start();
 
     // Reset debug counters so post-reboot logging works
     g_run_count = 0;

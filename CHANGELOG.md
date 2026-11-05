@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+**A GDB debug stub, off by default, compiled and not run on a device.** Settings
+has **Enable GDB debug stub**, a port field (1234) and **Allow connections from
+the network** (off), with a warning under the last one that the stub has no
+password. At the next Boot the machine waits for a debugger before its first
+instruction, and the status bar says `GDB: connect to ADDRESS:PORT`. Off the
+network the stub listens on 127.0.0.1 on the device and a computer reaches it
+with `adb forward`; on the network it listens on every interface. The stub is
+cpmemu's `gdbstub.cc` and romwbw_emu's `romwbw_gdb.cc` and `gdb_platform.cc`,
+compiled in place by `app/src/main/cpp/CMakeLists.txt` like the other sibling
+files. `docs/gdb.md` has the steps.
+
+`nativeRun` runs on Kotlin's executor, 50000 instructions a call, and
+`Stub::serve()` blocks while a debugger holds the program, so `serve()` runs on
+a `std::thread` of its own. While a session waits or is attached, `nativeRun`
+does not run the CPU and the stub thread does, one instruction at a time under
+`g_cpu_mutex`; `nativeRun` still flushes output. `nativeReset` and
+`nativeDestroy` end the thread (a no-op signal, SIGURG, breaks its blocking
+`accept` and `poll`) before they free the state it points into.
+
+Two JNI names are new, `nativeGdbConfigure` and `nativeGdbStatus`, which makes
+35 on each side of `JniNameParityTest`. The existing keep rule for native
+methods covers both. `INTERNET` was already in the manifest.
+
+Measured on 2026-11-05 on macOS 27 arm64: all of the native sources, with the
+stub, compile and link with NDK clang for aarch64, armv7a, x86_64 and i686 at
+API 24 with `-Wall -Wextra` and no warning. A host build of the same C++ with a
+fake JNIEnv passed 26 checks (the wait with no output, the connect at PC 0, no
+progress from `nativeRun` while attached, 300 steps, memory writes, a restart at
+reset, a breakpoint, `^C`, detach and the CPU running again, destroy while
+waiting and while attached, the network switch off and on) three times in a row,
+and GDB 18.1 with the Z80 target connected to it. Not measured: Kotlin (nothing
+here compiles it), `:app:test`, a release build, `verifyJniNamesSurviveR8`, a
+device or an emulator, `getifaddrs` on Android 11 and later, udb80 against this
+build. `MANUAL_CHECKS.md` section 12 lists them.
+
 ## Version 1.34 (versionCode 36)
 
 **1.33's code under a number Play has not seen, built twice at one

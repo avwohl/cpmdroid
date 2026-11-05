@@ -30,6 +30,13 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     ${CPMEMU_SRC}/qkz80_reg_set.cc
     ${CPMEMU_SRC}/qkz80_mem.cc
     ${CPMEMU_SRC}/qkz80_errors.cc
+
+    # The GDB stub (docs/gdb.md).  gdbstub.cc is cpmemu's, romwbw_gdb.cc and
+    # gdb_platform.cc (POSIX sockets) are romwbw_emu's; compiled in place like
+    # the files above, never copied.
+    ${CPMEMU_SRC}/gdbstub.cc
+    ${ROMWBW_EMU_SRC}/romwbw_gdb.cc
+    ${ROMWBW_EMU_SRC}/gdb_platform.cc
 )
 
 # Include directories

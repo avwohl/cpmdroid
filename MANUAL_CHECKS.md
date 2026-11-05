@@ -793,3 +793,38 @@ this is fingers on glass.
 - [ ] Anything that crashes here: the mapping file is in the AAB at
       `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map`, and
       `retrace` turns the stack trace back into names.
+
+## 12. The GDB stub, which compiled and ran only on a Mac
+
+The Kotlin side was never compiled, and the native side never ran on Android.
+Build a debug app first. Needs GDB 18.1 with the Z80 target (Homebrew `gdb`) or
+`pip install "um80>=0.4.1"` for udb80, and `adb`.
+
+1. Settings: the three GDB rows show, the stub is unticked, the network box is
+   unticked, and the port field says 1234. The orange warning under the network
+   box says the stub has no password. Right: all of that, and no crash when you
+   leave Settings.
+2. Tick **Enable GDB debug stub**, go back, press Boot. Right: the screen stays
+   blank, the status bar says `GDB: connect to 127.0.0.1:1234`, and a toast gives
+   the `adb forward` line. Wrong: the guest boots to the RomWBW menu.
+3. `adb forward tcp:1234 tcp:1234`, then GDB: `set architecture z80`,
+   `target remote :1234`, `info registers pc`. Right: PC is 0. `stepi` moves it.
+   The status bar says `GDB: debugger connected`.
+4. `continue`, then `^C` in GDB. Right: GDB stops with SIGINT. `detach`. Right:
+   within a second the terminal shows the RomWBW boot menu and accepts keys.
+5. Press Boot again. Right: the status bar says connect-to again and a new GDB
+   session connects. Rotate the device while attached: the session survives.
+6. Build a `.COM` with `ul80 --debug-info`, put it on a disk, and run
+   `udb80 PROG.dbg --connect 127.0.0.1:1234 --wait-program`. Boot CP/M, type the
+   program name. Right: udb80 stops at 0100H and `bt` shows the frames.
+7. Tick **Allow connections from the network**, Boot. Right: the status bar shows
+   the Wi-Fi address, not `(phone address)` (that is `getifaddrs` on Android 11
+   and later, unmeasured), and a computer on the same Wi-Fi connects with
+   `target remote ADDRESS:1234`. With the box unticked, the same connect from the
+   computer is refused.
+8. Untick the stub, Boot. Right: the guest boots with no wait and nothing listens
+   on 1234.
+9. R8: `./gradlew :app:bundleRelease` runs `verifyJniNamesSurviveR8`. Right: it
+   passes and counts 33 of 35 native declarations kept (the number was 31 of 33).
+   Install the release build and repeat step 3: an `UnsatisfiedLinkError` in
+   logcat means R8 renamed `nativeGdbConfigure` or `nativeGdbStatus`.

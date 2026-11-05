@@ -75,8 +75,9 @@ class JniNameParityTest {
 
     /**
      * A guard on the guard: a regex that stopped matching would make the test
-     * above pass by comparing two empty sets. 33 is what both sides hold today,
-     * down from 35 when the two release-gate natives went.
+     * above pass by comparing two empty sets. 35 is what both sides hold today,
+     * up from 33 when the two GDB natives came (33 followed 35, when the two
+     * release-gate natives went).
      */
     @Test
     fun bothListsAreNonEmpty() {

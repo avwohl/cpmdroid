@@ -164,6 +164,10 @@ class MainActivity : AppCompatActivity() {
     private var resolvingRelease = false
 
     private var runLoopCount = 0
+
+    // The one-line GDB stub status (docs/gdb.md) the run loop last saw; empty
+    // when the stub is off. Written on the executor, read on the main thread.
+    @Volatile private var lastGdbStatus = ""
     // Elapsed-time based (iteration counts stretched ~6x whenever the guest
     // idles at a prompt, because idle iterations use IDLE_DELAY_MS)
     private var lastNvramSaveMs = 0L
@@ -193,6 +197,17 @@ class MainActivity : AppCompatActivity() {
 
                     // Check host file state for R8/W8 transfers
                     checkHostFileState()
+
+                    // The GDB stub's one-line status, so the status bar says
+                    // where to connect while the machine waits for a debugger.
+                    val gdbNow = emulator.gdbStatus()
+                    if (gdbNow != lastGdbStatus) {
+                        lastGdbStatus = gdbNow
+                        mainHandler.post {
+                            updateStatus()
+                            showGdbHint(gdbNow)
+                        }
+                    }
 
                     // Periodically save NVRAM (~5 seconds)
                     val now = SystemClock.elapsedRealtime()
@@ -395,6 +410,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupEmulator() {
         emulator.init()
+        applyGdbSettings()
         // The native side reduces a guest path to a leaf and then has to say
         // where that leaf will land, because W8 prints it. Only Kotlin knows
         // the answer, so hand it down once, before any transfer can start.
@@ -1500,6 +1516,16 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "Emulation stopped")
     }
 
+    // The GDB stub settings go to the native side; they act at the next
+    // completeInit() or reset(), so every path that boots calls this first.
+    private fun applyGdbSettings() {
+        emulator.gdbConfigure(
+            settingsRepo.gdbEnabled(),
+            settingsRepo.gdbPort(),
+            settingsRepo.gdbAllowNetwork()
+        )
+    }
+
     private fun bootEmulation() {
         stopEmulation()
         terminalView.clear()
@@ -1508,6 +1534,7 @@ class MainActivity : AppCompatActivity() {
         // Run reset on executor to avoid racing with an in-flight nativeRun
         executor.execute {
             saveDirtyDisks()  // Save any modified disks before reset
+            applyGdbSettings()
             emulator.reset()
             applyManifestWarningPreference()
 
@@ -1736,9 +1763,25 @@ class MainActivity : AppCompatActivity() {
         emulator.hostFileWriteDone()
     }
 
+    // Says how to connect, once, when the stub starts to wait. The status bar
+    // has room for the address only.
+    private fun showGdbHint(status: String) {
+        val prefix = "GDB: connect to "
+        if (!status.startsWith(prefix)) return
+        val where = status.removePrefix(prefix)
+        val port = where.substringAfterLast(':')
+        val text = if (settingsRepo.gdbAllowNetwork()) {
+            "GDB stub waiting. In GDB: target remote $where"
+        } else {
+            "GDB stub waiting. On a computer with USB debugging: adb forward " +
+                "tcp:$port tcp:$port, then in GDB: target remote :$port"
+        }
+        Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+    }
+
     private fun updateStatus() {
         if (running) {
-            statusText.text = "Running"
+            statusText.text = if (lastGdbStatus.isNotEmpty()) lastGdbStatus else "Running"
             statusText.setTextColor(0xFF00FF00.toInt())
             playPauseButton.setImageResource(android.R.drawable.ic_media_pause)
         } else {

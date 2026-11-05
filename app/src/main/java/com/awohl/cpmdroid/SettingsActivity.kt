@@ -161,6 +161,12 @@ class SettingsActivity : AppCompatActivity() {
         // Sound enabled checkbox
         binding.soundEnabledCheckbox.isChecked = settingsRepo.isSoundEnabled()
 
+        // GDB debug stub (docs/gdb.md): off by default, and the network switch
+        // is off by default too. Both take effect at the next Boot.
+        binding.gdbEnabledCheckbox.isChecked = settingsRepo.gdbEnabled()
+        binding.gdbPortEdit.setText(settingsRepo.gdbPort().toString())
+        binding.gdbNetworkCheckbox.isChecked = settingsRepo.gdbAllowNetwork()
+
         // Browse catalog button
         binding.browseCatalogButton.setOnClickListener {
             showDiskCatalogDialog(slotToAssign = null)
@@ -1237,6 +1243,10 @@ class SettingsActivity : AppCompatActivity() {
         settingsRepo.setWarnManifestWritesEnabled(binding.warnManifestWritesCheckbox.isChecked)
         // Save sound enabled setting separately
         settingsRepo.setSoundEnabled(binding.soundEnabledCheckbox.isChecked)
+        // GDB stub settings; a port that is not 1 to 65535 becomes 1234
+        settingsRepo.setGdbEnabled(binding.gdbEnabledCheckbox.isChecked)
+        settingsRepo.setGdbPort(binding.gdbPortEdit.text.toString().trim().toIntOrNull() ?: 0)
+        settingsRepo.setGdbAllowNetwork(binding.gdbNetworkCheckbox.isChecked)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {

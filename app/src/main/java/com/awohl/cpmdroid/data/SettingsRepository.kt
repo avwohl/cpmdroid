@@ -23,6 +23,10 @@ class SettingsRepository(context: Context) {
         private const val KEY_WARN_MANIFEST_WRITES = "warn_manifest_writes"
         private const val KEY_SHOW_PRERELEASE = "show_prerelease"
     private const val KEY_SOUND_ENABLED = "sound_enabled"
+    private const val KEY_GDB_ENABLED = "gdb_enabled"
+    private const val KEY_GDB_PORT = "gdb_port"
+    private const val KEY_GDB_ALLOW_NETWORK = "gdb_allow_network"
+    private const val DEFAULT_GDB_PORT = 1234
         private const val KEY_PREFS_VERSION = "prefs_version"
         private const val CURRENT_PREFS_VERSION = 3
         private const val KEY_NVRAM = "nvram"
@@ -547,6 +551,22 @@ class SettingsRepository(context: Context) {
     fun setShowPrerelease(show: Boolean) {
         prefs.edit { putBoolean(KEY_SHOW_PRERELEASE, show) }
     }
+
+    // GDB debug stub (docs/gdb.md). Off by default; the network switch is a
+    // second, separate setting that is also off by default.
+    fun gdbEnabled(): Boolean = prefs.getBoolean(KEY_GDB_ENABLED, false)
+    fun setGdbEnabled(on: Boolean) { prefs.edit { putBoolean(KEY_GDB_ENABLED, on) } }
+
+    fun gdbPort(): Int {
+        val p = prefs.getInt(KEY_GDB_PORT, DEFAULT_GDB_PORT)
+        return if (p in 1..65535) p else DEFAULT_GDB_PORT
+    }
+    fun setGdbPort(port: Int) {
+        prefs.edit { putInt(KEY_GDB_PORT, if (port in 1..65535) port else DEFAULT_GDB_PORT) }
+    }
+
+    fun gdbAllowNetwork(): Boolean = prefs.getBoolean(KEY_GDB_ALLOW_NETWORK, false)
+    fun setGdbAllowNetwork(on: Boolean) { prefs.edit { putBoolean(KEY_GDB_ALLOW_NETWORK, on) } }
 
     fun isSoundEnabled(): Boolean =
         prefs.getBoolean(KEY_SOUND_ENABLED, false)
