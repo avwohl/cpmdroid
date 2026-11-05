@@ -812,6 +812,10 @@ Build a debug app first. Needs GDB 18.1 with the Z80 target (Homebrew `gdb`) or
    The status bar says `GDB: debugger connected`.
 4. `continue`, then `^C` in GDB. Right: GDB stops with SIGINT. `detach`. Right:
    within a second the terminal shows the RomWBW boot menu and accepts keys.
+5a. While attached, press Pause, wait over 20 s, then open Settings and return.
+   Right: the CPU still answers `stepi`, no crash, and a disk saves. After a
+   detach the status bar says `Running`. Change a disk slot in Settings while
+   attached: the session ends and a new one waits.
 5. Press Boot again. Right: the status bar says connect-to again and a new GDB
    session connects. Rotate the device while attached: the session survives.
 6. Build a `.COM` with `ul80 --debug-info`, put it on a disk, and run

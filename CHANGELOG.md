@@ -21,6 +21,13 @@ does not run the CPU and the stub thread does, one instruction at a time under
 `nativeDestroy` end the thread (a no-op signal, SIGURG, breaks its blocking
 `accept` and `poll`) before they free the state it points into.
 
+Every JNI function that touches the hbios state, the disks, the host-file state
+or NVRAM takes `g_cpu_mutex`, and `nativeLoadRom`, `nativeLoadDisk`,
+`nativeCloseDisk`, `nativeSetDiskSliceCount` and `nativeCompleteInit` end the
+session first, so the stub thread never runs the CPU while the machine is
+changed. Disk and ROM changes in Settings call `applyGdbSettings()` first. The
+status bar goes back to `Running` when the debugger detaches.
+
 Two JNI names are new, `nativeGdbConfigure` and `nativeGdbStatus`, which makes
 35 on each side of `JniNameParityTest`. The existing keep rule for native
 methods covers both. `INTERNET` was already in the manifest.

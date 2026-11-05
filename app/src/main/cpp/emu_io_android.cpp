@@ -1189,7 +1189,7 @@ static void gdb_thread_main(GdbSession* s) {
         // gdb_stop() asked for the end
     }
     if (!g_gdb_abort) {
-        gdb_set_text("GDB: debugger gone, machine running");
+        gdb_set_text("");   // the status bar goes back to "Running"
         LOGI("GDB debugger gone; the CPU runs again");
         g_gdb_state.store(GDB_RELEASED);
     }
@@ -1343,6 +1343,9 @@ JNIEXPORT jboolean JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
                                                        jbyteArray romData) {
     (void)thiz;
+    // The debugger session ends here: its thread must not run the CPU while
+    // the machine is changed.  nativeCompleteInit or nativeReset starts a new one.
+    gdb_stop();
     if (!g_initialized || !g_emu) {
         LOGE("Engine not initialized");
         return JNI_FALSE;
@@ -1458,6 +1461,9 @@ JNIEXPORT jboolean JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadDisk(JNIEnv* env, jobject thiz,
                                                         jint unit, jbyteArray diskData) {
     (void)thiz;
+    // The debugger session ends here: its thread must not run the CPU while
+    // the machine is changed.  nativeCompleteInit or nativeReset starts a new one.
+    gdb_stop();
     if (!g_initialized || !g_emu) {
         LOGE("Engine not initialized");
         return JNI_FALSE;
@@ -1510,6 +1516,9 @@ JNIEXPORT void JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeCompleteInit(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
+    // The debugger session ends here: its thread must not run the CPU while
+    // the machine is changed.  nativeCompleteInit or nativeReset starts a new one.
+    gdb_stop();
     if (!g_initialized || !g_emu) {
         LOGE("Engine not initialized");
         return;
@@ -1668,6 +1677,8 @@ JNIEXPORT jboolean JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsWaitingForInput(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return JNI_FALSE;
     }
@@ -1787,6 +1798,9 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetDiskSliceCount(JNIEnv* env, jobj
                                                                   jint unit, jint slices) {
     (void)env;
     (void)thiz;
+    // The debugger session ends here: its thread must not run the CPU while
+    // the machine is changed.  nativeCompleteInit or nativeReset starts a new one.
+    gdb_stop();
     if (!g_initialized || !g_emu) {
         return;
     }
@@ -1803,6 +1817,8 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsDiskLoaded(JNIEnv* env, jobject t
                                                             jint unit) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return JNI_FALSE;
     }
@@ -1814,6 +1830,9 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeCloseDisk(JNIEnv* env, jobject thiz
                                                          jint unit) {
     (void)env;
     (void)thiz;
+    // The debugger session ends here: its thread must not run the CPU while
+    // the machine is changed.  nativeCompleteInit or nativeReset starts a new one.
+    gdb_stop();
     if (!g_initialized || !g_emu) return;
     if (unit < 0 || unit >= 16) return;
     g_emu->hbios->closeDisk(unit);
@@ -1833,6 +1852,8 @@ JNIEXPORT jint JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileState(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     return static_cast<jint>(emu_host_file_get_state());
 }
 
@@ -1845,12 +1866,16 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileState(JNIEnv* env, jobje
 JNIEXPORT jstring JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileReadName(JNIEnv* env, jobject thiz) {
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     return env->NewStringUTF(g_host_read_filename.c_str());
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileWriteName(JNIEnv* env, jobject thiz) {
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     const char* name = emu_host_file_get_write_name();
     return env->NewStringUTF(name ? name : "");
 }
@@ -1859,6 +1884,8 @@ JNIEXPORT void JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetHostExportsDir(JNIEnv* env, jobject thiz,
                                                               jstring dir) {
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (dir == nullptr) {
         emu_host_set_exports_dir(nullptr);
         return;
@@ -1879,6 +1906,8 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeProvideHostFileData(JNIEnv* env, jo
                                                                     jbyteArray data,
                                                                     jstring source) {
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (data == nullptr) {
         // User cancelled - cancel the read. emu_host_file_cancel() clears the
         // source itself, so there is nothing to undo here.
@@ -1905,6 +1934,8 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeProvideHostFileData(JNIEnv* env, jo
 JNIEXPORT jbyteArray JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetHostFileWriteData(JNIEnv* env, jobject thiz) {
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     // null means "there is no export to collect", not "the export is empty".
     // emu_host_file_get_write_data() returns nullptr for an empty buffer (the
     // shared contract - the browser backend passes a length alongside it), so
@@ -1936,6 +1967,8 @@ JNIEXPORT void JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeHostFileWriteDone(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     emu_host_file_write_done();
 }
 
@@ -1943,6 +1976,8 @@ JNIEXPORT void JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeHostFileCancel(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     emu_host_file_cancel();
 }
 
@@ -1954,6 +1989,8 @@ JNIEXPORT void JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetNvramSetting(JNIEnv* env, jobject thiz,
                                                                jstring setting) {
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return;
     }
@@ -1966,6 +2003,8 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetNvramSetting(JNIEnv* env, jobjec
 JNIEXPORT jstring JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetNvramSetting(JNIEnv* env, jobject thiz) {
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return env->NewStringUTF("");
     }
@@ -1977,6 +2016,8 @@ JNIEXPORT jboolean JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeHasNvramChange(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return JNI_FALSE;
     }
@@ -1987,6 +2028,8 @@ JNIEXPORT jboolean JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsNvramInitialized(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return JNI_FALSE;
     }
@@ -2002,6 +2045,8 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetDiskIsManifest(JNIEnv* env, jobj
                                                                   jint unit, jboolean isManifest) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (unit < 0 || unit >= 16) {
         return;
     }
@@ -2018,6 +2063,8 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeSetDiskWarningSuppressed(JNIEnv* en
                                                                          jint unit, jboolean suppressed) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return;
     }
@@ -2029,6 +2076,8 @@ JNIEXPORT jboolean JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeCheckManifestWriteWarning(JNIEnv* env, jobject thiz) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return JNI_FALSE;
     }
@@ -2043,6 +2092,8 @@ JNIEXPORT jboolean JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeIsDiskDirty(JNIEnv* env, jobject thiz, jint unit) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return JNI_FALSE;
     }
@@ -2053,6 +2104,8 @@ JNIEXPORT void JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeClearDiskDirty(JNIEnv* env, jobject thiz, jint unit) {
     (void)env;
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return;
     }
@@ -2063,6 +2116,8 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeClearDiskDirty(JNIEnv* env, jobject
 JNIEXPORT jbyteArray JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeGetDiskData(JNIEnv* env, jobject thiz, jint unit) {
     (void)thiz;
+    // The stub thread may be running the CPU: take its mutex.
+    std::lock_guard<std::mutex> cpu_lock(g_cpu_mutex);
     if (!g_initialized || !g_emu) {
         return nullptr;
     }

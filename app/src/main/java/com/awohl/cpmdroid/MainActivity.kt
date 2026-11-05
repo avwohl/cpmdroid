@@ -1418,6 +1418,7 @@ class MainActivity : AppCompatActivity() {
 
                 if (emulator.loadRom(romData)) {
                     loadDisksAndConfigureSlices(settings)
+                    applyGdbSettings()
                     emulator.completeInit()
 
                     // Swapping the ROM under a machine that has already run
@@ -1925,6 +1926,7 @@ class MainActivity : AppCompatActivity() {
             // Save under the outgoing mapping before anything is replaced
             saveDirtyDisks()
             loadDisksAndConfigureSlices(settings, "reloaded")
+            applyGdbSettings()
             emulator.completeInit()
 
             val savedNvramSetting = settingsRepo.getSavedNvramSetting()

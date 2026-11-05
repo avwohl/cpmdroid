@@ -23,7 +23,9 @@ The stub is off by default.
 3. Type a port in the port field. The default is 1234.
 4. Go back to the terminal and press the Boot button.
 
-The setting takes effect at the next boot. When the stub is on, the machine
+The setting takes effect at the next boot. A change of a disk slot in
+Settings ends the debugger session. A new session starts at once. A change of
+the ROM does the same. When the stub is on, the machine
 does not run at boot. The machine waits for a debugger. The status bar shows
 `GDB: connect to ADDRESS:PORT`. A message on the screen shows the commands to
 type on the computer.
@@ -63,8 +65,11 @@ safer one. No other computer on the network can reach the stub.
 
 The phone and the computer must be on the same network. The stub then listens
 on every network interface of the device. The status bar shows the Wi-Fi
-address when the device has one. When no address is found, the status bar shows
-`(phone address)`. Then look up the address in the Wi-Fi settings of the phone.
+address when the device has one. When the device has no Wi-Fi address, the
+status bar shows the address of another interface, for example the mobile data
+interface or a hotspot. The computer can not always reach that address. Check
+the address in the Wi-Fi settings of the phone. When no address is found, the
+status bar shows `(phone address)`.
 
 **WARNING:** The stub has no password. Anyone who can reach the port can read
 and write the memory of the emulated machine and control the machine. Use the
@@ -96,12 +101,17 @@ at a time. The normal run loop of the app does not run the CPU in this time.
 The terminal still shows the output of the program. When the program waits for
 a key, you can type on the device as usual.
 
-When the debugger detaches or goes away, the stub thread ends. The run loop
-then runs the machine again. The `k` command of the debugger has the same
+The Pause button does not stop the CPU while a debugger holds the machine. Only
+the debugger stops the CPU then.
+
+When the debugger detaches or goes away, the stub thread ends. The status bar
+then shows `Running` again. The run loop runs the machine again. The `k` command of the debugger has the same
 effect as a detach.
 
 ## Limits
 
+- The calls from the app wait for the stub thread to release the CPU for one
+  instruction. A disk save is one such call.
 - One debugger for each boot. After a detach, press Boot to debug again.
 - The machine waits at boot as long as the stub is on and no debugger comes.
 - A single step does not move the program while the program waits for a key.
