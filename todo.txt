@@ -481,3 +481,8 @@ above says to - not a slice index that happens to be zero.
   debug and release, run `./gradlew :app:test` (JniNameParityTest now expects 35
   names) and `verifyJniNamesSurviveR8`, then run MANUAL_CHECKS.md section 12:
   `adb forward tcp:1234 tcp:1234` and `target remote :1234` from GDB 18.1.
+
+- [ANDROID] theFixturesStillMatchThePublishedDocuments no longer matches a current
+  romwbw_disks checkout: app/src/test/resources/index-v0.json still lists
+  3.7.0-dev.14, which romwbw_disks retired for 3.7.0-dev.16 on 2026-11-09
+  (romwbw_disks 14ef9d7).  Refresh the fixture and the tests that name dev.14.
