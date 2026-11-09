@@ -71,7 +71,8 @@ class CatalogParsingTest {
     @Test
     fun everyPublishedEntryIsParsed() {
         val versions = parseRomwbwIndex(index())
-        // Three since 2026-09-18: 3.5.1, 3.6.0 and the 3.7.0-dev.14 pre-release.
+        // Three since 2026-09-18: 3.5.1, 3.6.0 and a pre-release - 3.7.0-dev.14,
+        // replaced by 3.7.0-dev.16 on 2026-11-09.
         // A pre-release is PARSED like any other entry and is not dropped here -
         // hiding it is isOffered()'s decision, one layer up, and a parser that
         // discarded it would leave the opt-in with nothing to show.

@@ -125,11 +125,11 @@
       ]
     },
     {
-      "romwbw_version": "3.7.0-dev.14",
-      "label": "RomWBW 3.7.0-dev.14 (development snapshot)",
+      "romwbw_version": "3.7.0-dev.16",
+      "label": "RomWBW 3.7.0-dev.16 (development snapshot)",
       "status": "snapshot",
       "default": false,
-      "released": "2026-09-08",
+      "released": "2026-10-24",
       "hbios": {
         "major": 3,
         "minor": 7,
@@ -139,12 +139,12 @@
         "upd_byte": "0x00",
         "sysver_de": "0x3700"
       },
-      "release_tag": "v0-romwbw-3.7.0-dev.14",
-      "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.14/catalog-v0-3.7.0-dev.14.json",
-      "catalog_sha256": "127e60953c8bdf4339d048a23744dfef0eee1b372c672824ec36303685461365",
+      "release_tag": "v0-romwbw-3.7.0-dev.16",
+      "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.16/catalog-v0-3.7.0-dev.16.json",
+      "catalog_sha256": "668ccfa5257b3030ca959b21153402a6be6c9d7dc170c2532ac1c43df96254ba",
       "catalog_size": 13262,
       "generation": 1,
-      "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.14/disks-v0-3.7.0-dev.14.xml",
+      "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.16/disks-v0-3.7.0-dev.16.xml",
       "rom_count": 2,
       "disk_count": 22,
       "notes": [],
