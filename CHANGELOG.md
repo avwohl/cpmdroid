@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**tools/check-store-version.sh sees a Play build that is newer than the tree.**
+Play's listing gives a versionName and no versionCode. The script found the
+versionCode in a CHANGELOG heading. If no heading named the versionName, the
+script said that the tree was ahead of Play, which was normal. A build
+released from another checkout has no heading here, so that report was wrong.
+
+Now, with no heading, the script compares the versionNames. A newer name on
+Play is "PLAY SERVES A NEWER VERSION THAN THIS TREE", with exit 1. The same name
+is exit 2, because the script cannot know the versionCode. An older name is still
+"the tree is ahead".
+
 **tools/check-help-assets.py: a check for the bundled help.** The script
 compares `app/src/main/assets/help/` with the help block that romwbw_disks
 publishes: each topic by its sha256, and `help_index.json` by its `help` block.

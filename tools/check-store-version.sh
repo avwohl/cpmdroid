@@ -122,14 +122,62 @@ else
     echo "  which is         versionCode unknown - no CHANGELOG heading for $live"
 fi
 
+# Dotted versionNames compared field by field: 1 if $1 is newer, -1 if older,
+# 0 if the same, ? if either is not digits and dots.
+vercmp() {
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        if (a !~ /^[0-9]+(\.[0-9]+)*$/ || b !~ /^[0-9]+(\.[0-9]+)*$/) { print "?"; exit }
+        na = split(a, x, "."); nb = split(b, y, ".")
+        n = na > nb ? na : nb
+        for (i = 1; i <= n; i++) {
+            p = (i <= na) ? x[i] + 0 : 0
+            q = (i <= nb) ? y[i] + 0 : 0
+            if (p > q) { print 1; exit }
+            if (p < q) { print -1; exit }
+        }
+        print 0 }'
+}
+
 # --- the gap -------------------------------------------------------------------
 echo
-if [ -n "$livecode" ] && [ "$vcode" -lt "$livecode" ] 2>/dev/null; then
+# NO HEADING FOR WHAT PLAY SERVES is where this script used to be blind.  The
+# listing carries a versionName and no versionCode, so a build released from
+# another checkout - newer than anything here - had no heading to map, fell
+# through to "the tree is ahead", and was reported as normal.  ioscpm's script
+# did the same on 2026-09-13 with the Mac Store two builds ahead of its tree.
+# The versionCode stays unknowable from here; the versionNames are not.
+if [ -z "$livecode" ]; then
+    case $(vercmp "$live" "$vname") in
+    1)
+        echo "PLAY SERVES A NEWER VERSION THAN THIS TREE: $live, and the tree is $vname."
+        echo "  No CHANGELOG heading maps $live, so this tree has never recorded it:"
+        echo "  a release went out from another checkout.  Its versionCode is not"
+        echo "  known here, so an upload at versionCode $vcode may be one Play has seen."
+        echo "  Bring that release's commits here before building."
+        status=1 ;;
+    0)
+        echo "Play serves this tree's versionName, $live, and no CHANGELOG heading maps it."
+        echo "  So whether Play has seen versionCode $vcode cannot be told from here."
+        echo "  Write the heading for the release that shipped - '## Version $live"
+        echo "  (versionCode N)' - and run this again."
+        exit 2 ;;
+    -1)
+        echo "The tree is ahead of Play. That is normal - you build before you ship."
+        echo "  Play's $live has no CHANGELOG heading, so its versionCode is not known"
+        echo "  here; it is older than the tree's $vname by name."
+        echo "  What is NOT normal is writing versionCode $vcode into anything that"
+        echo "  records what USERS have.  Uploaded is not released." ;;
+    *)
+        echo "CANNOT VERIFY: '$live' and '$vname' are not both dotted numbers,"
+        echo "and no CHANGELOG heading maps $live."
+        exit 2 ;;
+    esac
+elif [ "$vcode" -lt "$livecode" ] 2>/dev/null; then
     echo "TREE IS BEHIND PLAY: versionCode $vcode < shipped $livecode."
     echo "  Not a normal state.  A release went out from another checkout, or"
     echo "  somebody edited the number downward."
     status=1
-elif [ -n "$livecode" ] && [ "$vcode" = "$livecode" ]; then
+elif [ "$vcode" = "$livecode" ]; then
     echo "The tree and Play are on the same versionCode."
     echo "  Play refuses an upload at a versionCode it has seen, so the tree as"
     echo "  it stands cannot be shipped: the number has to move first."
