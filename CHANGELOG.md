@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**tools/check-help-assets.py: a check for the bundled help.** The script
+compares `app/src/main/assets/help/` with the help block that romwbw_disks
+publishes: each topic by its sha256, and `help_index.json` by its `help` block.
+`--check` reports drift and exits 1. Exit 2 means that it could not read the
+catalog.
+
+With no argument, the script downloads the stale files, checks each against the
+published sha256, and writes it. It keeps the comment in `help_index.json`. It
+is the same script as ioscpm's, for this copy. No job runs it on a schedule, so
+run it before a build.
+
 **docs/gdb.md: monitor wait-program now stops GDB.** docs/gdb.md: GDB finds a CP/M program with `monitor wait-program` and
 `continue`, with a build that compiled cpmemu `365dfc2` or later: the stub's
 rule stop is now a plain `T05`, which GDB reports as a SIGTRAP, where the old
