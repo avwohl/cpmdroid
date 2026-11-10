@@ -216,7 +216,13 @@ data class V0MigrationResult(
     /** Files actually renamed, across both directories. */
     val renamed: Int,
     /** True when every rename this pass wanted either happened or was moot. */
-    val complete: Boolean
+    val complete: Boolean,
+    /**
+     * The v0 names of the pristine Disks/ images this pass renamed and kept
+     * renamed - the provenance [classifyInstalledImage] needs, since only this
+     * pass can put a pre-v0 image under a v0 name. The caller records it.
+     */
+    val migratedPristine: Set<String> = emptySet()
 )
 
 /** Why one rename did not happen, which is not the same as whether it failed. */
@@ -253,6 +259,7 @@ fun migrateDiskNames(
 
     var renamed = 0
     var complete = true
+    val migratedPristine = LinkedHashSet<String>()
 
     for (name in candidateNames(disksDir, persistedDisksDir, slots)) {
         val v0 = v0NameOf(name) ?: continue
@@ -266,7 +273,10 @@ fun migrateDiskNames(
         // name nothing asks for, the pristine download answers instead, and the
         // work is invisible until the next launch finishes the pass.
         val pristine = renameWithin(disksDir, name, v0)
-        if (pristine == RenameOutcome.RENAMED) renamed++
+        if (pristine == RenameOutcome.RENAMED) {
+            renamed++
+            migratedPristine.add(v0)
+        }
         if (pristine == RenameOutcome.FAILED) {
             // And for the same reason, do not move the written-to copy of a name
             // whose pristine copy could not move: leaving both under the old
@@ -296,6 +306,7 @@ fun migrateDiskNames(
                 renameWithin(disksDir, v0, name) == RenameOutcome.RENAMED
             ) {
                 renamed--
+                migratedPristine.remove(v0)
             }
         }
     }
@@ -321,7 +332,7 @@ fun migrateDiskNames(
         }
     }
 
-    return V0MigrationResult(migratedSlots, renamed, complete)
+    return V0MigrationResult(migratedSlots, renamed, complete, migratedPristine)
 }
 
 /**

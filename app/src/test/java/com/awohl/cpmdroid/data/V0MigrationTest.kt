@@ -283,6 +283,25 @@ class V0MigrationTest {
         assertEquals("pristine", read(disks, "hd1k_z3plus.img"))
         assertEquals("the user's work", read(modified, "hd1k_z3plus.img"))
         assertNull(read(disks, "hd1k_z3plus-v0-3.5.1.img"))
+        // And a rename that was undone is no provenance: the image is not under
+        // a v0 name, so nothing may treat it as one the migration put there.
+        assertTrue(result.migratedPristine.isEmpty())
+    }
+
+    @Test
+    fun theRenamedPristineImagesAreRecordedAsMigrated() {
+        // The provenance classifyInstalledImage() keys on. Disks/ only: a
+        // ModifiedDisks/ copy is the user's, and is never compared with a catalog.
+        write(disks, "hd1k_combo.img", "pristine combo")
+        write(disks, "hd1k_games.img", "pristine games")
+        write(modified, "hd1k_games.img", "the user's work")
+        write(disks, "my_disk.img", "the user's own")
+
+        val result = migrateDiskNames(disks, modified, listOf("hd1k_combo.img", null, null, null))
+
+        assertTrue(result.complete)
+        assertEquals(setOf("hd1k_combo-v0-3.5.1.img", "hd1k_games-v0-3.5.1.img"),
+            result.migratedPristine)
     }
 
     @Test

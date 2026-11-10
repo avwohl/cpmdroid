@@ -22,6 +22,9 @@ class SettingsRepository(context: Context) {
         private const val KEY_FIRST_LAUNCH_DONE = "first_launch_done"
         private const val KEY_WARN_MANIFEST_WRITES = "warn_manifest_writes"
         private const val KEY_SHOW_PRERELEASE = "show_prerelease"
+        // The v0 names of Disks/ images the v0 migration renamed - the
+        // provenance classifyInstalledImage() keys the equivalent prior image on.
+        private const val KEY_MIGRATED_FROM_PRE_V0 = "disks_migrated_from_pre_v0"
     private const val KEY_SOUND_ENABLED = "sound_enabled"
     private const val KEY_GDB_ENABLED = "gdb_enabled"
     private const val KEY_GDB_PORT = "gdb_port"
@@ -672,7 +675,49 @@ class SettingsRepository(context: Context) {
         // an argument rather than reading them again, so nothing here depends on
         // an apply()'d write being visible to the next read.
         val slots = seedBundledNamespace()
-        return migrateDiskNamesToV0(disksDir, persistedDisksDir, slots)
+        val result = migrateDiskNamesToV0(disksDir, persistedDisksDir, slots)
+        recordMigrationProvenance(disksDir, result)
+        return result
+    }
+
+    /**
+     * Remember which Disks/ images the v0 migration renamed, so the one
+     * equivalent prior image is not offered as an update (DiskVerification.kt).
+     *
+     * A device that ran the migration before this record existed has none, and
+     * would be offered a 49 MB download of the combo image for 2,342 bytes of
+     * CP/M slack. So the first time the record is written, an
+     * hd1k_combo-v0-3.5.1.img already in Disks/ is taken as migrated. That is
+     * safe for the same reason the record is: equivalence also needs the
+     * file's hash to be the pre-v0 one exactly, and a download is verified
+     * against the catalog's hash, so no download can produce those bytes.
+     */
+    private fun recordMigrationProvenance(disksDir: File?, result: V0MigrationResult?) {
+        val recorded = prefs.getStringSet(KEY_MIGRATED_FROM_PRE_V0, null)
+        val names = LinkedHashSet<String>(recorded ?: emptySet())
+        result?.let { names.addAll(it.migratedPristine) }
+        if (recorded == null && disksDir != null) {
+            val combo = v0NameOf("hd1k_combo.img")
+            if (combo != null && File(disksDir, combo).isFile) names.add(combo)
+        }
+        if (recorded == null || names != recorded) {
+            prefs.edit { putStringSet(KEY_MIGRATED_FROM_PRE_V0, names) }
+        }
+    }
+
+    /** Did the v0 migration put this Disks/ image under its v0 name? */
+    fun isMigratedFromPreV0(filename: String): Boolean =
+        prefs.getStringSet(KEY_MIGRATED_FROM_PRE_V0, null)?.contains(filename) == true
+
+    /**
+     * A download replaced this image, so it is no longer the one the migration
+     * renamed. Call after every successful disk download.
+     */
+    fun clearMigratedFromPreV0(filename: String) {
+        val recorded = prefs.getStringSet(KEY_MIGRATED_FROM_PRE_V0, null) ?: return
+        if (filename in recorded) {
+            prefs.edit { putStringSet(KEY_MIGRATED_FROM_PRE_V0, recorded - filename) }
+        }
     }
 
     /**

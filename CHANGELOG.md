@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**Settings checks an installed disk against the catalog.** In Browse Disk
+Catalog, a tap on a disk that is already downloaded now calculates the sha256
+of the copy on the device. The app compares it with the sha256 in the catalog.
+If they are different, a dialog offers to download the catalog's copy. The app
+replaces a copy only when the user accepts.
+
+The pre-v0 hd1k_combo image is different from the 3.5.1 catalog image only in
+CP/M slack, so it counts as a match. The app accepts this exception only for a
+file that the v0 migration renamed, and only with the one known hash.
+`DiskVerification.kt` has the rule, and `DiskVerificationTest` and
+`V0MigrationTest` check it. Devices that migrated before this change record the
+exception one time at the next start.
+
 **The nativeRomwbwReleaseOfImage export goes.** It read the RomWBW release out
 of a ROM image. Its last caller read the ROM that was in the APK, and eccb4bc
 removed that ROM. Each ROM now comes from the catalog, and the app checks its

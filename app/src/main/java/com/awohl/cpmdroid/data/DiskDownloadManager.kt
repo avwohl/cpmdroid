@@ -122,6 +122,32 @@ class DiskDownloadManager(private val context: Context) {
 
     fun isDiskDownloaded(filename: String): Boolean = getDiskFile(filename).exists()
 
+    /**
+     * The sha256 of the installed Disks/ image, or null when there is none or it
+     * cannot be read. Streamed, on the IO dispatcher: the combo image is 49 MB.
+     * The pristine copy only - ModifiedDisks/ holds the user's writes, which are
+     * never compared with a catalog. See classifyInstalledImage().
+     */
+    suspend fun sha256OfInstalled(filename: String): String? = withContext(Dispatchers.IO) {
+        val file = getDiskFile(filename)
+        if (!file.isFile) return@withContext null
+        try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    ensureActive()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: java.io.IOException) {
+            null
+        }
+    }
+
     fun getDownloadedDisks(): List<String> {
         return getDisksDir().listFiles()
             ?.filter { it.isFile && it.name.endsWith(".img") }

@@ -832,3 +832,22 @@ Build a debug app first. Needs GDB 18.1 with the Z80 target (Homebrew `gdb`) or
    passes and counts 33 of 35 native declarations kept (the number was 31 of 33).
    Install the release build and repeat step 3: an `UnsatisfiedLinkError` in
    logcat means R8 renamed `nativeGdbConfigure` or `nativeGdbStatus`.
+
+## 13. An installed disk compared with the catalog
+
+Settings > Browse Disk Catalog: a tap on a disk that is already downloaded now
+hashes the copy in Disks/ and compares it with the catalog (DiskVerification.kt).
+JVM tests check the rule. Only a device can check the hashing, the dialog and
+the stored provenance.
+
+1. Tap a disk that was downloaded by this build. Right: "Checking...", then
+   "<name> is downloaded and matches the catalog".
+2. On a device that ran the v0 migration from a pre-v0 install (RomWBW 3.5.1),
+   tap hd1k_combo. Right: it matches. Wrong: an offer to download 49 MB. The
+   pre-v0 combo image differs from the catalog only in CP/M slack.
+3. With `adb shell`, append one byte to a downloaded image in
+   `/sdcard/Android/data/com.awohl.cpmdroid/files/Disks/` and tap it. Right: a
+   dialog "<name> differs from the catalog" that offers the download. If the
+   disk has a copy in ModifiedDisks/, the dialog says that a drive still loads
+   those changes.
+4. Accept the download. Right: it downloads, and a second tap says it matches.

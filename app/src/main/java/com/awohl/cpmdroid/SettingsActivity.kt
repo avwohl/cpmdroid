@@ -1089,10 +1089,58 @@ class SettingsActivity : AppCompatActivity() {
                 dialog.dismiss()
                 Toast.makeText(this, "${diskInfo.name} assigned to Slot $slotToAssign", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "${diskInfo.name} is already downloaded", Toast.LENGTH_SHORT).show()
+                verifyInstalledDisk(diskInfo, dialog)
             }
         } else {
             showDownloadConfirmation(diskInfo, slotToAssign, dialog)
+        }
+    }
+
+    /**
+     * Tapping a disk that is already downloaded checks it against the catalog,
+     * and offers the catalog's copy when the installed one differs.
+     *
+     * Only on request, and only an offer: nothing replaces an image because a
+     * catalog moved (SettingsRepository.noteCatalogGeneration says why that
+     * must never be automatic). The one known equivalent image - hd1k_combo
+     * as the v0 migration renamed it - counts as matching, so a migrated device
+     * is not offered 49 MB to replace CP/M slack. See DiskVerification.kt.
+     */
+    private fun verifyInstalledDisk(diskInfo: DiskInfo, dialog: AlertDialog) {
+        Toast.makeText(this, "Checking ${diskInfo.name}...", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val installed = downloadManager.sha256OfInstalled(diskInfo.filename)
+            if (installed == null) {
+                Toast.makeText(this@SettingsActivity,
+                    "${diskInfo.name} could not be read", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val state = classifyInstalledImage(installed, diskInfo.sha256,
+                settingsRepo.isMigratedFromPreV0(diskInfo.filename))
+            if (state != InstalledImage.DIFFERS) {
+                Toast.makeText(this@SettingsActivity,
+                    "${diskInfo.name} is downloaded and matches the catalog",
+                    Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val release = settingsRepo.selectedRomwbwVersion()
+            val kept = if (downloadManager.hasPersistedDisk(diskInfo.filename)) {
+                "\n\nYour changes to this disk are kept separately, and a drive " +
+                    "still loads them. Only the downloaded copy is replaced."
+            } else {
+                ""
+            }
+            AlertDialog.Builder(this@SettingsActivity)
+                .setTitle("${diskInfo.name} differs from the catalog")
+                .setMessage("The copy on this device is not the one the RomWBW $release " +
+                    "catalog names. The catalog may have published a new copy, or this " +
+                    "one may be damaged.\n\nDownload the catalog's copy " +
+                    "(${formatDiskSize(diskInfo.size)})?" + kept)
+                .setPositiveButton("Download") { _, _ ->
+                    downloadDisk(diskInfo, null, dialog)
+                }
+                .setNegativeButton("Keep this copy", null)
+                .show()
         }
     }
 
@@ -1165,6 +1213,8 @@ class SettingsActivity : AppCompatActivity() {
 
             result.fold(
                 onSuccess = {
+                    // The bytes are the catalog's now, not the migration's.
+                    settingsRepo.clearMigratedFromPreV0(diskInfo.filename)
                     Toast.makeText(this@SettingsActivity,
                         "Downloaded ${diskInfo.name}", Toast.LENGTH_SHORT).show()
                     if (slotToAssign != null) {

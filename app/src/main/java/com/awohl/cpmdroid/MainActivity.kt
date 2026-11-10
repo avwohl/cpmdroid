@@ -1282,6 +1282,7 @@ class MainActivity : AppCompatActivity() {
                     result.fold(
                         onSuccess = { file ->
                             Log.i(TAG, "Downloaded disk: ${file.absolutePath} (${file.length()} bytes)")
+                            settingsRepo.clearMigratedFromPreV0(defaultDisk.filename)
                             // The release this disk was fetched FOR, not whichever
                             // one is selected now. loadSelectedCatalog() above may
                             // have moved the selection, and the download between
