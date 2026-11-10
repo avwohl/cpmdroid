@@ -393,6 +393,13 @@ like it would answer this and does not.
   native code compiles with the NDK and passed a host test, but the Kotlin
   (EmulatorEngine, SettingsRepository, SettingsActivity, MainActivity, the
   Settings layout) was never compiled. A machine with the Android SDK must build
-  debug and release, run `./gradlew :app:test` (JniNameParityTest now expects 35
+  debug and release, run `./gradlew :app:test` (JniNameParityTest now expects 36
   names) and `verifyJniNamesSurviveR8`, then run MANUAL_CHECKS.md section 12:
   `adb forward tcp:1234 tcp:1234` and `target remote :1234` from GDB 18.1.
+
+- [ANDROID] build 37a6163 and 27a3128, which were NOT COMPILED: MainActivity.kt
+  (starterDisk(), the About dialog's bank-0 line, createReleaseMismatchNotice),
+  EmulatorEngine.kt and nativeRomwbwReleaseLoaded under the NDK.  Build debug and
+  release, run `./gradlew :app:test` (IndexUrlTest has not run since) and
+  `verifyJniNamesSurviveR8`, then open About on a booted machine: it must name
+  the selected release, and a 3.7.0-dev ROM as "version bytes say 3.7.0".
