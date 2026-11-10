@@ -183,4 +183,20 @@ class RomSelectionTest {
         assertTrue(dropped.message!!.contains("Connection reset"))
         assertFalse(dropped.message!!.contains("did not verify"))
     }
+
+    /** The ROM's own claim against the selected release: z80cpmw's and ioscpm's rule. */
+    @Test
+    fun romServesItsReleaseAndThatReleasesSnapshots() {
+        assertTrue(romServes("3.6.0", "3.6.0"))
+        assertTrue("a snapshot's ROM spells only the release it precedes",
+            romServes("3.7.0-dev.16", "3.7.0"))
+        assertFalse(romServes("3.6.0", "3.5.1"))
+        assertFalse("not symmetric: a 3.7.0 entry is not served by a snapshot's name",
+            romServes("3.7.0", "3.7.0-dev.16"))
+        assertFalse("the '-' is load-bearing", romServes("3.7.01", "3.7.0"))
+        assertFalse(romServes("3.7.0-", "3.7.0"))
+        assertFalse(romServes("3.7.0-dev.16", "3.6.0"))
+        assertFalse(romServes("", "3.6.0"))
+        assertFalse(romServes("3.6.0", ""))
+    }
 }

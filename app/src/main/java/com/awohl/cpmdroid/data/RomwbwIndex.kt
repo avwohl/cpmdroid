@@ -235,3 +235,29 @@ fun selectRomwbwVersion(
  */
 fun isOffered(entry: RomwbwVersion, showPrerelease: Boolean): Boolean =
     !entry.isPrerelease || showPrerelease
+
+/**
+ * Does a ROM that declares itself [declaredByRom] serve the release
+ * [catalogVersion]?
+ *
+ * NOT `==`. A ROM describes itself with the two version bytes of its HBIOS
+ * configuration block, so emu_romwbw_release_str() can only ever spell three
+ * numbers - "3.7.0" - while a catalog entry names the full upstream tag,
+ * "3.7.0-dev.16". romwbw_disks' CATALOG_SCHEMA.md 2.3.1 measured a snapshot's
+ * HCB as byte for byte what the release it precedes will read, so nothing
+ * computed from those bytes can tell them apart.
+ *
+ * The rule is z80cpmw's catalogv0::romServes and ioscpm's
+ * RomWBWRelease.romServes: the same release, or an entry that is a PRE-RELEASE
+ * of what the ROM declares - the core version, a "-", an identifier. It is
+ * deliberately asymmetric, so it cannot admit a wrong pairing: a 3.6.0 ROM does
+ * not serve a 3.7.0-dev entry. The "-" is load-bearing; without it "3.7.01"
+ * would match a "3.7.0" ROM.
+ */
+fun romServes(catalogVersion: String, declaredByRom: String): Boolean {
+    if (declaredByRom.isEmpty() || catalogVersion.isEmpty()) return false
+    if (catalogVersion == declaredByRom) return true
+    return catalogVersion.length > declaredByRom.length + 1 &&
+        catalogVersion.startsWith(declaredByRom) &&
+        catalogVersion[declaredByRom.length] == '-'
+}

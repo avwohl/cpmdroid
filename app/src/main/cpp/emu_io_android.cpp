@@ -1395,9 +1395,11 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 //-----------------------------------------------------------------------------
 // RomWBW release queries
 //
-// This one asks the core about a RomWBW release and touches no emulator state:
-// it reads g_emu nowhere, so unlike every other native below it, it is callable
-// before nativeInit() and from a screen that owns no emulator at all.
+// nativeRomwbwReleaseOfImage asks the core about a RomWBW release and touches
+// no emulator state: it reads g_emu nowhere, so unlike every other native below
+// it, it is callable before nativeInit() and from a screen that owns no
+// emulator at all. nativeRomwbwReleaseLoaded asks about the ROM in bank 0, so
+// it needs the emulator, and answers null until a ROM is loaded.
 //
 // There were three. nativeRomwbwReleaseSupported and nativeRomwbwSupportedList
 // went with romwbw_emu v1.44, which deleted emu_romwbw_release_supported() and
@@ -1417,10 +1419,32 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 //     sed 's/.*fun //' | sort
 //   grep -oE '^Java_com_awohl_cpmdroid_EmulatorEngine_native[A-Za-z0-9_]*'
 //     emu_io_android.cpp | sed 's/.*EmulatorEngine_//' | sort
-// - 35 names on each side today. The ^ is load-bearing: every definition below
+// - 36 names on each side today. The ^ is load-bearing: every definition below
 // starts its name in column 0, and without it these comment lines match
 // themselves and come back as a name no Kotlin declaration has.
 //-----------------------------------------------------------------------------
+
+// The release of the ROM actually in bank 0 - what the machine is running,
+// asked of the core rather than of preferences - or null before a ROM is
+// loaded. Unlike nativeRomwbwReleaseOfImage it does read g_emu, so it answers
+// only once nativeInit() has run and a ROM has gone in. It reads the HBIOS
+// configuration block's two version bytes, as every guest-visible site does
+// (emu_romwbw_release_loaded() in romwbw_emu's emu_init.h), so a development
+// snapshot's ROM reports the release it precedes: "3.7.0", not "3.7.0-dev.16".
+JNIEXPORT jstring JNICALL
+Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwReleaseLoaded(JNIEnv* env, jobject thiz) {
+    (void)thiz;
+    if (!g_emu || !g_emu->memory) {
+        return nullptr;
+    }
+    emu_romwbw_release release;
+    if (!emu_romwbw_release_loaded(g_emu->memory, &release)) {
+        return nullptr;
+    }
+    char buf[EMU_ROMWBW_STR_MAX];
+    emu_romwbw_release_str(release, buf, sizeof(buf));
+    return env->NewStringUTF(buf);
+}
 
 JNIEXPORT jstring JNICALL
 Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwReleaseOfImage(JNIEnv* env, jobject thiz,

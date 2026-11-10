@@ -29,6 +29,7 @@ import com.awohl.cpmdroid.data.DiskDownloadManager
 import com.awohl.cpmdroid.data.EmulatorSettings
 import com.awohl.cpmdroid.data.RomFailure
 import com.awohl.cpmdroid.data.releaseOfV0Name
+import com.awohl.cpmdroid.data.romServes
 import com.awohl.cpmdroid.data.starterDisk
 import com.awohl.cpmdroid.data.STARTER_DISK_ID
 import com.awohl.cpmdroid.data.SettingsRepository
@@ -645,9 +646,9 @@ class MainActivity : AppCompatActivity() {
      * a machine on 3.7.0-dev.14 would report "3.7.0" if this asked the bytes -
      * the suffix exists only in the catalog string and in the v0 filename.
      * z80cpmw prefers its configured tag for the same reason and says so.
-     * Asking what is actually in bank 0 is emu_romwbw_release_loaded(), which
-     * has no JNI export here; todo.txt owns that and it must land with its
-     * Kotlin declaration and its JniNameParityTest entry, not folded in here.
+     * What is actually in bank 0 is EmulatorEngine.romwbwReleaseLoaded(), and
+     * [createReleaseMismatchNotice] and the About dialog ask it; this banner
+     * names the release the machine was set up for.
      *
      * ONE SOURCE FOR THE RELEASE. This reads settingsRepo.selectedRomwbwVersion(),
      * the same call [createReleaseMismatchNotice] makes, so the two blocks cannot
@@ -737,6 +738,18 @@ class MainActivity : AppCompatActivity() {
         val text = StringBuilder()
         val disagreeing = mutableListOf<String>()
 
+        // THE ROM FIRST. The selected release is a preference; the ROM in bank 0
+        // is what the machine runs, and its HCB is the only thing that would
+        // catch a ROM that verified against the wrong release. Through
+        // romServes(), because a snapshot's ROM spells only the release it
+        // precedes. Null is no ROM loaded, which is nothing to report.
+        val loaded = emulator.romwbwReleaseLoaded()
+        val romDisagrees = loaded != null && !romServes(running, loaded)
+        if (romDisagrees) {
+            text.append("The ROM in bank 0 is RomWBW $loaded, and this machine is set to\r\n")
+            text.append("  RomWBW $running. That ROM does not belong to the selected release.\r\n")
+        }
+
         loadedDiskFilenames.forEachIndexed { unit, filename ->
             if (filename == null) return@forEachIndexed
             val release = releaseOfV0Name(filename) ?: return@forEachIndexed
@@ -750,7 +763,9 @@ class MainActivity : AppCompatActivity() {
             text.append("  The guest will report an HBIOS/CBIOS version mismatch.\r\n")
         }
 
-        if (disagreeing.isEmpty()) return ByteArray(0)
+        if (disagreeing.isEmpty()) {
+            return if (romDisagrees) text.toString().toByteArray() else ByteArray(0)
+        }
 
         val agreed = disagreeing.distinct().singleOrNull()
         if (agreed != null) {
@@ -829,16 +844,19 @@ class MainActivity : AppCompatActivity() {
         val versionCode = getVersionCode()
         val apkBuilt = getApkBuildTime()
 
-        // One RomWBW fact now, where there were two. The second was "core
-        // supports 3.5.1, 3.6.0", read from emu_romwbw_supported_list() through
-        // JNI, and romwbw_emu v1.44 deleted it: the core carries no list of
-        // releases and forms no opinion about one, so there is nothing left for
-        // the first fact to disagree with. What belongs here instead is the
-        // release of the ROM actually in bank 0 - emu_romwbw_release_loaded() -
-        // which is a better question than either of these and is not asked
-        // anywhere yet; todo.txt owns it, with the rest of the "nothing
-        // reconciles a disk with a release" item.
-        val romwbwLine = settingsRepo.selectedRomwbwVersion()
+        // The selected release, and the release of the ROM actually in bank 0
+        // (emu_romwbw_release_loaded() through JNI) when one is loaded. The
+        // second is what the machine runs. A snapshot's ROM spells only the
+        // release it precedes, so that pairing is named for what it is rather
+        // than reported as a disagreement - z80cpmw's About box does the same.
+        val selected = settingsRepo.selectedRomwbwVersion()
+        val loaded = emulator.romwbwReleaseLoaded()
+        val romwbwLine = when {
+            loaded == null || loaded == selected -> selected
+            romServes(selected, loaded) ->
+                "$selected (the ROM's version bytes say $loaded; they cannot spell a snapshot's suffix)"
+            else -> "$selected, but the ROM in bank 0 is RomWBW $loaded"
+        }
 
         // Three separate identities, because they answer different questions.
         // "Built" is the installed file's own timestamp and settles whether an

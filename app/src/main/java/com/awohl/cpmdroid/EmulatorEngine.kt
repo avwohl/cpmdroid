@@ -81,6 +81,9 @@ class EmulatorEngine {
     // under `./gradlew :app:test`, which an ordinary build does not run, and a
     // mismatch surfaces as UnsatisfiedLinkError at the first call on a device.
     private external fun nativeRomwbwReleaseOfImage(romData: ByteArray): String?
+    // The release of the ROM in bank 0, from its HCB, or null before a ROM is
+    // loaded. Same lockstep with emu_io_android.cpp as the line above.
+    private external fun nativeRomwbwReleaseLoaded(): String?
 
     fun init() {
         Log.i(TAG, "Initializing emulator engine")
@@ -107,6 +110,13 @@ class EmulatorEngine {
      */
     fun romwbwReleaseOfImage(romData: ByteArray): String? =
         nativeRomwbwReleaseOfImage(romData)
+
+    /**
+     * The release of the ROM actually in bank 0, or null before one is loaded.
+     * Three numbers only - a snapshot's ROM spells the release it precedes - so
+     * compare it with a catalog release through romServes(), never `==`.
+     */
+    fun romwbwReleaseLoaded(): String? = nativeRomwbwReleaseLoaded()
 
     fun loadDisk(unit: Int, diskData: ByteArray): Boolean {
         Log.i(TAG, "Loading disk unit $unit: ${diskData.size} bytes")

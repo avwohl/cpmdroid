@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+**The About dialog and the mismatch notice ask which ROM is in bank 0.** Both
+used only the selected RomWBW release, which is a preference. The new JNI
+export `nativeRomwbwReleaseLoaded` reads the release from the HBIOS
+configuration block of the ROM that the machine runs.
+
+The About dialog shows it when it is not the selected release. A snapshot is
+different: its ROM shows only the release that follows it (3.7.0 for
+3.7.0-dev.16), and the dialog says that. The start-up notice now also reports a
+ROM that is not from the selected release. `romServes()` in
+`data/RomwbwIndex.kt` makes the comparison, with the same rule as z80cpmw and
+ioscpm.
+
 **A first launch picks hd1k_combo by its id.** A first launch downloads one disk
 and puts it in slot 0. The app found that disk as the catalog entry with
 `defaultSlot` 0. That field is the slice to boot inside hd1k_combo
