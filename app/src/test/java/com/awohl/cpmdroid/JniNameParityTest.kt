@@ -86,38 +86,39 @@ class JniNameParityTest {
     }
 
     /**
-     * The RomWBW release native, by name, on both sides - and the two that are
+     * The RomWBW release native, by name, on both sides - and the three that are
      * gone, on neither.
      *
-     * `nativeRomwbwReleaseOfImage` is the one left of three. It is also the one
-     * with no Kotlin caller: `EmulatorEngine.romwbwReleaseOfImage()` wraps it
-     * and nothing calls that, so this test is the whole of what guards its
-     * binding. The other two were called on every launch and on every index
-     * entry until romwbw_emu v1.44 deleted `emu_romwbw_release_supported()` and
-     * `emu_romwbw_supported_list()`; asserting they are absent keeps a
+     * `nativeRomwbwReleaseLoaded` is the one left, and is called on every boot
+     * (createReleaseMismatchNotice) and from About. Two of the gone ones were
+     * called on every launch and on every index entry until romwbw_emu v1.44
+     * deleted `emu_romwbw_release_supported()` and `emu_romwbw_supported_list()`;
+     * the third, `nativeRomwbwReleaseOfImage`, was deleted when nothing called
+     * it, after the bundled ROM went. Asserting they are absent keeps a
      * half-revert - a Kotlin declaration restored without its export, or an
      * export restored against a core that no longer defines the function -
      * failing here rather than at the first call on a device.
      */
     @Test
-    fun theRomwbwReleaseNativeIsBoundOnBothSidesAndTheGateNativesAreGone() {
+    fun theRomwbwReleaseNativeIsBoundOnBothSidesAndTheGoneNativesAreGone() {
         assertTrue(
-            "nativeRomwbwReleaseOfImage is not declared in EmulatorEngine.kt",
-            "nativeRomwbwReleaseOfImage" in kotlinNames
+            "nativeRomwbwReleaseLoaded is not declared in EmulatorEngine.kt",
+            "nativeRomwbwReleaseLoaded" in kotlinNames
         )
         assertTrue(
-            "nativeRomwbwReleaseOfImage has no JNI export",
-            "nativeRomwbwReleaseOfImage" in jniNames
+            "nativeRomwbwReleaseLoaded has no JNI export",
+            "nativeRomwbwReleaseLoaded" in jniNames
         )
-        for (gone in listOf("nativeRomwbwReleaseSupported", "nativeRomwbwSupportedList")) {
+        for (gone in listOf("nativeRomwbwReleaseSupported", "nativeRomwbwSupportedList",
+                            "nativeRomwbwReleaseOfImage")) {
             assertTrue(
-                "$gone is declared again in EmulatorEngine.kt; the core function behind " +
-                    "it was deleted in romwbw_emu v1.44",
+                "$gone is declared again in EmulatorEngine.kt; this test's comment says " +
+                    "why it went",
                 gone !in kotlinNames
             )
             assertTrue(
-                "$gone is exported again from emu_io_android.cpp; the core function behind " +
-                    "it was deleted in romwbw_emu v1.44",
+                "$gone is exported again from emu_io_android.cpp; this test's comment says " +
+                    "why it went",
                 gone !in jniNames
             )
         }

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**The nativeRomwbwReleaseOfImage export goes.** It read the RomWBW release out
+of a ROM image. Its last caller read the ROM that was in the APK, and eccb4bc
+removed that ROM. Each ROM now comes from the catalog, and the app checks its
+sha256 and its HCB bytes before it uses it. `romwbwReleaseLoaded()` tells the
+release of the ROM that the machine runs.
+
+The export, its Kotlin declaration and its wrapper are gone. `JniNameParityTest` now pins `nativeRomwbwReleaseLoaded`, and
+it fails if `nativeRomwbwReleaseOfImage` comes back on one side only. There are
+35 names on each side.
+
 **The About dialog and the mismatch notice ask which ROM is in bank 0.** Both
 used only the selected RomWBW release, which is a preference. The new JNI
 export `nativeRomwbwReleaseLoaded` reads the release from the HBIOS

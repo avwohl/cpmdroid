@@ -70,19 +70,17 @@ class EmulatorEngine {
     private external fun nativeClearDiskDirty(unit: Int)
     private external fun nativeGetDiskData(unit: Int): ByteArray?
 
-    // A RomWBW release query. It reads no emulator state, so it is the only
-    // native here that answers before nativeInit(). Two others stood beside it
-    // - nativeRomwbwReleaseSupported and nativeRomwbwSupportedList - and went
-    // when romwbw_emu v1.44 deleted the functions behind them; there is no
-    // per-release question left to ask the core, so the picker offers every
-    // release the index publishes.
+    // The release of the ROM in bank 0, from its HCB, or null before a ROM is
+    // loaded - the one RomWBW release query left. Three went before it:
+    // nativeRomwbwReleaseSupported and nativeRomwbwSupportedList when romwbw_emu
+    // v1.44 deleted the functions behind them, and nativeRomwbwReleaseOfImage,
+    // which read a release out of a ROM image and lost its last caller with the
+    // bundled ROM - every ROM now comes from the catalog, checked against its
+    // sha256 and its HCB bytes before it is used.
     // Its name must match the JNI export in emu_io_android.cpp exactly:
     // minification is off, JniNameParityTest compares the two lists but only
     // under `./gradlew :app:test`, which an ordinary build does not run, and a
     // mismatch surfaces as UnsatisfiedLinkError at the first call on a device.
-    private external fun nativeRomwbwReleaseOfImage(romData: ByteArray): String?
-    // The release of the ROM in bank 0, from its HCB, or null before a ROM is
-    // loaded. Same lockstep with emu_io_android.cpp as the line above.
     private external fun nativeRomwbwReleaseLoaded(): String?
 
     fun init() {
@@ -108,9 +106,6 @@ class EmulatorEngine {
      * [romData] may be a prefix: the block is inside the first 264 bytes, so
      * there is no reason to read a whole 512 KB ROM to answer this.
      */
-    fun romwbwReleaseOfImage(romData: ByteArray): String? =
-        nativeRomwbwReleaseOfImage(romData)
-
     /**
      * The release of the ROM actually in bank 0, or null before one is loaded.
      * Three numbers only - a snapshot's ROM spells the release it precedes - so

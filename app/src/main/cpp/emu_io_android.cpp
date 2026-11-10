@@ -1395,20 +1395,20 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 //-----------------------------------------------------------------------------
 // RomWBW release queries
 //
-// nativeRomwbwReleaseOfImage asks the core about a RomWBW release and touches
-// no emulator state: it reads g_emu nowhere, so unlike every other native below
-// it, it is callable before nativeInit() and from a screen that owns no
-// emulator at all. nativeRomwbwReleaseLoaded asks about the ROM in bank 0, so
-// it needs the emulator, and answers null until a ROM is loaded.
+// nativeRomwbwReleaseLoaded asks about the ROM in bank 0, so it needs the
+// emulator, and answers null until a ROM is loaded.
 //
-// There were three. nativeRomwbwReleaseSupported and nativeRomwbwSupportedList
+// It is the one left. nativeRomwbwReleaseSupported and nativeRomwbwSupportedList
 // went with romwbw_emu v1.44, which deleted emu_romwbw_release_supported() and
 // emu_romwbw_supported_list(): a RomWBW release number is the HBIOS-to-CBIOS
 // pairing, and what this core depends on is the emulator-to-ROM interface - the
 // dispatch and bank-call ports, and the function set hbios_dispatch.cc services
 // - which the catalog versions under its own name, v0. So there is nothing left
 // to ask about a release, and the picker in Settings offers every entry the
-// index publishes.
+// index publishes. nativeRomwbwReleaseOfImage, which read a release out of an
+// image and needed no emulator, went when nothing called it: its last caller
+// read the bundled ROM, and every ROM now comes from the catalog, checked
+// against its sha256 and its HCB bytes before it is used.
 //
 // Kotlin's `external fun` names and these symbol names are kept in lockstep by
 // hand. Nothing else does it: minification is off (app/build.gradle.kts), so R8
@@ -1419,16 +1419,16 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeLoadRom(JNIEnv* env, jobject thiz,
 //     sed 's/.*fun //' | sort
 //   grep -oE '^Java_com_awohl_cpmdroid_EmulatorEngine_native[A-Za-z0-9_]*'
 //     emu_io_android.cpp | sed 's/.*EmulatorEngine_//' | sort
-// - 36 names on each side today. The ^ is load-bearing: every definition below
+// - 35 names on each side today. The ^ is load-bearing: every definition below
 // starts its name in column 0, and without it these comment lines match
 // themselves and come back as a name no Kotlin declaration has.
 //-----------------------------------------------------------------------------
 
 // The release of the ROM actually in bank 0 - what the machine is running,
 // asked of the core rather than of preferences - or null before a ROM is
-// loaded. Unlike nativeRomwbwReleaseOfImage it does read g_emu, so it answers
-// only once nativeInit() has run and a ROM has gone in. It reads the HBIOS
-// configuration block's two version bytes, as every guest-visible site does
+// loaded. It reads g_emu, so it answers only once nativeInit() has run and a
+// ROM has gone in. It reads the HBIOS configuration block's two version
+// bytes, as every guest-visible site does
 // (emu_romwbw_release_loaded() in romwbw_emu's emu_init.h), so a development
 // snapshot's ROM reports the release it precedes: "3.7.0", not "3.7.0-dev.16".
 JNIEXPORT jstring JNICALL
@@ -1441,41 +1441,6 @@ Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwReleaseLoaded(JNIEnv* env, jo
     if (!emu_romwbw_release_loaded(g_emu->memory, &release)) {
         return nullptr;
     }
-    char buf[EMU_ROMWBW_STR_MAX];
-    emu_romwbw_release_str(release, buf, sizeof(buf));
-    return env->NewStringUTF(buf);
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_awohl_cpmdroid_EmulatorEngine_nativeRomwbwReleaseOfImage(JNIEnv* env, jobject thiz,
-                                                                  jbyteArray romData) {
-    (void)thiz;
-    if (romData == nullptr) {
-        return nullptr;
-    }
-
-    jsize len = env->GetArrayLength(romData);
-    jbyte* data = env->GetByteArrayElements(romData, nullptr);
-    if (data == nullptr) {
-        return nullptr;
-    }
-
-    // The HCB lives in the first 264 bytes, so the caller may hand over just
-    // that prefix instead of a 512 KB ROM. Reading the whole bundled ROM on the
-    // main thread to learn two bytes is what this avoids.
-    emu_romwbw_release release;
-    bool have = emu_romwbw_release_of_image(reinterpret_cast<const uint8_t*>(data),
-                                            static_cast<size_t>(len), &release);
-
-    env->ReleaseByteArrayElements(romData, data, JNI_ABORT);
-
-    if (!have) {
-        // Null, not a guess: no 'W' 0xA8 marker means there is no HCB where the
-        // version would be, and two bytes read out of the middle of an
-        // arbitrary file is how you get a confident wrong answer.
-        return nullptr;
-    }
-
     char buf[EMU_ROMWBW_STR_MAX];
     emu_romwbw_release_str(release, buf, sizeof(buf));
     return env->NewStringUTF(buf);

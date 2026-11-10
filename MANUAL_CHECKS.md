@@ -322,15 +322,15 @@ know it will report it as a loss.
    not either - so a binding that is wrong for any other reason is still an
    `UnsatisfiedLinkError` at the first call and nowhere earlier.
 
-   **The RomWBW half of this check has nothing left to exercise.** There were
-   three release natives; two of them - `romwbwSupportedList()`, called from
+   **The RomWBW half of this check is one native.** There were three release
+   natives; two of them - `romwbwSupportedList()`, called from
    `logRomwbwSelection()` in `onCreate`, and `romwbwReleaseSupported()`, asked
    about every index entry on the first fetch - went when romwbw_emu v1.44
-   deleted the core functions behind them. The third,
-   `romwbwReleaseOfImage()`, has no Kotlin caller and never had one after the
-   bundled ROM was deleted. So **no RomWBW native is called anywhere in this
-   app**, and `JniNameParityTest` comparing the two source name lists is the
-   whole of what guards the one that remains.
+   deleted the core functions behind them. The third, `romwbwReleaseOfImage()`,
+   had no Kotlin caller after the bundled ROM was deleted, and is deleted too.
+   The one there is now, `romwbwReleaseLoaded()`, is called on every boot by
+   the release-mismatch notice and again from About: boot, open About, and
+   confirm there is no `UnsatisfiedLinkError` in logcat for it.
 
    What is still worth doing here is the general form: launch, and confirm
    there is no `UnsatisfiedLinkError` in logcat at all - the thirty-odd
