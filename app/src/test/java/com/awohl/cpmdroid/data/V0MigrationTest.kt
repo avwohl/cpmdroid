@@ -264,7 +264,7 @@ class V0MigrationTest {
         // the old name because that is where the user's work still is. Without
         // the rollback, isDiskDownloaded() then answers false for that slot,
         // checkFirstLaunchAndLoad() reads it as a first launch, and slot 0 is
-        // overwritten with whatever the catalog marks defaultSlot 0.
+        // overwritten with the starter disk (starterDisk()).
         write(disks, "hd1k_z3plus.img", "pristine")
         write(modified, "hd1k_z3plus.img", "the user's work")
         assumeTrue("the directory could not be made read-only", modified.setWritable(false))

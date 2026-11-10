@@ -29,6 +29,8 @@ import com.awohl.cpmdroid.data.DiskDownloadManager
 import com.awohl.cpmdroid.data.EmulatorSettings
 import com.awohl.cpmdroid.data.RomFailure
 import com.awohl.cpmdroid.data.releaseOfV0Name
+import com.awohl.cpmdroid.data.starterDisk
+import com.awohl.cpmdroid.data.STARTER_DISK_ID
 import com.awohl.cpmdroid.data.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1238,11 +1240,11 @@ class MainActivity : AppCompatActivity() {
                     Log.d(TAG, "  - ${disk.id} ${disk.filename}: defaultSlot=${disk.defaultSlot}")
                 }
 
-                // Whichever entry carries defaultSlot 0 - one does today
-                // (hd1k_combo) and the field is optional, so no entry carrying
-                // it is a catalog that simply nominates no starter disk, not an
-                // error.
-                val defaultDisk = catalog.disks.find { it.defaultSlot == 0 }
+                // hd1k_combo, by id - not whichever entry carries defaultSlot
+                // 0, which is a slice to boot and says nothing about starters
+                // (starterDisk()). A release whose catalog does not carry it
+                // nominates no starter disk, which is not an error.
+                val defaultDisk = catalog.starterDisk()
 
                 if (defaultDisk != null && !downloadManager.isDiskDownloaded(defaultDisk.filename)) {
                     Log.i(TAG, "Will download default disk: ${defaultDisk.filename}")
@@ -1285,7 +1287,7 @@ class MainActivity : AppCompatActivity() {
                         0, defaultDisk.filename, selection.selected.romwbwVersion)
                     settingsRepo.markFirstLaunchDone()
                 } else {
-                    Log.w(TAG, "No default disk found in catalog (defaultSlot=0)")
+                    Log.w(TAG, "No starter disk in catalog ($STARTER_DISK_ID)")
                     settingsRepo.markFirstLaunchDone()
                 }
             } else {

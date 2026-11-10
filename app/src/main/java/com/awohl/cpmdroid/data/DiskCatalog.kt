@@ -39,6 +39,23 @@ data class DiskCatalog(
     val disks: List<DiskInfo>
 )
 
+/** The id of the disk a first launch downloads and puts in slot 0. */
+const val STARTER_DISK_ID = "hd1k_combo"
+
+/**
+ * The disk a first launch downloads and puts in slot 0, or null when this
+ * release's catalog does not carry it.
+ *
+ * Keyed on the id, not on `defaultSlot`. CATALOG_SCHEMA.md 3.3 makes that field
+ * the slice to boot an image from - an index INSIDE hd1k_combo - and says
+ * nothing about which disk is the starter or which drive anything goes in. Its
+ * only published value is 0, on hd1k_combo alone, so finding the entry that
+ * carries 0 landed on hd1k_combo for the wrong reason: a catalog publishing
+ * combo's boot slice as anything else would have made a first launch mount
+ * nothing and download nothing.
+ */
+fun DiskCatalog.starterDisk(): DiskInfo? = disks.find { it.id == STARTER_DISK_ID }
+
 /**
  * Parse a catalog document, or return null when `base_url` is missing.
  *
@@ -131,8 +148,9 @@ fun parseDiskCatalog(json: String): DiskCatalog? {
                 sha256 = entry.optString("sha256"),
                 downloadUrl = baseUrl + filename,
                 // Present on hd1k_combo alone today, and optional by contract.
-                // -1 as the sentinel rather than 0, because 0 is a real slot and
-                // is in fact the value the one entry that carries this uses.
+                // -1 as the sentinel rather than 0, because 0 is a real slice and
+                // is in fact the value the one entry that carries this uses. A
+                // slice to boot, not a drive or a starter: see starterDisk().
                 defaultSlot = entry.optInt("defaultSlot", -1).takeIf { it >= 0 }
             )
         )

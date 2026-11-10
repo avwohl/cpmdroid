@@ -287,8 +287,8 @@ fun migrateDiskNames(
             // ModifiedDisks/ still holds the user's work under it - and a slot
             // naming a file that is no longer in Disks/ is exactly what
             // checkFirstLaunchAndLoad() reads as "first launch". It then
-            // downloads whatever the catalog marks defaultSlot 0 and writes THAT
-            // over slot 0, so half a rename does not merely fail, it hands the
+            // downloads the starter disk (starterDisk()) and writes THAT over
+            // slot 0, so half a rename does not merely fail, it hands the
             // user's configuration to the recovery path. Only ever undoes what
             // this pass just did: a NOTHING_TO_DO pristine is either absent or
             // already v0, and neither is ours to move.
@@ -309,8 +309,8 @@ fun migrateDiskNames(
         // for it did not happen and the slot stays where the bytes are.
         // Rewriting it anyway is the expensive mistake in this whole migration:
         // checkFirstLaunchAndLoad() reads a slot naming a file
-        // isDiskDownloaded() cannot find as "first launch", downloads whatever
-        // the catalog marks defaultSlot 0, and writes THAT over the user's
+        // isDiskDownloaded() cannot find as "first launch", downloads the
+        // starter disk (starterDisk()), and writes THAT over the user's
         // slot-0 choice. The recovery path is what destroys the configuration.
         if (strandedUnderOldName(disksDir, stored, v0) ||
             strandedUnderOldName(persistedDisksDir, stored, v0)

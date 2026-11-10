@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**A first launch picks hd1k_combo by its id.** A first launch downloads one disk
+and puts it in slot 0. The app found that disk as the catalog entry with
+`defaultSlot` 0. That field is the slice to boot inside hd1k_combo
+(CATALOG_SCHEMA.md 3.3). It does not mark a starter disk. Its only published
+value is 0, so the result was correct by chance.
+
+If the catalog published a different boot slice, a first launch got no disk.
+
+Now `starterDisk()` in `data/DiskCatalog.kt` finds the entry with the id
+`hd1k_combo`. `CatalogParsingTest` checks that the starter disk does not change
+when `defaultSlot` changes, and that a catalog with no hd1k_combo gives no
+starter disk.
+
 **tools/check-store-version.sh sees a Play build that is newer than the tree.**
 Play's listing gives a versionName and no versionCode. The script found the
 versionCode in a CHANGELOG heading. If no heading named the versionName, the

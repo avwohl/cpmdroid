@@ -328,14 +328,61 @@ class CatalogParsingTest {
         )
     }
 
-    /** defaultSlot is optional, and 0 is a real slot rather than "absent". */
+    /** defaultSlot is optional, and 0 is a real slice rather than "absent". */
     @Test
-    fun onlyTheStarterDiskCarriesADefaultSlot() {
+    fun onlyHd1kComboCarriesADefaultSlot() {
         val catalog = parseDiskCatalog(catalog351())!!
         val withSlot = catalog.disks.filter { it.defaultSlot != null }
         assertEquals(1, withSlot.size)
         assertEquals("hd1k_combo", withSlot[0].id)
         assertEquals(0, withSlot[0].defaultSlot)
+    }
+
+    /** The starter disk is hd1k_combo in every published release. */
+    @Test
+    fun theStarterDiskIsHd1kCombo() {
+        for (json in listOf(catalog351(), catalog360())) {
+            val starter = parseDiskCatalog(json)!!.starterDisk()
+            assertNotNull(starter)
+            assertEquals(STARTER_DISK_ID, starter!!.id)
+        }
+    }
+
+    /**
+     * defaultSlot is a slice to boot, not a starter flag. Combo publishing
+     * another boot slice, and another disk carrying 0, leave the starter where
+     * it is - finding the entry with 0 would have mounted the other disk, and
+     * with no entry carrying 0 would have mounted nothing.
+     */
+    @Test
+    fun theStarterDiskDoesNotFollowDefaultSlot() {
+        val document = JSONObject(catalog360())
+        val disks = document.getJSONArray("disks")
+        var combo = -1
+        for (i in 0 until disks.length()) {
+            if (disks.getJSONObject(i).getString("id") == STARTER_DISK_ID) combo = i
+        }
+        assertTrue(combo >= 0)
+        disks.getJSONObject(combo).put("defaultSlot", 3)
+        assertEquals(STARTER_DISK_ID, parseDiskCatalog(document.toString())!!.starterDisk()?.id)
+        val other = if (combo == 0) 1 else 0
+        disks.getJSONObject(other).put("defaultSlot", 0)
+        assertEquals(STARTER_DISK_ID, parseDiskCatalog(document.toString())!!.starterDisk()?.id)
+        disks.getJSONObject(combo).remove("defaultSlot")
+        assertEquals(STARTER_DISK_ID, parseDiskCatalog(document.toString())!!.starterDisk()?.id)
+    }
+
+    /** A release whose catalog does not carry hd1k_combo nominates no starter. */
+    @Test
+    fun noHd1kComboIsNoStarterDisk() {
+        val document = JSONObject(catalog360())
+        val disks = document.getJSONArray("disks")
+        for (i in disks.length() - 1 downTo 0) {
+            if (disks.getJSONObject(i).getString("id") == STARTER_DISK_ID) disks.remove(i)
+        }
+        val catalog = parseDiskCatalog(document.toString())!!
+        assertTrue(catalog.disks.isNotEmpty())
+        assertNull(catalog.starterDisk())
     }
 
     /**
