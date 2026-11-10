@@ -222,6 +222,10 @@ released, released is not rolled out, and rolled out is not installed. What
 moves this record is that script's output on a later day and nothing written
 here; `todo.txt` holds the item until it reads 1.34.
 
+**Served, measured 2026-11-10.** `tools/check-store-version.sh` reports Play
+serving **1.34**, versionCode 36, the tree's own number. So 1.32, 1.33 and 1.34
+can now reach users. The next upload needs versionCode 37.
+
 ## Version 1.33 (versionCode 35)
 
 **R8 has never run on this app before, and it runs now.** Play's Console reports
